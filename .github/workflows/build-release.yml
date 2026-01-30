@@ -1,0 +1,62 @@
+# Production build: Windows installer + portable zip, upload to GitHub
+# - Run manually: Actions → Build release → Run workflow
+# - Or push a tag v* (e.g. v2.2.1) to create a GitHub Release with assets
+
+name: Build release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/desktop/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ui/desktop
+
+      - name: Build and package
+        run: npm run dist
+        working-directory: ui/desktop
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ORC-TORRENT-windows
+          path: |
+            ui/desktop/dist/*.exe
+            ui/desktop/dist/*.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ui/desktop/dist/*.exe
+            ui/desktop/dist/*.zip
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

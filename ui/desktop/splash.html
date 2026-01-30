@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ORC TORRENT</title>
+
+    <style>
+      :root{
+        --bg:#000;
+        --fg:#fff;
+        --dim: rgba(255,255,255,.72);
+        --mute: rgba(255,255,255,.46);
+        --hair: rgba(255,255,255,.10);
+        --hair2: rgba(255,255,255,.06);
+
+        --easeOut: cubic-bezier(.16,1,.3,1);
+        --easeInOut: cubic-bezier(.4,0,.2,1);
+      }
+
+      *{ margin:0; padding:0; box-sizing:border-box; }
+      html, body{
+        width:100%; height:100%;
+        background:var(--bg); color:var(--fg);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body{ overflow:hidden; }
+
+      .bg{
+        position:fixed; inset:0; z-index:0;
+        background:
+          radial-gradient(1100px 720px at 50% 36%, rgba(255,255,255,.07) 0%, transparent 55%),
+          radial-gradient(900px 600px at 50% 82%, rgba(255,255,255,.03) 0%, transparent 60%),
+          radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0,0,0,.78) 80%, rgba(0,0,0,.95) 100%),
+          #000;
+        animation: bgBreath 6.5s var(--easeInOut) infinite;
+      }
+      @keyframes bgBreath{
+        0%,100%{ filter: brightness(1); }
+        50%{ filter: brightness(1.03); }
+      }
+
+      .wrap{
+        position:relative; z-index:1;
+        width:100%; height:100%;
+        display:grid;
+        place-items:center;
+        padding: clamp(18px, 3vw, 40px);
+      }
+
+      .stack{
+        width:min(980px, 92vw);
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap: clamp(18px, 2.4vw, 26px);
+        opacity:0;
+        transform: translateY(10px);
+        animation: in 900ms var(--easeOut) forwards;
+      }
+      @keyframes in{ to{ opacity:1; transform: translateY(0); } }
+
+      .hero{
+        position:relative;
+        width:min(72vh, 92vw);
+        max-width: 860px;
+        display:grid;
+        place-items:center;
+      }
+
+      .hero::before{
+        content:"";
+        position:absolute;
+        width: 90%;
+        aspect-ratio: 1 / 1;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(255,255,255,.12), transparent 62%);
+        filter: blur(80px);
+        opacity:.65;
+        animation: halo 4.8s var(--easeInOut) infinite;
+      }
+      @keyframes halo{
+        0%,100%{ transform: scale(1); opacity:.52; }
+        50%{ transform: scale(1.08); opacity:.82; }
+      }
+
+      .orc{
+        position:relative;
+        width:100%;
+        height:auto;
+        object-fit:contain;
+        image-rendering:auto;
+        filter:
+          drop-shadow(0 26px 120px rgba(0,0,0,.92))
+          drop-shadow(0 0 70px rgba(255,255,255,.12));
+        opacity:0;
+        transform: scale(.97);
+        animation:
+          orcIn 1100ms var(--easeOut) 120ms forwards,
+          float 6.0s var(--easeInOut) 1500ms infinite;
+      }
+      @keyframes orcIn{
+        0%{ opacity:0; transform: scale(.92) translateY(-10px); filter: blur(10px); }
+        70%{ transform: scale(1.01) translateY(0); }
+        100%{ opacity:1; transform: scale(.985) translateY(0); filter: blur(0); }
+      }
+      @keyframes float{
+        0%,100%{ transform: scale(.985) translateY(0); }
+        50%{ transform: scale(1.0) translateY(-6px); }
+      }
+
+      .brand{
+        text-align:center;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap: 8px;
+      }
+
+      .title{
+        font-size: clamp(40px, 4.6vw, 64px);
+        font-weight: 900;
+        letter-spacing: clamp(3px, .45vw, 8px);
+        text-transform: uppercase;
+        line-height: 1.02;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: geometricPrecision;
+      }
+      .title-orc{ color: #22c55e; }
+
+      .sub{
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+
+      .meta{
+        margin-top: 2px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 2.2px;
+        text-transform: uppercase;
+        color: rgba(255,255,255,.60);
+      }
+      .meta strong{ color: rgba(255,255,255,.88); font-weight: 850; }
+
+      .loader{
+        width: min(520px, 86vw);
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap: 12px;
+        margin-top: 2px;
+      }
+
+      .pieces{
+        display:flex;
+        gap: 8px;
+        align-items:center;
+        justify-content:center;
+        opacity:.92;
+      }
+
+      .dot{
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.08);
+        border: 1px solid rgba(255,255,255,.06);
+      }
+      .dot.on{
+        background: rgba(255,255,255,.22);
+        border-color: rgba(255,255,255,.12);
+      }
+
+      .bar{
+        width: 100%;
+        height: 2px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.10);
+        overflow:hidden;
+        position:relative;
+      }
+
+      .fill{
+        height:100%;
+        width:0%;
+        border-radius: 999px;
+        background: rgba(255,255,255,.82);
+        box-shadow: 0 0 18px rgba(255,255,255,.16);
+        transition: width 260ms var(--easeOut);
+      }
+
+      .status{
+        font-size: 11px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: rgba(255,255,255,.42);
+      }
+
+      body.splash-exit .stack{
+        animation: out 900ms var(--easeInOut) forwards;
+      }
+      @keyframes out{
+        to{ opacity:0; transform: scale(.99); filter: blur(10px); }
+      }
+
+      @media (prefers-reduced-motion: reduce){
+        *{ animation:none !important; transition:none !important; }
+        .stack{ opacity:1 !important; transform:none !important; }
+        .orc{ opacity:1 !important; transform:none !important; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="bg"></div>
+
+    <div class="wrap">
+      <div class="stack" role="status" aria-live="polite" aria-label="ORC Torrent splash">
+        <div class="hero">
+          <img class="orc" src="./images/orc.gif" alt="ORC Torrent Orc animation" />
+        </div>
+
+        <div class="brand">
+          <div class="title"><span class="title-orc">ORC</span> TORRENT</div>
+          <div class="sub">APEX DOWNLOADER</div>
+          <div class="meta"><strong>OPEN SOURCE</strong> + <strong>CODED IN RUST</strong></div>
+        </div>
+
+        <div class="loader">
+          <div class="pieces" id="pieces" aria-label="Piece indicator"></div>
+          <div class="bar" aria-label="Loading progress"><div class="fill" id="fill"></div></div>
+          <div class="status" id="statusText">initializing…</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const fill = document.getElementById("fill");
+      const piecesWrap = document.getElementById("pieces");
+      const statusText = document.getElementById("statusText");
+
+      const DOTS = 12;
+      const dots = [];
+      for (let i = 0; i < DOTS; i++){
+        const d = document.createElement("div");
+        d.className = "dot";
+        piecesWrap.appendChild(d);
+        dots.push(d);
+      }
+
+      const SPLASH_MIN_MS = 14000
+      const START_DELAY_MS = 650;
+
+      const stages = [
+        { at: 0.10, text: "initializing…" },
+        { at: 0.34, text: "verifying metadata…" },
+        { at: 0.62, text: "bootstrapping swarm…" },
+        { at: 0.84, text: "finalizing…" },
+        { at: 1.00, text: "ready." },
+      ];
+
+      let progress = 0;
+      let stageIdx = 0;
+      const startedAt = performance.now();
+
+      const clamp = (n,a,b) => Math.max(a, Math.min(b, n));
+
+      function setProgress(p){
+        progress = clamp(p, 0, 100);
+        fill.style.width = progress + "%";
+
+        // Map progress into DOTS for a torrent “piece” hint
+        const on = Math.floor((progress / 100) * DOTS);
+        for (let i = 0; i < DOTS; i++) dots[i].classList.toggle("on", i < on);
+      }
+
+      function curve(x){
+        if (x < 0.60) return (x / 0.60) * 0.78;
+        return 0.78 + ((x - 0.60) / 0.40) * 0.22;
+      }
+
+      function setStage(t){
+        while (stageIdx < stages.length - 1 && t >= stages[stageIdx + 1].at) stageIdx++;
+        statusText.textContent = stages[stageIdx].text;
+      }
+
+      function tick(){
+        const elapsed = performance.now() - startedAt;
+        const t = clamp(elapsed / SPLASH_MIN_MS, 0, 1);
+
+        const target = Math.floor(curve(t) * 100);
+        const delta = target - progress;
+        if (delta > 0) setProgress(progress + (delta > 6 ? 2 : 1));
+        setStage(t);
+
+        if (progress >= 100 && elapsed >= SPLASH_MIN_MS){
+          window.dispatchEvent(new CustomEvent("orc:splashComplete"));
+          document.body.classList.add("splash-exit");
+          return;
+        }
+        setTimeout(() => requestAnimationFrame(tick), 130);
+      }
+
+      setTimeout(() => { setProgress(1); tick(); }, START_DELAY_MS);
+    </script>
+  </body>
+</html>

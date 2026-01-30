@@ -1,0 +1,30 @@
+[package]
+name = "orc-core"
+version = "2.2.14"
+edition.workspace = true
+license.workspace = true
+
+authors = ["ORC Torrent / The ANIMUS PROJECT"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+tracing.workspace = true
+sha1 = "0.10"
+hex = "0.4"
+regex = "1.10"
+
+# Embedded BitTorrent runtime
+librqbit.workspace = true
+
+# We already use tokio in the daemon; core now uses it for time sampling.
+tokio.workspace = true
+
+# Network interface detection for VPN monitoring
+network-interface = "1.0"
+
+# GeoIP lookup for peer country detection
+maxminddb = "0.24"

@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist/main",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "lib": [
+      "ES2020"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/main"
+  ]
+}

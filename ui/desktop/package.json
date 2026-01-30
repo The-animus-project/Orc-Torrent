@@ -1,0 +1,194 @@
+{
+  "name": "orc-desktop",
+  "private": true,
+  "version": "2.2.14",
+  "description": "ORC Torrent Client - A decentralized BitTorrent client with privacy features",
+  "author": "ORC Torrent / The ANIMUS PROJECT",
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "npx tsx ./scripts/dev.ts",
+    "build": "npx tsx ./scripts/build.ts",
+    "build:daemon": "cd ../.. && cargo build --release -p orc-daemon && cd ui/desktop",
+    "build:electron": "npx vite build && npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json",
+    "pack": "electron-builder --dir",
+    "dist": "npx tsx ./scripts/dist.ts",
+    "dist:quick": "npx tsx ./scripts/build.ts && electron-builder --dir",
+    "lint:types": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && tsc -p tsconfig.renderer.json"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.6.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.2",
+    "vite": "^7.3.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.orc.torrent",
+    "productName": "ORC TORRENT",
+    "files": [
+      "dist/main/**/*",
+      "dist/preload/**/*",
+      "dist/renderer/**/*",
+      "assets/icons/icon.ico",
+      "assets/images/orc-torrent.png",
+      "assets/images/orctorrent-logo.png",
+      "splash.html",
+      "images/orc.gif",
+      "images/orctorrent-logo.png",
+      "!dist/win-unpacked/**/*",
+      "!dist/**/*.exe",
+      "!dist/**/*.blockmap",
+      "!dist/**/*.yaml",
+      "!dist/**/*.yml",
+      "!dist/_temp_*/**/*",
+      "!assets/bin/**/*.md"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ],
+      "executableName": "ORC TORRENT",
+      "requestedExecutionLevel": "asInvoker",
+      "forceCodeSigning": false,
+      "icon": "assets/icons/icon.ico",
+      "protocols": [
+        {
+          "name": "magnet",
+          "schemes": [
+            "magnet"
+          ]
+        }
+      ],
+      "fileAssociations": [
+        {
+          "ext": "torrent",
+          "name": "BitTorrent File",
+          "description": "BitTorrent torrent file",
+          "mimeType": "application/x-bittorrent",
+          "icon": "icon.ico"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Network",
+      "protocols": [
+        {
+          "name": "magnet",
+          "schemes": [
+            "magnet"
+          ]
+        }
+      ],
+      "fileAssociations": [
+        {
+          "ext": "torrent",
+          "name": "BitTorrent File",
+          "description": "BitTorrent torrent file",
+          "mimeType": "application/x-bittorrent"
+        }
+      ]
+    },
+    "mac": {
+      "protocols": [
+        {
+          "name": "magnet",
+          "schemes": [
+            "magnet"
+          ]
+        }
+      ],
+      "fileAssociations": [
+        {
+          "ext": "torrent",
+          "name": "BitTorrent File",
+          "description": "BitTorrent torrent file",
+          "mimeType": "application/x-bittorrent"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "ORC TORRENT",
+      "installerIcon": "assets/icons/icon.ico",
+      "uninstallerIcon": "assets/icons/icon.ico",
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false,
+      "warningsAsErrors": false,
+      "include": "installer/installer.nsh",
+      "artifactName": "${productName} Setup ${version}.${ext}",
+      "installerLanguages": [
+        "en_US"
+      ],
+      "preCompressedFileExtensions": [
+        "7z",
+        "zip",
+        "gz",
+        "bz2",
+        "xz",
+        "lz",
+        "lzma"
+      ],
+      "menuCategory": false,
+      "differentialPackage": false
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "compression": "normal",
+    "extraResources": [
+      {
+        "from": "assets/bin",
+        "to": "bin",
+        "filter": [
+          "**/*",
+          "**/*.sha256"
+        ]
+      },
+      {
+        "from": "assets/icons/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
+    "asarUnpack": [
+      "assets/bin/**/*"
+    ]
+  }
+}

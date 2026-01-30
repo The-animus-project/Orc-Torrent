@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ORC TORRENT</title>
+    <style>
+      /* Critical CSS - ensures something is visible immediately */
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #000000;
+        color: #ffffff;
+        font-family: system-ui, -apple-system, sans-serif;
+        overflow: hidden;
+      }
+      #root {
+        width: 100%;
+        height: 100%;
+        min-height: 100vh;
+        display: block;
+        background: #000000;
+      }
+      /* Loading fallback if JS doesn't load */
+      body:not(.js-loaded) #root::before {
+        content: "ORC TORRENT - Loading...";
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        font-size: 24px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/renderer/main.tsx"></script>
+    <script>
+      // Fallback: if module script fails, show error
+      window.addEventListener('error', function(e) {
+        if (e.filename && e.filename.includes('main.tsx')) {
+          document.body.className = 'js-error';
+          document.getElementById('root').innerHTML = '<div style="padding: 40px; color: #ffffff; background: #000000; font-family: monospace; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;"><h1 style="color: #ff4444;">Failed to load application</h1><p>JavaScript module failed to load.</p><p style="font-size: 12px; opacity: 0.7;">Error: ' + e.message + '</p></div>';
+        }
+      });
+      // Mark JS as loaded when script executes
+      document.body.className = 'js-loaded';
+    </script>
+  </body>
+</html>
