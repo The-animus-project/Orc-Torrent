@@ -1262,12 +1262,17 @@ process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
 printToolVersions();
 
 if (isWin && !hasSymlinkPrivilege()) {
-  console.error("ERROR: Windows symlink privilege is not available.");
-  console.error("   electron-builder will fail extracting winCodeSign without symlink rights.\n");
-  console.error("   Fix options:");
-  console.error("   1) Enable Developer Mode: Settings -> Privacy & security -> For developers -> Developer Mode");
-  console.error("   2) Or run your terminal as Administrator\n");
-  process.exit(2);
+  if (process.env.ORC_SKIP_SYMLINK_CHECK === "1") {
+    console.warn("WARNING: Symlink privilege not available (ORC_SKIP_SYMLINK_CHECK=1). Continuing anyway; build may fail.\n");
+  } else {
+    console.error("ERROR: Windows symlink privilege is not available.");
+    console.error("   electron-builder will fail extracting winCodeSign without symlink rights.\n");
+    console.error("   Fix options:");
+    console.error("   1) Enable Developer Mode: Settings -> Privacy & security -> For developers -> Developer Mode");
+    console.error("   2) Or run your terminal as Administrator");
+    console.error("   3) Or set ORC_SKIP_SYMLINK_CHECK=1 to attempt anyway (may fail)\n");
+    process.exit(2);
+  }
 }
 
 // Keep the cache clean so you don't repeatedly hit broken partial extracts

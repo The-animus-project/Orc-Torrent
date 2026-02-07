@@ -71,6 +71,7 @@
       "executableName": "ORC TORRENT",
       "requestedExecutionLevel": "asInvoker",
       "forceCodeSigning": false,
+      "signAndEditExecutable": false,
       "icon": "assets/icons/icon.ico",
       "protocols": [
         {
