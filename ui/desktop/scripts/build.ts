@@ -265,8 +265,20 @@ function printVersion(cmd: string, name: string): void {
   }
 }
 
+function useExistingDaemonBinary(): boolean {
+  if (process.env.ORC_USE_EXISTING_DAEMON !== "1") return false;
+  const exeName = isWin ? "orc-daemon.exe" : "orc-daemon";
+  const path = join(projectRoot, "assets", "bin", exeName);
+  return existsSync(path);
+}
+
 function verifyPrerequisites(): void {
   console.log("Verifying prerequisites...\n");
+
+  const skipCargo = useExistingDaemonBinary();
+  if (skipCargo) {
+    console.log("   OK Using existing daemon binary (ORC_USE_EXISTING_DAEMON=1)");
+  }
 
   const prerequisites: Prerequisite[] = [
     { cmd: "cargo", name: "Rust/Cargo", installUrl: "https://rustup.rs/" },
@@ -277,6 +289,7 @@ function verifyPrerequisites(): void {
   let allPresent = true;
 
   for (const p of prerequisites) {
+    if (p.cmd === "cargo" && skipCargo) continue;
     if (!checkCommand(p.cmd)) {
       console.log(`   ERROR: ${p.name}: not found`);
       console.log(`      Install from: ${p.installUrl}`);
@@ -385,6 +398,17 @@ function verifyBuildOutput(path: string, description: string): void {
 
 function buildRustDaemon(stats: BuildStats): void {
   const stepStart = Date.now();
+  if (useExistingDaemonBinary()) {
+    console.log("\nUsing existing daemon binary (ORC_USE_EXISTING_DAEMON=1)...");
+    const exeName = isWin ? "orc-daemon.exe" : "orc-daemon";
+    const targetBinaryPath = join(projectRoot, "assets", "bin", exeName);
+    verifyBuildOutput(targetBinaryPath, "Existing daemon binary");
+    const duration = Date.now() - stepStart;
+    stats.steps.push({ name: "Rust daemon (existing)", duration });
+    console.log(`   Skipped rebuild in ${formatDuration(duration)}`);
+    return;
+  }
+
   console.log("\nBuilding Rust daemon...");
 
   if (!checkCommand("cargo")) {
