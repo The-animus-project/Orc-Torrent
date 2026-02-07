@@ -217,10 +217,12 @@ Full history: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Authors and contributors
 
-ORC Torrent is developed and maintained by **ORC Torrent** and **the ANIMUS PROJECT** (Vurzum, BuGmaN).
+ORC Torrent is developed and maintained by **ORC Torrent** and **the ANIMUS PROJECT**.
 
-- **GitHub:** [Animus-exe](https://github.com/Animus-exe)
-- **Twitter:** [@vurzumm](https://x.com/vurzumm)
+**Contributors:** See **[CONTRIBUTORS.md](CONTRIBUTORS.md)** for the full list.
+
+- **[Animus-exe](https://github.com/Animus-exe)** (Vurzumm) — [GitHub](https://github.com/Animus-exe) · [Twitter @vurzumm](https://x.com/vurzumm)
+- BuGmaN
 
 ```
   /\_/\  (
