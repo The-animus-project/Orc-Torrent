@@ -39,11 +39,22 @@
     <div id="root"></div>
     <script type="module" src="/src/renderer/main.tsx"></script>
     <script>
+      // Escape HTML to prevent XSS when displaying error message
+      function escapeHtml(s) {
+        if (typeof s !== 'string') return '';
+        var div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
       // Fallback: if module script fails, show error
       window.addEventListener('error', function(e) {
         if (e.filename && e.filename.includes('main.tsx')) {
           document.body.className = 'js-error';
-          document.getElementById('root').innerHTML = '<div style="padding: 40px; color: #ffffff; background: #000000; font-family: monospace; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;"><h1 style="color: #ff4444;">Failed to load application</h1><p>JavaScript module failed to load.</p><p style="font-size: 12px; opacity: 0.7;">Error: ' + e.message + '</p></div>';
+          var msg = escapeHtml(e.message || 'Unknown error');
+          var root = document.getElementById('root');
+          if (root) {
+            root.innerHTML = '<div style="padding: 40px; color: #ffffff; background: #000000; font-family: monospace; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;"><h1 style="color: #ff4444;">Failed to load application</h1><p>JavaScript module failed to load.</p><p style="font-size: 12px; opacity: 0.7;">Error: ' + msg + '</p></div>';
+          }
         }
       });
       // Mark JS as loaded when script executes

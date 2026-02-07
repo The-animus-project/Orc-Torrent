@@ -36,6 +36,19 @@ jobs:
         run: npm ci
         working-directory: ui/desktop
 
+      - name: npm audit
+        run: npm audit --audit-level=high
+        working-directory: ui/desktop
+        continue-on-error: true
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: cargo audit
+        run: cargo audit
+        working-directory: crates
+        continue-on-error: true
+
       - name: Build and package
         run: npm run dist
         working-directory: ui/desktop
