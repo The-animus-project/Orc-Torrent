@@ -1,5 +1,6 @@
 mod config;
 
+use std::path::{Component, Path, PathBuf};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
@@ -83,6 +84,64 @@ fn validate_torrent_id(id: &str) -> bool {
         return id.chars().all(|c| c.is_ascii_hexdigit());
     }
     false
+}
+
+/// Normalize a path by resolving `.` and `..` without requiring the path to exist.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(prefix) => result.push(prefix.as_os_str()),
+            Component::RootDir => result.push(std::path::MAIN_SEPARATOR_STR),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                result.pop();
+            }
+            Component::Normal(c) => result.push(c),
+        }
+    }
+    result
+}
+
+/// Validate save_path: must be under download_dir_path or user home. Returns canonicalized path string.
+fn allowed_save_path(
+    save_path: &str,
+    download_dir_path: &Path,
+) -> Result<String, anyhow::Error> {
+    let trimmed = save_path.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow::anyhow!("save_path cannot be empty"));
+    }
+    let path = PathBuf::from(trimmed);
+    let normalized = if path.is_absolute() {
+        normalize_path(&path)
+    } else {
+        normalize_path(&download_dir_path.join(path))
+    };
+    // Allowed roots: download_dir (already canonical) and user home
+    let download_root = download_dir_path
+        .canonicalize()
+        .unwrap_or_else(|_| download_dir_path.to_path_buf());
+    let mut allowed_roots: Vec<PathBuf> = vec![download_root];
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        if !home.is_empty() {
+            let home_path = PathBuf::from(&home);
+            if let Ok(canon) = home_path.canonicalize() {
+                allowed_roots.push(canon);
+            } else {
+                allowed_roots.push(home_path);
+            }
+        }
+    }
+    let allowed = normalized.canonicalize().unwrap_or_else(|_| normalized.clone());
+    let under_allowed = allowed_roots.iter().any(|root| allowed.starts_with(root));
+    if under_allowed {
+        Ok(allowed.to_string_lossy().to_string())
+    } else {
+        Err(anyhow::anyhow!(
+            "save_path must be under the download directory or your home directory"
+        ))
+    }
 }
 
 async fn validate_content_type(
@@ -495,17 +554,28 @@ async fn h_add_torrent(
         let guard = ctx.state.lock().await;
         (rqbit_api(&guard), guard.download_dir_path().clone())
     };
-    let mut opts = librqbit::AddTorrentOptions::default();
-    opts.output_folder = req.save_path.as_ref()
-        .and_then(|s| {
-            let t = s.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+    let output_folder = if let Some(s) = req.save_path.as_ref() {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            match allowed_save_path(t, &default_download_path) {
+                Ok(allowed) => Some(allowed),
+                Err(e) => {
+                    let sanitized = sanitize_error(&e, "Invalid save_path");
+                    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": sanitized}))).into_response();
+                }
+            }
+        }
+    } else {
+        None
+    }.or_else(|| {
+        info_hash_hex.as_ref().map(|h| {
+            default_download_path.join(h.as_str()).to_string_lossy().to_string()
         })
-        .or_else(|| {
-            info_hash_hex.as_ref().map(|h| {
-                default_download_path.join(h.as_str()).to_string_lossy().to_string()
-            })
-        });
+    });
+    let mut opts = librqbit::AddTorrentOptions::default();
+    opts.output_folder = output_folder;
     // content is opened, verified (recheck), and only missing/corrupt pieces are downloaded; then seeding works.
     opts.overwrite = true;
     let rqbit_resp = match &input {
@@ -533,16 +603,7 @@ async fn h_add_torrent(
             if is_file_exists_error {
                 info!("Files exist on disk but torrent not in state, retrying with overwrite to resume: {error_str}");
                 let mut retry_opts = librqbit::AddTorrentOptions::default();
-                retry_opts.output_folder = req.save_path.as_ref()
-                    .and_then(|s| {
-                        let t = s.trim();
-                        if t.is_empty() { None } else { Some(t.to_string()) }
-                    })
-                    .or_else(|| {
-                        info_hash_hex.as_ref().map(|h| {
-                            default_download_path.join(h.as_str()).to_string_lossy().to_string()
-                        })
-                    });
+                retry_opts.output_folder = output_folder.clone();
                 retry_opts.overwrite = true;
                 match &input {
                     AddTorrentInput::Url(u) => {

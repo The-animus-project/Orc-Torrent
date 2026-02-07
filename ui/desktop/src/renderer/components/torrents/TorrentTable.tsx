@@ -5,6 +5,9 @@ import { useEmaEta } from "../../utils/useEmaEta";
 import { Modal } from "../Modal";
 import { TorrentRowSignal } from "./TorrentRowSignal";
 
+// For very large lists (hundreds/thousands of torrents), consider virtualizing the table
+// (e.g. react-window) to limit DOM nodes and keep scroll performance smooth.
+
 export type SortColumn = "name" | "progress" | "downloaded" | "status" | "size" | "eta" | "speed" | "seeds" | "peers" | "downSpeed" | "upSpeed" | "ratio" | "queue" | "added" | "availability" | "health";
 export type SortDirection = "asc" | "desc";
 

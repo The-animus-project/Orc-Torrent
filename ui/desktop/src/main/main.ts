@@ -6,7 +6,7 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import crypto from "node:crypto";
-import { mkdirSync, createWriteStream, existsSync, accessSync, constants, readFileSync, readdirSync, watchFile, unwatchFile, statSync, writeFileSync, unlinkSync, copyFileSync } from "node:fs";
+import { mkdirSync, createWriteStream, existsSync, accessSync, constants, readFileSync, readdirSync, watchFile, unwatchFile, statSync, writeFileSync, unlinkSync, copyFileSync, openSync, readSync, closeSync } from "node:fs";
 
 // ES module polyfill for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -264,6 +264,9 @@ function createSplashWindow() {
     e.preventDefault();
   });
 
+  // SECURITY: Block window.open() from splash as well
+  splashWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
   return splashWindow;
 }
 
@@ -330,6 +333,8 @@ function createWindow() {
     // Debug console.logs from renderer are ignored in production
   });
 
+  // SECURITY: Block window.open() from renderer to prevent arbitrary external URLs
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   mainWindow.once("ready-to-show", async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2828,6 +2833,93 @@ app.whenReady().then(async () => {
 
     ipcMain.handle("get-icon-path", async () => getIconPath() ?? null);
 
+    // Firewall management (Windows only; validated options)
+    const FIREWALL_BASE_RULE_NAME = "ORC TORRENT BitTorrent Peer";
+    const VALID_PROTOCOLS = ["tcp", "udp", "both"] as const;
+    const VALID_PROFILES = ["private", "public", "domain", "all"] as const;
+    const MIN_PORT = 1;
+    const MAX_PORT = 65535;
+    const MAX_PORTS_BATCH = 50;
+
+    ipcMain.handle("firewall:check", async (): Promise<{ exists: boolean; managed?: boolean; error?: string; checkAccessDenied?: boolean }> => {
+      if (process.platform !== "win32") {
+        return { exists: false, managed: false };
+      }
+      try {
+        const inbound = await checkWindowsFirewallRule(FIREWALL_BASE_RULE_NAME);
+        const outbound = await checkWindowsFirewallOutboundRules();
+        return {
+          exists: inbound.exists || outbound.exists,
+          managed: inbound.managed,
+          error: inbound.error,
+          checkAccessDenied: inbound.checkAccessDenied ?? outbound.checkAccessDenied,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { exists: false, error: msg };
+      }
+    });
+
+    ipcMain.handle("firewall:check-managed", async (): Promise<boolean> => {
+      if (process.platform !== "win32") return false;
+      return checkIfFirewallManaged();
+    });
+
+    ipcMain.handle("firewall:add-rule", async (_event, options?: { port?: number; protocol?: "tcp" | "udp" | "both"; profile?: "private" | "public" | "domain" | "all" }): Promise<{ success: boolean; error?: string; needsElevation?: boolean; added?: number; skipped?: number }> => {
+      if (process.platform !== "win32") {
+        return { success: false, error: "Firewall management is only available on Windows" };
+      }
+      const port = options?.port ?? 6881;
+      if (typeof port !== "number" || !Number.isInteger(port) || port < MIN_PORT || port > MAX_PORT) {
+        return { success: false, error: `Port must be an integer between ${MIN_PORT} and ${MAX_PORT}` };
+      }
+      const protocol = options?.protocol ?? "both";
+      if (!VALID_PROTOCOLS.includes(protocol)) {
+        return { success: false, error: `Protocol must be one of: ${VALID_PROTOCOLS.join(", ")}` };
+      }
+      const profile = options?.profile ?? "all";
+      if (!VALID_PROFILES.includes(profile)) {
+        return { success: false, error: `Profile must be one of: ${VALID_PROFILES.join(", ")}` };
+      }
+      const exePath = app.getPath("exe");
+      return addWindowsFirewallRulesBatch([{ port, protocol, profile }], exePath, FIREWALL_BASE_RULE_NAME);
+    });
+
+    ipcMain.handle("firewall:add-rules-batch", async (_event, options?: { ports: number[]; protocol?: "tcp" | "udp" | "both"; profile?: "private" | "public" | "domain" | "all" }): Promise<{ success: boolean; error?: string; needsElevation?: boolean; added?: number; skipped?: number }> => {
+      if (process.platform !== "win32") {
+        return { success: false, error: "Firewall management is only available on Windows" };
+      }
+      const ports = Array.isArray(options?.ports) ? options.ports : [];
+      if (ports.length === 0) {
+        return { success: false, error: "At least one port is required" };
+      }
+      if (ports.length > MAX_PORTS_BATCH) {
+        return { success: false, error: `Maximum ${MAX_PORTS_BATCH} ports per batch` };
+      }
+      const validPorts = ports.filter((p): p is number => typeof p === "number" && Number.isInteger(p) && p >= MIN_PORT && p <= MAX_PORT);
+      if (validPorts.length !== ports.length) {
+        return { success: false, error: `All ports must be integers between ${MIN_PORT} and ${MAX_PORT}` };
+      }
+      const protocol = options?.protocol ?? "both";
+      if (!VALID_PROTOCOLS.includes(protocol)) {
+        return { success: false, error: `Protocol must be one of: ${VALID_PROTOCOLS.join(", ")}` };
+      }
+      const profile = options?.profile ?? "all";
+      if (!VALID_PROFILES.includes(profile)) {
+        return { success: false, error: `Profile must be one of: ${VALID_PROFILES.join(", ")}` };
+      }
+      const rules = validPorts.map((port) => ({ port, protocol, profile }));
+      const exePath = app.getPath("exe");
+      return addWindowsFirewallRulesBatch(rules, exePath, FIREWALL_BASE_RULE_NAME);
+    });
+
+    ipcMain.handle("firewall:remove-rule", async (): Promise<{ success: boolean; error?: string }> => {
+      if (process.platform !== "win32") {
+        return { success: true };
+      }
+      return removeWindowsFirewallRule(FIREWALL_BASE_RULE_NAME);
+    });
+
     ipcMain.handle("dialog:choose-save-folder", async (): Promise<string | null> => {
       const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
       if (!win || win.isDestroyed()) return null;
@@ -2932,6 +3024,42 @@ app.whenReady().then(async () => {
         console.error("Failed to clear notification sound:", err);
       }
     });
+
+    /** Return raw audio bytes for preview (avoids app:// protocol loading issues in renderer). */
+    ipcMain.handle(
+      "notification-sound:get-audio",
+      async (
+        _event,
+        payload: { type: "builtin" } | { type: "default"; filename: string } | { type: "custom" }
+      ): Promise<{ buffer: Buffer; mime: string } | null> => {
+        if (payload.type === "builtin") return null;
+        try {
+          if (payload.type === "default") {
+            const { filename } = payload;
+            if (!filename || filename.includes("..")) return null;
+            const dir = getDefaultNotificationSoundsDir();
+            const soundPath = path.join(dir, path.basename(filename));
+            if (!existsSync(soundPath) || path.extname(soundPath).toLowerCase() !== ".mp3") return null;
+            const buf = readFileSync(soundPath);
+            return { buffer: buf, mime: "audio/mpeg" };
+          }
+          const userData = app.getPath("userData");
+          const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
+          if (!existsSync(metaPath)) return null;
+          const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { type?: string; ext?: string };
+          if (meta.type === "default") return null;
+          const ext = meta.ext ?? ".wav";
+          const soundPath = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
+          if (!existsSync(soundPath)) return null;
+          const buf = readFileSync(soundPath);
+          const mime =
+            ext === ".mp3" ? "audio/mpeg" : ext === ".ogg" ? "audio/ogg" : ext === ".m4a" ? "audio/mp4" : "audio/wav";
+          return { buffer: buf, mime };
+        } catch {
+          return null;
+        }
+      }
+    );
 
     ipcMain.handle("netifs", async () => {
       const ifs = os.networkInterfaces();
@@ -3066,13 +3194,17 @@ app.whenReady().then(async () => {
     // Log file reading and watching (uses module-scope Maps for cleanup)
     ipcMain.handle("daemon:read-logs", async (_event, lines: number = 100): Promise<string[]> => {
       try {
+        // Clamp and validate lines to prevent abuse (1-10000, integer)
+        const requested = typeof lines === "number" && Number.isFinite(lines) ? Math.floor(lines) : 100;
+        const cappedLines = Math.max(1, Math.min(10000, requested));
+
         if (!currentDaemonLogPath || !existsSync(currentDaemonLogPath)) {
           return [];
         }
         const content = readFileSync(currentDaemonLogPath, "utf-8");
         const allLines = content.split("\n").filter((line) => line.trim().length > 0);
         // Return last N lines
-        return allLines.slice(-lines);
+        return allLines.slice(-cappedLines);
       } catch (err) {
         console.error("Failed to read logs:", err);
         return [];
@@ -3124,26 +3256,35 @@ app.whenReady().then(async () => {
             if (!watcherState) return;
 
             if (curr.size > prev.size) {
-              // File grew, read new content
+              // File grew: read only new bytes (tail by offset) to avoid loading large log files
               try {
-                const content = readFileSync(watchedPath, "utf-8");
-                const newContent = content.slice(watcherState.lastSize);
-                watcherState.lastSize = curr.size;
-                
-                // Split into lines and send each new line
-                const newLines = newContent.split("\n").filter((line) => line.trim().length > 0);
-                newLines.forEach((line) => {
-                  // Send to all registered callbacks
-                  logWatchCallbacks.forEach((callbacks) => {
-                    callbacks.forEach((cb) => {
-                      try {
-                        cb(line);
-                      } catch (err) {
-                        console.error("Error in log callback:", err);
-                      }
+                const start = watcherState.lastSize;
+                const length = curr.size - start;
+                if (length <= 0) return;
+                // Cap single read to avoid OOM if log grows by hundreds of MB
+                const MAX_LOG_READ_BYTES = 2 * 1024 * 1024;
+                const toRead = Math.min(length, MAX_LOG_READ_BYTES);
+                const fd = openSync(watchedPath, "r");
+                try {
+                  const buf = Buffer.alloc(toRead);
+                  readSync(fd, buf, 0, toRead, start);
+                  watcherState.lastSize = start + toRead;
+                  const newContent = buf.toString("utf-8");
+                  const newLines = newContent.split("\n").filter((line) => line.trim().length > 0);
+                  newLines.forEach((line) => {
+                    logWatchCallbacks.forEach((callbacks) => {
+                      callbacks.forEach((cb) => {
+                        try {
+                          cb(line);
+                        } catch (err) {
+                          console.error("Error in log callback:", err);
+                        }
+                      });
                     });
                   });
-                });
+                } finally {
+                  closeSync(fd);
+                }
               } catch (err) {
                 console.error("Error reading new log content:", err);
               }
