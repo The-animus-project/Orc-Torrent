@@ -113,9 +113,10 @@ export const AddTorrent = memo<AddTorrentProps>(({
           // Check for duplicates by info hash (use fresh list)
           urlHash = await infoHashFromTorrentBytes(bytes);
           if (urlHash) {
+            const hash = urlHash;
             const listRes = await getJson<{ items: Torrent[] }>("/torrents");
             const existing = listRes.items.find(t => 
-              t.info_hash_hex?.toLowerCase() === urlHash.toLowerCase()
+              t.info_hash_hex?.toLowerCase() === hash.toLowerCase()
             );
             if (existing) {
               onSelectTorrent(existing.id);
@@ -158,10 +159,11 @@ export const AddTorrent = memo<AddTorrentProps>(({
                 errorMsg.toLowerCase().includes("duplicate")) {
               // Try to find existing torrent by hash
               if (urlHash) {
+                const hash = urlHash;
                 try {
                   const listRes = await getJson<{ items: Torrent[] }>("/torrents");
                   const existing = listRes.items.find(t => 
-                    t.info_hash_hex?.toLowerCase() === urlHash.toLowerCase()
+                    t.info_hash_hex?.toLowerCase() === hash.toLowerCase()
                   );
                   if (existing) {
                     onSelectTorrent(existing.id);

@@ -69,5 +69,11 @@ contextBridge.exposeInMainWorld("orc", {
     chooseFile: () => ipcRenderer.invoke("notification-sound:choose") as Promise<boolean>,
     getUrl: () => ipcRenderer.invoke("notification-sound:get-url") as Promise<string | null>,
     clear: () => ipcRenderer.invoke("notification-sound:clear") as Promise<void>,
+    getAudio: (
+      payload: { type: "builtin" } | { type: "default"; filename: string } | { type: "custom" }
+    ) =>
+      ipcRenderer.invoke("notification-sound:get-audio", payload) as Promise<
+        { buffer: Uint8Array; mime: string } | null
+      >,
   },
 });

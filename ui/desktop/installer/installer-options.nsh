@@ -101,8 +101,15 @@ FunctionEnd
     StrCpy $0 "1"
   
   create_shortcut:
-    CreateShortcut "$DESKTOP\${PRODUCT_FILENAME}.lnk" "$INSTDIR\${PRODUCT_FILENAME}.exe"
-    !insertmacro LogMessage "Desktop shortcut created"
+    ${If} ${FileExists} "$INSTDIR\resources\icon.ico"
+      CreateShortcut "$DESKTOP\${PRODUCT_FILENAME}.lnk" "$INSTDIR\${PRODUCT_FILENAME}.exe" "" "$INSTDIR\resources\icon.ico" 0
+      !insertmacro LogMessage "Desktop shortcut created with icon: $INSTDIR\resources\icon.ico"
+    ${Else}
+      CreateShortcut "$DESKTOP\${PRODUCT_FILENAME}.lnk" "$INSTDIR\${PRODUCT_FILENAME}.exe" "" "$INSTDIR\${PRODUCT_FILENAME}.exe" 0
+      !insertmacro LogMessage "Desktop shortcut created with exe icon fallback"
+    ${EndIf}
+    ; Force shell refresh so Explorer picks up the shortcut icon immediately.
+    System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
     Goto end_shortcut
   
   skip_shortcut:
@@ -127,14 +134,14 @@ FunctionEnd
     ; Register .torrent file association
     WriteRegStr HKCR ".torrent" "" "ORCTorrentFile"
     WriteRegStr HKCR "ORCTorrentFile" "" "BitTorrent File"
-    WriteRegStr HKCR "ORCTorrentFile\DefaultIcon" "" "$INSTDIR\resources\icon.ico"
+    WriteRegStr HKCR "ORCTorrentFile\DefaultIcon" "" "$INSTDIR\resources\icon.ico,0"
     WriteRegStr HKCR "ORCTorrentFile\shell" "" "open"
     WriteRegStr HKCR "ORCTorrentFile\shell\open\command" "" '"$INSTDIR\${PRODUCT_FILENAME}.exe" "%1"'
     
     ; Register magnet: protocol
     WriteRegStr HKCR "magnet" "" "URL:magnet"
     WriteRegStr HKCR "magnet" "URL Protocol" ""
-    WriteRegStr HKCR "magnet\DefaultIcon" "" "$INSTDIR\resources\icon.ico"
+    WriteRegStr HKCR "magnet\DefaultIcon" "" "$INSTDIR\resources\icon.ico,0"
     WriteRegStr HKCR "magnet\shell" "" "open"
     WriteRegStr HKCR "magnet\shell\open\command" "" '"$INSTDIR\${PRODUCT_FILENAME}.exe" "%1"'
     

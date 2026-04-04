@@ -4,10 +4,14 @@ Step-by-step guides to build and run ORC Torrent from source on each supported p
 
 | Platform | Guide |
 |----------|--------|
-| **Windows** | [Windows.md](Windows.md) — NSIS installer, portable zip |
-| **macOS** | [macOS.md](macOS.md) — .app bundle, DMG (if configured) |
-| **Linux** | [Linux.md](Linux.md) — AppImage, .deb |
+| **Windows** | [Windows.md](Windows.md) — one-command build (`build.cmd` / `build.ps1`), NSIS installer, portable zip |
+| **macOS** | [macOS.md](macOS.md) — `.app` bundle, DMG (if configured) |
+| **Linux** | [Linux.md](Linux.md) — AppImage, `.deb` |
 
-All platforms share the same layout: build the Rust daemon, place it in the desktop app’s `assets/bin/`, then build the Electron app. Each guide lists prerequisites and OS-specific commands.
+## Shared layout
+
+The desktop app needs a **release build of `orc-daemon`** in `ui/desktop/assets/bin/`. The **`npm run build`** script (used by the Windows repo-root helpers and by manual `ui/desktop` workflows) compiles the daemon from `crates/`, copies it into `assets/bin/`, then builds the Electron renderer and main/preload.
+
+**Installers and portable archives** (NSIS, zip, AppImage, `.deb`, etc.) are produced only when you run **`npm run dist`** from `ui/desktop` — or, on Windows, **`build.cmd -Dist`** / **`build.ps1 -Dist`** from the repository root.
 
 See the main [README](../README.md) for a quick overview.

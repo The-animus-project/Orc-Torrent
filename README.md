@@ -114,22 +114,33 @@ A more detailed technical overview is in [docs/CODEBASE_OVERVIEW.md](docs/CODEBA
 
 For detailed, OS-specific steps (prerequisites, build order, packaging), see **[Install-Instructions](Install-Instructions/)** (Windows, macOS, Linux).
 
+### Windows: one command from the repo root
+
+From the **repository root**, after Rust and Node are installed:
+
+- **`build.cmd`** — compile daemon + UI (no installer).
+- **`build.cmd -Dist`** — same, then run electron-builder (NSIS installer + portable zip).
+
+From **PowerShell**, you can use **`.\build.ps1`** with the same optional **`-Dist`**. From **Command Prompt**, use **`build.cmd`** so `build.ps1` does not open in Notepad. See [Install-Instructions/Windows.md](Install-Instructions/Windows.md).
+
+### All platforms: `npm` in `ui/desktop`
+
 Quick overview:
 
-### 1. Build the daemon
+### 1. Build the daemon (optional)
 
-From the **repository root**:
+`npm run build` (step 3) already compiles the daemon and copies it into `ui/desktop/assets/bin/`. To build only the Rust binary by hand, from the **repository root**:
 
 ```bash
 cd crates
 cargo build --release -p orc-daemon
 ```
 
-The binary is produced at `crates/target/release/orc-daemon` (or `orc-daemon.exe` on Windows).
+The binary is at `crates/target/release/orc-daemon` (or `orc-daemon.exe` on Windows).
 
-### 2. Install the daemon for the desktop app
+### 2. Install the daemon for the desktop app (optional)
 
-Copy the built binary into the desktop app’s asset directory:
+Only if you skipped the integrated build and built the daemon manually:
 
 - **Windows**: `copy crates\target\release\orc-daemon.exe ui\desktop\assets\bin\`
 - **Linux / macOS**: `cp crates/target/release/orc-daemon ui/desktop/assets/bin/`
@@ -143,8 +154,8 @@ npm run build
 npm run dist
 ```
 
-- `npm run build` — builds the daemon (if the script invokes it), Vite renderer, and TypeScript for main and preload.
-- `npm run dist` — full Electron build (e.g. Windows NSIS installer and zip; Linux/macOS if configured).
+- `npm run build` — release-builds `orc-daemon`, copies it to `assets/bin/`, then Vite renderer and TypeScript for main and preload. Output is under `ui/desktop/dist/` (main, preload, renderer); this is not the final `.exe` / installer until you package.
+- `npm run dist` — runs `build`, then full Electron build (e.g. Windows NSIS + zip; Linux AppImage + `.deb`; macOS `.app` if configured).
 
 To run in development without packaging:
 

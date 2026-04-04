@@ -1,6 +1,6 @@
 # Building ORC Torrent on Windows
 
-This guide walks you through building ORC Torrent from source on **Windows** (64-bit). You will get the NSIS installer and/or a portable zip.
+This guide walks you through building ORC Torrent from source on **Windows** (64-bit). You can use a **single script from the repository root** or follow the **manual `npm` steps** in `ui/desktop`.
 
 ---
 
@@ -25,92 +25,111 @@ npm --version
 
 ---
 
-## Step 1: Clone the repository
+## Quick build from the repository root (recommended)
 
-If you have not already:
+Open a terminal at the **repository root** (where `README.md`, `crates/`, `build.cmd`, and `build.ps1` live).
 
-```powershell
-git clone https://github.com/The-animus-project/Orc-Torrent.git
-cd Orc-Torrent
-```
+| Goal | Command |
+|------|---------|
+| **Compile only** (daemon + UI bundles, no installer) | `build.cmd` or `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1` |
+| **Compile + installer + portable zip** | `build.cmd -Dist` or `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Dist` |
 
-Use the actual repo URL. You should be at the **repository root** (where `README.md` and `crates/` are).
+- **`build.cmd`** — Use this from **Command Prompt** or double-click scenarios. It invokes PowerShell for you.
+- **`build.ps1`** — Run from **PowerShell** as `.\build.ps1` (with optional `-Dist`, `-Install`, `-SkipInstall`).  
+  **Do not** run `.\build.ps1` from **cmd.exe**; Windows may open the file in **Notepad** instead of executing it. From cmd, use **`build.cmd`** instead.
 
----
+**Flags (PowerShell script only; pass the same args through `build.cmd`):**
 
-## Step 2: Build the daemon
+| Flag | Meaning |
+|------|--------|
+| `-Dist` | After `npm run build`, run **`npm run dist`** (electron-builder: NSIS + zip). |
+| `-Install` | Always run **`npm install`** in `ui/desktop` first. |
+| `-SkipInstall` | Never run `npm install` (fails if `node_modules` is missing). |
 
-From the repository root:
-
-```powershell
-cd crates
-cargo build --release -p orc-daemon
-cd ..
-```
-
-The daemon binary is produced at:
-
-- `crates\target\release\orc-daemon.exe`
+If `node_modules` is missing, the script runs **`npm install`** once unless you passed `-SkipInstall`.
 
 ---
 
-## Step 3: Copy the daemon into the desktop app
+## What gets built and where
 
-The Electron app expects the daemon at `ui\desktop\assets\bin\`. From the **repository root**:
+After **`npm run build`** (or a build without `-Dist`):
 
-```powershell
-copy crates\target\release\orc-daemon.exe ui\desktop\assets\bin\
-```
+| Output | Location |
+|--------|----------|
+| Daemon | `ui\desktop\assets\bin\orc-daemon.exe` (copied from `crates\target\release\`) |
+| Electron bundles | `ui\desktop\dist\main\`, `dist\preload\`, `dist\renderer\` |
 
-Create `ui\desktop\assets\bin\` if it does not exist.
+There is **no** standalone “ORC TORRENT.exe” in `dist\` until you package. **`dist\`** holds compiled JS/HTML/CSS plus, **after `npm run dist`**, the **installer and zip** next to those folders.
+
+After **`npm run dist`** (or **`build.cmd -Dist`**), typical artifacts under **`ui\desktop\dist\`** include:
+
+- **NSIS installer:** `ORC TORRENT Setup <version>.exe` (exact name may vary slightly with electron-builder).
+- **Portable zip:** `ORC TORRENT-<version>-win-x64.zip`
+- **Unpacked app (for testing):** `win-unpacked\` → run **`ORC TORRENT.exe`** inside that folder.
+
+Exact filenames depend on **`version`** in `ui\desktop\package.json` and your electron-builder version.
 
 ---
 
-## Step 4: Build the desktop app
+## Manual build (same as other platforms)
+
+From the **repository root**:
 
 ```powershell
 cd ui\desktop
 npm install
 npm run build
+```
+
+- **`npm run build`** — `cargo build --release -p orc-daemon` (from `crates\`), copies `orc-daemon.exe` to `assets\bin\`, then Vite + TypeScript for Electron.
+
+To create the **installer and zip**:
+
+```powershell
 npm run dist
 ```
 
-- **`npm run build`** — Builds the daemon (if the script runs it), Vite renderer, and TypeScript (main + preload).
-- **`npm run dist`** — Full Electron build: Windows NSIS installer and portable zip (x64).
-
-**Output:**
-
-- Installer: `ui\desktop\dist\ORC TORRENT Setup 2.x.x.exe`
-- Portable: `ui\desktop\dist\ORC TORRENT x.x.x-win-x64.zip` (or similar, depending on `package.json`)
+(`dist` runs `build` first, then electron-builder.)
 
 ---
 
-## Step 5: Run
+## Optional: build only the Rust daemon by hand
 
-- **Installer:** Run the `.exe` and follow the installer. Launch **ORC TORRENT** from the Start Menu or desktop shortcut.
-- **Portable:** Unzip the zip, then run `ORC TORRENT.exe` from the unpacked folder.
-
----
-
-## Development (no installer)
-
-To run in development mode without building an installer:
+Useful for debugging the daemon without the full desktop pipeline:
 
 ```powershell
-cd ui\desktop
-npm install
-npm run dev
+cd crates
+cargo build --release -p orc-daemon
+cd ..
+copy crates\target\release\orc-daemon.exe ui\desktop\assets\bin\
 ```
 
-This starts the daemon (if needed), Vite dev server, and Electron with hot-reload.
+Then from `ui\desktop` you can run **`npm run build:electron`** if you only need to rebuild the UI (no Rust). Normally **`npm run build`** is enough.
+
+---
+
+## Run the app
+
+- **Installer:** Run **`ORC TORRENT Setup … .exe`**, then start **ORC TORRENT** from the Start menu or desktop shortcut.
+- **Portable zip:** Extract the zip, then run **`ORC TORRENT.exe`** from the unpacked folder (or use **`win-unpacked\ORC TORRENT.exe`** after a local `dist` build).
+- **Development (no installer):**
+
+  ```powershell
+  cd ui\desktop
+  npm install
+  npm run dev
+  ```
+
+  This starts the Vite dev server, Electron, and the usual dev lifecycle.
 
 ---
 
 ## Troubleshooting
 
+- **Running `.\build.ps1` from cmd opens Notepad** — Use **`build.cmd`** from Command Prompt, or run **`powershell -ExecutionPolicy Bypass -File .\build.ps1`** with your flags.
 - **“Rust/Cargo is not installed”** — Install Rust from [rustup.rs](https://rustup.rs/), restart the terminal, then run `cargo --version`.
-- **“Rust binary not found”** — Ensure Step 2 completed and `crates\target\release\orc-daemon.exe` exists. Run `npm run build:daemon` from `ui\desktop` to rebuild the daemon.
-- **“Cannot delete app.asar” / file lock** — Another process (e.g. a running ORC TORRENT, antivirus, Explorer) may be locking `dist\win-unpacked`. Close the app and any scans of that folder, or use the cleanup script under `ui\desktop\scripts\` if available.
-- **Symlink errors** — electron-builder may need symlink support. Enable **Developer Mode** in Windows Settings (Privacy & Security → For developers) or run the build in an elevated terminal and clear the electron-builder cache if needed.
+- **“Rust binary not found” / daemon missing** — Run **`npm run build`** from `ui\desktop`, or **`npm run build:daemon`** from `ui\desktop` to rebuild only the daemon and copy it.
+- **“Cannot delete app.asar” / file locks** — Close ORC TORRENT and any Explorer windows on `dist\win-unpacked`. See **`ui\desktop\scripts\`** (`fix-locks.ps1`, `find-locker.ps1`, `kill-cursor-locks.ps1`) if electron-builder reports locks.
+- **Symlink errors** — electron-builder may need symlink support. Enable **Developer Mode** in Windows Settings (**Privacy & security → For developers**) or see electron-builder / winCodeSign cache notes.
 
-For more Windows-specific tips, see [ui/desktop/README.md](../ui/desktop/README.md).
+For more detail, see [ui/desktop/README.md](../ui/desktop/README.md) if present.

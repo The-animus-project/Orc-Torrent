@@ -28,6 +28,7 @@ impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
             listen_port: default_listen_port(),
+            kill_switch: None,
         }
     }
 }

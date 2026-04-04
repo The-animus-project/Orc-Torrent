@@ -29,6 +29,9 @@ declare global {
         chooseFile: () => Promise<boolean>;
         getUrl: () => Promise<string | null>;
         clear: () => Promise<void>;
+        getAudio: (
+          payload: { type: "builtin" } | { type: "default"; filename: string } | { type: "custom" }
+        ) => Promise<{ buffer: Uint8Array; mime: string } | null>;
       };
     };
   }

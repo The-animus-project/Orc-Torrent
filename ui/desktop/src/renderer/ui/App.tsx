@@ -45,6 +45,22 @@ import { getErrorMessage, isApiError } from "../utils/errorHandling";
 import { logger } from "../utils/logger";
 import { createEvent, addEvent } from "../utils/eventService";
 
+type NotificationVisualTheme = "flames" | "electric" | "matrix";
+const NOTIFICATION_VISUAL_THEME_STORAGE_KEY = "orc-notification-visual-theme";
+
+function readNotificationVisualTheme(): NotificationVisualTheme {
+  try {
+    const raw = localStorage.getItem(NOTIFICATION_VISUAL_THEME_STORAGE_KEY);
+    if (raw === "flames" || raw === "electric" || raw === "matrix") return raw;
+    // Map legacy values to new animated themes.
+    if (raw === "error") return "flames";
+    if (raw === "info") return "electric";
+    return "electric";
+  } catch {
+    return "electric";
+  }
+}
+
 export default function App() {
   const [mounted, setMounted] = useState(false);
   const [online, setOnline] = useState(false);
@@ -86,6 +102,9 @@ export default function App() {
   const [showFileFoundModal, setShowFileFoundModal] = useState(false);
   const [fileFoundTorrentId, setFileFoundTorrentId] = useState<string | null>(null);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [notificationVisualTheme, setNotificationVisualTheme] = useState<NotificationVisualTheme>(() =>
+    readNotificationVisualTheme()
+  );
   const [pendingTorrentId, setPendingTorrentId] = useState<string | null>(null);
   const [pendingTorrentName, setPendingTorrentName] = useState<string>("");
   const [currentPage, setCurrentPage] = useState<"torrents" | "network" | "settings" | "events">("torrents");
@@ -129,6 +148,30 @@ export default function App() {
       toastTimer.current = null;
     }, 5000);
   }, []);
+
+  const handleNotificationVisualThemeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    const nextTheme: NotificationVisualTheme =
+      value === "flames" || value === "matrix" ? value : "electric";
+    setNotificationVisualTheme(nextTheme);
+    try {
+      localStorage.setItem(NOTIFICATION_VISUAL_THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleNotificationThemePreview = useCallback(() => {
+    pushToast("info", "Theme preview: This is how popup notifications look.");
+  }, [pushToast]);
+
+  const handleNotificationSettingsError = useCallback((msg: string) => {
+    pushToast("error", msg);
+  }, [pushToast]);
+
+  const handleNotificationSettingsSuccess = useCallback((msg: string) => {
+    pushToast("info", msg);
+  }, [pushToast]);
 
   useEffect(() => {
     return () => {
@@ -1333,7 +1376,7 @@ export default function App() {
         />
 
         {!online && (
-          <div className="banner info">
+          <div className={`banner ${notificationVisualTheme}`}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
               <Spinner size={40} />
               <div style={{ flex: 1 }}>
@@ -1426,10 +1469,34 @@ export default function App() {
                   </div>
                   <div className="settingsSectionCard">
                     <h2 className="settingsSectionCardTitle">Notifications</h2>
-                    <div className="settingsSection">
+                    <div className="settingsSection notificationsSettingsSection">
+                      <div className="notificationThemeControls notificationThemeControlsSticky" style={{ marginBottom: 12 }}>
+                        <label className="notificationThemeLabel" htmlFor="notification-theme-select">
+                          Banner and toast theme:
+                        </label>
+                        <select
+                          id="notification-theme-select"
+                          className="notificationSoundSelect"
+                          value={notificationVisualTheme}
+                          onChange={handleNotificationVisualThemeChange}
+                          aria-label="Notification banner and toast theme"
+                        >
+                          <option value="flames">Flames</option>
+                          <option value="electric">Electric</option>
+                          <option value="matrix">Matrix</option>
+                        </select>
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          onClick={handleNotificationThemePreview}
+                          title="Show a sample in-app popup with the selected theme"
+                        >
+                          Test popup theme
+                        </button>
+                      </div>
                       <NotificationSoundSettings
-                        onError={(msg) => pushToast("error", msg)}
-                        onSuccess={(msg) => pushToast("info", msg)}
+                        onError={handleNotificationSettingsError}
+                        onSuccess={handleNotificationSettingsSuccess}
                       />
                     </div>
                   </div>
@@ -1546,7 +1613,7 @@ export default function App() {
           onSuccess={(msg) => pushToast("info", msg)}
         />
 
-        <Toast toast={toast} onClose={() => setToast(null)} />
+        <Toast toast={toast} onClose={() => setToast(null)} theme={notificationVisualTheme} />
 
         <Modal
           isOpen={showAddTorrentModal}

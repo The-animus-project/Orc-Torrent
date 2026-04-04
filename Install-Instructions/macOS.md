@@ -2,6 +2,8 @@
 
 This guide walks you through building ORC Torrent from source on **macOS** (Intel or Apple Silicon). You will get a `.app` bundle (and optionally a DMG if configured in electron-builder).
 
+On **Windows**, the repository includes **`build.cmd`** / **`build.ps1`** at the root to run `npm run build` and optionally packaging; on **macOS** use the **`npm`** commands in `ui/desktop` below (same end result as a manual Windows build).
+
 ---
 
 ## Prerequisites
@@ -38,9 +40,11 @@ Use the actual repo URL. You should be at the **repository root** (where `README
 
 ---
 
-## Step 2: Build the daemon
+## Step 2: Build the daemon (optional if using `npm run build`)
 
-From the repository root:
+You can build the daemon manually, or skip this and **Step 3** and go straight to **Step 4** — **`npm run build`** in `ui/desktop` runs `cargo build --release -p orc-daemon` from `crates/` and copies the binary into `ui/desktop/assets/bin/`.
+
+Manual daemon build from the **repository root**:
 
 ```bash
 cd crates
@@ -48,23 +52,20 @@ cargo build --release -p orc-daemon
 cd ..
 ```
 
-The daemon binary is produced at:
-
-- **Intel:** `crates/target/release/orc-daemon`
-- **Apple Silicon (arm64):** `crates/target/release/orc-daemon` (Rust builds for the host arch by default)
+The binary is at **`crates/target/release/orc-daemon`** (host arch: Intel or Apple Silicon).
 
 ---
 
-## Step 3: Copy the daemon into the desktop app
+## Step 3: Copy the daemon (only if you built manually in Step 2)
 
-The Electron app expects the daemon at `ui/desktop/assets/bin/`. From the **repository root**:
+Skip if you will use **`npm run build`** only.
 
 ```bash
 mkdir -p ui/desktop/assets/bin
 cp crates/target/release/orc-daemon ui/desktop/assets/bin/
 ```
 
-On Apple Silicon you may need a universal binary or a separate build for the architecture you target with Electron; for a single-arch build, the above is sufficient if the daemon and Electron target match.
+On Apple Silicon, for a single-arch build, ensure the daemon arch matches the Electron target you package.
 
 ---
 
@@ -73,12 +74,12 @@ On Apple Silicon you may need a universal binary or a separate build for the arc
 ```bash
 cd ui/desktop
 npm install
-npm run build
-npm run dist
+npm run build    # daemon + Vite + TypeScript (no .app installer yet)
+npm run dist     # electron-builder: .app / DMG as configured
 ```
 
-- **`npm run build`** — Builds the daemon (if the script runs it), Vite renderer, and TypeScript (main + preload).
-- **`npm run dist`** — Full Electron build for macOS (e.g. `.app` in `dist/`; DMG if configured in `package.json`).
+- **`npm run build`** — Release-builds `orc-daemon`, copies it to `assets/bin/`, then Vite renderer and TypeScript (main + preload).
+- **`npm run dist`** — Runs `build`, then full Electron packaging for macOS (e.g. `.app` under `dist/`; DMG if configured in `package.json`).
 
 **Output:**
 

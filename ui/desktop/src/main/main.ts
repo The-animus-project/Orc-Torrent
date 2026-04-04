@@ -13,6 +13,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const isDev = !app.isPackaged;
+const APP_USER_MODEL_ID = "com.orc.torrent";
+
+if (process.platform === "win32") {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
+
+// Allow media streams/fetch from app:// URLs (used by notification sound assets).
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "app",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 // Daemon connection constants
 const DAEMON_PORT = 8733;
@@ -187,31 +206,57 @@ process.on("uncaughtException", (error) => {
   }
 });
 
-/** Resolve app icon path: prefer orc-torrent.png (desktop assets in dev, or packaged app/assets). */
+/** Resolve app icon path. On Windows prefer .ico to avoid Electron default icon fallback. */
 function getIconPath(): string | undefined {
   const pngName = "orc-torrent.png";
   const icoName = "icon.ico";
+  const preferIco = process.platform === "win32";
   if (isDev) {
     const assetsDir = path.resolve(__dirname, "../../assets");
-    const devPng = path.join(assetsDir, "images", pngName);
-    if (existsSync(devPng)) return devPng;
     const devIco = path.join(assetsDir, "icons", icoName);
-    if (existsSync(devIco)) return devIco;
+    const devFlatIco = path.join(assetsDir, icoName);
+    const devPng = path.join(assetsDir, "images", pngName);
+    if (preferIco) {
+      if (existsSync(devIco)) return devIco;
+      if (existsSync(devFlatIco)) return devFlatIco;
+      if (existsSync(devPng)) return devPng;
+    } else {
+      if (existsSync(devPng)) return devPng;
+      if (existsSync(devIco)) return devIco;
+      if (existsSync(devFlatIco)) return devFlatIco;
+    }
     const repoRoot = path.resolve(__dirname, "../../../..");
-    const orcPng = path.join(repoRoot, "images", "orc-torrent.png");
-    if (existsSync(orcPng)) return orcPng;
     const orcIco = path.join(repoRoot, "icons", "orc-torrent.ico");
-    if (existsSync(orcIco)) return orcIco;
+    const orcPng = path.join(repoRoot, "images", "orc-torrent.png");
+    if (preferIco) {
+      if (existsSync(orcIco)) return orcIco;
+      if (existsSync(orcPng)) return orcPng;
+    } else {
+      if (existsSync(orcPng)) return orcPng;
+      if (existsSync(orcIco)) return orcIco;
+    }
     return undefined;
   }
   if (process.resourcesPath) {
     const resourcesIco = path.join(process.resourcesPath, icoName);
-    if (existsSync(resourcesIco)) return resourcesIco;
+    const resourcesAppIco = path.join(process.resourcesPath, "app", icoName);
     const appAssets = path.join(process.resourcesPath, "app", "assets");
     const packagedPng = path.join(appAssets, "images", pngName);
-    if (existsSync(packagedPng)) return packagedPng;
     const packagedIco = path.join(appAssets, "icons", icoName);
-    if (existsSync(packagedIco)) return packagedIco;
+    const packagedFlatIco = path.join(appAssets, icoName);
+    if (preferIco) {
+      if (existsSync(resourcesIco)) return resourcesIco;
+      if (existsSync(resourcesAppIco)) return resourcesAppIco;
+      if (existsSync(packagedIco)) return packagedIco;
+      if (existsSync(packagedFlatIco)) return packagedFlatIco;
+      if (existsSync(packagedPng)) return packagedPng;
+    } else {
+      if (existsSync(packagedPng)) return packagedPng;
+      if (existsSync(packagedIco)) return packagedIco;
+      if (existsSync(packagedFlatIco)) return packagedFlatIco;
+      if (existsSync(resourcesAppIco)) return resourcesAppIco;
+      if (existsSync(resourcesIco)) return resourcesIco;
+    }
   }
   return undefined;
 }
@@ -2985,7 +3030,7 @@ app.whenReady().then(async () => {
     ipcMain.handle("notification-sound:set-default", async (_event, filename: string): Promise<boolean> => {
       if (typeof filename !== "string" || !filename.trim() || filename.includes("..")) return false;
       const base = path.basename(filename);
-      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.mp3$/i.test(base)) return false;
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9 ._-]*\.mp3$/i.test(base)) return false;
       const dir = getDefaultNotificationSoundsDir();
       const soundPath = path.join(dir, base);
       if (!existsSync(soundPath)) return false;

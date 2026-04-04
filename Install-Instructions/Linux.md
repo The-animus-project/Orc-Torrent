@@ -2,6 +2,8 @@
 
 This guide walks you through building ORC Torrent from source on **Linux** (x64). You can produce an AppImage, a .deb package, or run in development mode.
 
+On **Windows**, the repository includes **`build.cmd`** / **`build.ps1`** at the root; on **Linux** use **`npm`** in `ui/desktop` as below.
+
 ---
 
 ## Prerequisites
@@ -48,9 +50,9 @@ Use the actual repo URL. You should be at the **repository root** (where `README
 
 ---
 
-## Step 2: Build the daemon
+## Step 2: Build the daemon (optional if using `npm run build`)
 
-From the repository root:
+**`npm run build`** in `ui/desktop` already builds `orc-daemon` and copies it to `assets/bin/`. Use this step only if you want to build the daemon separately.
 
 ```bash
 cd crates
@@ -58,15 +60,13 @@ cargo build --release -p orc-daemon
 cd ..
 ```
 
-The daemon binary is produced at:
-
-- `crates/target/release/orc-daemon`
+Output: **`crates/target/release/orc-daemon`**
 
 ---
 
-## Step 3: Copy the daemon into the desktop app
+## Step 3: Copy the daemon (only if you built manually in Step 2)
 
-The Electron app expects the daemon at `ui/desktop/assets/bin/`. From the **repository root**:
+Skip if you rely on **`npm run build`** alone.
 
 ```bash
 mkdir -p ui/desktop/assets/bin
@@ -80,12 +80,12 @@ cp crates/target/release/orc-daemon ui/desktop/assets/bin/
 ```bash
 cd ui/desktop
 npm install
-npm run build
-npm run dist
+npm run build    # daemon + Vite + TypeScript
+npm run dist     # AppImage + .deb (per package.json)
 ```
 
-- **`npm run build`** — Builds the daemon (if the script runs it), Vite renderer, and TypeScript (main + preload).
-- **`npm run dist`** — Full Electron build for Linux. With the default `package.json` you get:
+- **`npm run build`** — Release-builds `orc-daemon`, copies it to `assets/bin/`, then Vite renderer and TypeScript (main + preload).
+- **`npm run dist`** — Runs `build`, then full Electron build for Linux. With the default `package.json` you get:
   - **AppImage:** `ui/desktop/dist/ORC TORRENT-x.x.x-x86_64.AppImage` (or similar)
   - **.deb:** `ui/desktop/dist/orc-torrent_x.x.x_amd64.deb` (or similar, depending on product name)
 

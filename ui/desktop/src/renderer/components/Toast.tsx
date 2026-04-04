@@ -4,9 +4,10 @@ import type { Toast as ToastType } from "../types";
 interface ToastProps {
   toast: ToastType | null;
   onClose: () => void;
+  theme?: "flames" | "electric" | "matrix";
 }
 
-export const Toast = memo<ToastProps>(({ toast, onClose }) => {
+export const Toast = memo<ToastProps>(({ toast, onClose, theme = "electric" }) => {
   const [isClosing, setIsClosing] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,7 +54,7 @@ export const Toast = memo<ToastProps>(({ toast, onClose }) => {
 
   return (
     <div 
-      className={`toast ${toast.kind} ${isClosing ? "closing" : ""}`}
+      className={`toast ${toast.kind} toastTheme-${theme} ${isClosing ? "closing" : ""}`}
       role="alert"
       aria-live={toast.kind === "error" ? "assertive" : "polite"}
       aria-atomic="true"

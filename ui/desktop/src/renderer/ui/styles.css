@@ -718,6 +718,88 @@ body{
   background: rgba(255,255,255,.05);
 }
 
+.banner.error{
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+.banner.flames,
+.banner.electric,
+.banner.matrix {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.banner.flames{
+  border-color: rgba(255, 140, 0, 0.45);
+  background:
+    radial-gradient(circle at 20% 110%, rgba(255, 100, 0, 0.45), transparent 45%),
+    radial-gradient(circle at 80% 120%, rgba(255, 190, 60, 0.35), transparent 42%),
+    linear-gradient(120deg, rgba(70, 18, 2, 0.95), rgba(25, 9, 3, 0.92));
+}
+
+.banner.electric{
+  border-color: rgba(64, 224, 255, 0.5);
+  background:
+    linear-gradient(135deg, rgba(7, 16, 44, 0.96), rgba(11, 27, 65, 0.94)),
+    radial-gradient(circle at 15% 20%, rgba(60, 200, 255, 0.26), transparent 36%);
+}
+
+.banner.matrix{
+  border-color: rgba(0, 255, 128, 0.42);
+  background:
+    linear-gradient(180deg, rgba(1, 24, 12, 0.95), rgba(1, 12, 7, 0.96)),
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 255, 120, 0.08) 0px,
+      rgba(0, 255, 120, 0.08) 1px,
+      transparent 1px,
+      transparent 9px
+    );
+}
+
+.banner.flames::before,
+.banner.electric::before,
+.banner.matrix::before,
+.toast.toastTheme-flames::before,
+.toast.toastTheme-electric::before,
+.toast.toastTheme-matrix::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.banner.flames::before,
+.toast.toastTheme-flames::before {
+  background:
+    linear-gradient(180deg, rgba(255, 235, 160, 0.06), transparent 46%),
+    radial-gradient(circle at 50% 120%, rgba(255, 80, 0, 0.34), transparent 50%);
+  animation: flamesDrift 2.6s ease-in-out infinite alternate;
+}
+
+.banner.electric::before,
+.toast.toastTheme-electric::before {
+  background: linear-gradient(
+    112deg,
+    transparent 12%,
+    rgba(72, 220, 255, 0.38) 28%,
+    rgba(255, 255, 255, 0.22) 34%,
+    transparent 46%
+  );
+  transform: translateX(-130%);
+  animation: electricSweep 2.1s linear infinite;
+}
+
+.banner.matrix::before,
+.toast.toastTheme-matrix::before {
+  background: linear-gradient(180deg, transparent, rgba(0, 255, 120, 0.2), transparent);
+  background-size: 100% 220%;
+  animation: matrixScan 1.8s linear infinite;
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -1514,6 +1596,8 @@ body{
   z-index: var(--z-modal);
   animation: toastSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: bottom right;
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .toast.closing {
@@ -1569,6 +1653,69 @@ body{
   border-left: 3px solid rgba(255,255,255,.2);
 }
 
+.toast.toastTheme-info{
+  border-left-color: rgba(255,255,255,.2);
+}
+
+.toast.toastTheme-error{
+  border-left-color: rgba(255,255,255,.45);
+}
+
+.toast.toastTheme-flames{
+  border-color: rgba(255, 140, 0, 0.45);
+  background:
+    radial-gradient(circle at 20% 120%, rgba(255, 98, 0, 0.4), transparent 42%),
+    radial-gradient(circle at 82% 110%, rgba(255, 190, 65, 0.3), transparent 44%),
+    linear-gradient(140deg, rgba(68, 19, 2, 0.96), rgba(17, 8, 3, 0.95));
+  border-left: 3px solid rgba(255, 168, 79, 0.92);
+}
+
+.toast.toastTheme-electric{
+  border-color: rgba(64, 224, 255, 0.55);
+  background:
+    linear-gradient(140deg, rgba(6, 18, 50, 0.96), rgba(7, 31, 74, 0.95)),
+    radial-gradient(circle at 0% 10%, rgba(54, 194, 255, 0.24), transparent 42%);
+  border-left: 3px solid rgba(109, 238, 255, 0.96);
+}
+
+.toast.toastTheme-matrix{
+  border-color: rgba(0, 255, 128, 0.46);
+  background:
+    linear-gradient(180deg, rgba(2, 30, 16, 0.96), rgba(1, 14, 9, 0.97)),
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 255, 122, 0.085) 0px,
+      rgba(0, 255, 122, 0.085) 1px,
+      transparent 1px,
+      transparent 10px
+    );
+  border-left: 3px solid rgba(0, 255, 140, 0.95);
+}
+
+.toast.toastTheme-info .toastTitle{
+  opacity: 0.7;
+}
+
+.toast.toastTheme-error .toastTitle{
+  opacity: 1;
+}
+
+.toast.toastTheme-flames .toastTitle,
+.toast.toastTheme-electric .toastTitle,
+.toast.toastTheme-matrix .toastTitle{
+  opacity: 1;
+}
+
+.banner.flames > *,
+.banner.electric > *,
+.banner.matrix > *,
+.toast.toastTheme-flames > *,
+.toast.toastTheme-electric > *,
+.toast.toastTheme-matrix > * {
+  position: relative;
+  z-index: 1;
+}
+
 .toastTitle{ 
   font-weight: 700; 
   font-size: 14px;
@@ -1583,6 +1730,77 @@ body{
 
 .toast.info .toastTitle{
   opacity: 0.7;
+}
+
+.notificationThemeControls{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.notificationThemeControlsSticky{
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-bottom: 8px;
+  background: var(--panel);
+}
+
+.notificationThemeLabel{
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+#notification-theme-select{
+  min-width: 180px;
+  flex: 0 0 auto;
+}
+
+.notificationThemeControls .btn{
+  flex: 0 0 auto;
+}
+
+@keyframes flamesDrift {
+  from {
+    transform: translateY(10%) scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: translateY(-8%) scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes electricSweep {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(130%);
+  }
+}
+
+@keyframes matrixScan {
+  from {
+    background-position: 0 -120%;
+  }
+  to {
+    background-position: 0 160%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner.flames::before,
+  .banner.electric::before,
+  .banner.matrix::before,
+  .toast.toastTheme-flames::before,
+  .toast.toastTheme-electric::before,
+  .toast.toastTheme-matrix::before {
+    animation: none !important;
+    transform: none !important;
+  }
 }
 
 .toastBody{ 
@@ -5192,6 +5410,14 @@ body{
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.notificationsSettingsSection {
+  overflow-y: auto;
+  overflow-x: visible;
+  min-height: 0;
+  max-height: min(60vh, 560px);
+  padding-right: 4px;
 }
 
 .settingsSectionCard {

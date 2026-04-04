@@ -1413,12 +1413,23 @@ if (tempOutputDir) {
 
 if (isWin) {
   const assetsIcon = join(projectRoot, "assets", "icons", "icon.ico");
+  const assetsFlatIcon = join(projectRoot, "assets", "icon.ico");
   const repoRoot = resolve(projectRoot, "..", "..");
   const orcTorrentIco = join(repoRoot, "icons", "orc-torrent.ico");
-  if (existsSync(orcTorrentIco)) {
-    copyFileSync(orcTorrentIco, assetsIcon);
-    console.log("   Using orc-torrent.ico as app icon.");
+  const assetsIconDir = dirname(assetsIcon);
+  if (!existsSync(assetsIconDir)) {
+    mkdirSync(assetsIconDir, { recursive: true });
   }
+  if (!existsSync(orcTorrentIco)) {
+    console.error("   ERROR: Required icon is missing:");
+    console.error(`      ${orcTorrentIco}`);
+    console.error("   Packaging aborted to prevent default Electron icon fallback.");
+    process.exit(1);
+  }
+  copyFileSync(orcTorrentIco, assetsIcon);
+  copyFileSync(orcTorrentIco, assetsFlatIcon);
+  console.log("   Using repo icon: icons/orc-torrent.ico");
+  console.log("   Synced to assets/icons/icon.ico and assets/icon.ico.");
   const resizeScript = join(projectRoot, "scripts", "resize-icon.ps1");
   const createScript = join(projectRoot, "scripts", "create-icon.ps1");
   const sourceIco = join(projectRoot, "assets", "icons", "orc_ico(1).ico");

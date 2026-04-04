@@ -8,6 +8,31 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.2.16] — 2026-04-04
+
+### Added
+
+- **Animated notification themes** — Three animated banner and toast themes (Flames, Electric, Matrix) with a selector in Notification settings and a "Test popup theme" preview button.
+- **Desktop notification test** — "Send test desktop notification" button in Notification settings to verify sound and popup together.
+- **Upgrade uninstall flow** — NSIS installer now detects and uninstalls any existing ORC Torrent installation before proceeding, with multiple fallback strategies and detailed installer progress logging. Continues with overwrite if uninstall fails.
+
+### Fixed
+
+- **Notification tone playback** — Changing the notification sound now works correctly. Audio is fetched as raw bytes via IPC and played as Blob URLs, with fallback to direct URL and a built-in oscillator tone.
+- **Theme dropdown visibility** — Popup theme selector no longer disappears when changing notification sounds; theme controls are sticky at the top of the scrollable area.
+- **Notifications settings scrollability** — Notifications card scrolls vertically when content exceeds the visible area instead of clipping controls.
+- **Installed application icon** — Build and installer pipelines strictly enforce `icons/orc-torrent.ico` as the app icon for the executable, desktop shortcut, and `.torrent`/`magnet` file associations, preventing fallback to the default Electron icon.
+
+### Changed
+
+- **Notification sound IPC** — New `notification-sound:get-audio` IPC channel returns raw audio bytes for robust cross-protocol playback.
+- **App identity** — `app.setAppUserModelId("com.orc.torrent")` set for consistent Windows taskbar grouping and notification icons.
+- **`app://` protocol** — Registered as privileged with stream and fetch API support for reliable media loading.
+- **Accessibility** — Animated notification themes respect `prefers-reduced-motion` media query.
+- **Icon resolution** — `getIconPath()` in main process now checks six fallback locations in both dev and packaged modes to ensure the ORC icon is always found.
+
+---
+
 ## [2.2.15] — 2026-04-04
 
 ### Security
@@ -107,6 +132,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+[2.2.16]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.15...v2.2.16
 [2.2.15]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.14...v2.2.15
 [2.2.14]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.13...v2.2.14
 [2.2.13]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.12...v2.2.13

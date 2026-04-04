@@ -75,6 +75,31 @@ function localBin(tool: string): string {
   return join(projectRoot, "node_modules", ".bin", `${tool}${ext}`);
 }
 
+function syncWindowsAppIcon(): void {
+  if (!isWin) return;
+
+  const sourceIco = join(repoRoot, "icons", "orc-torrent.ico");
+  const targetIconDir = join(projectRoot, "assets", "icons");
+  const targetIco = join(targetIconDir, "icon.ico");
+  const targetFlatIco = join(projectRoot, "assets", "icon.ico");
+
+  if (!existsSync(sourceIco)) {
+    console.error(`ERROR: ORC icon not found: ${formatPath(sourceIco)}`);
+    process.exit(1);
+  }
+
+  try {
+    if (!existsSync(targetIconDir)) mkdirSync(targetIconDir, { recursive: true });
+    copyFileSync(sourceIco, targetIco);
+    copyFileSync(sourceIco, targetFlatIco);
+    console.log(`   Synced app icon: ${formatPath(targetIco)}`);
+    console.log(`   Synced app icon: ${formatPath(targetFlatIco)}`);
+  } catch (err) {
+    console.error(`ERROR: Failed to sync app icon: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
 function isCompileError(resolvedCmd: string, status: number): boolean {
   if (status === 0) return false;
   const tool = basename(resolvedCmd).toLowerCase();
@@ -550,6 +575,7 @@ function main(): void {
   try {
     verifyPrerequisites();
     cleanBuildArtifacts();
+    syncWindowsAppIcon();
 
     const tools = ensureNodeDeps();
 

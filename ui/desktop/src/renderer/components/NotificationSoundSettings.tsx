@@ -2,6 +2,7 @@ import React, { memo, useCallback, useEffect, useState } from "react";
 import {
   setNotificationSoundUrl,
   previewNotificationSound,
+  showTestDesktopNotification,
   getNotifyOnCompletion,
   getNotifyOnKillSwitch,
   NOTIFY_ON_COMPLETION_STORAGE_KEY,
@@ -90,6 +91,12 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
   const handlePreview = useCallback(() => {
     previewNotificationSound();
   }, []);
+
+  const handleSendTestDesktopNotification = useCallback(async () => {
+    const ok = await showTestDesktopNotification();
+    if (ok) onSuccess?.("Test desktop notification sent");
+    else onError?.("Desktop notification permission is blocked or unavailable");
+  }, [onError, onSuccess]);
 
   const handleNotifyOnCompletionChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
@@ -207,6 +214,15 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
         <div className="profileButtons" style={{ marginTop: 8 }}>
           <button type="button" className="btn" onClick={handleChooseFile} title="Select your own audio file">
             Choose custom file…
+          </button>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={handleSendTestDesktopNotification}
+            title="Show a test desktop popup using the selected sound"
+            style={{ marginLeft: 8 }}
+          >
+            Send test desktop notification
           </button>
         </div>
       </div>

@@ -168,23 +168,96 @@ function playBuiltInTone(): void {
   }
 }
 
-function playNotificationSound(): void {
+type NotificationSoundAudioPayload =
+  | { type: "builtin" }
+  | { type: "default"; filename: string }
+  | { type: "custom" };
+
+function urlToAudioPayload(url: string | null): NotificationSoundAudioPayload {
+  if (!url) return { type: "builtin" };
+  if (url === "app://notification-sound" || url.startsWith("app://notification-sound?")) {
+    return { type: "custom" };
+  }
+  if (url.startsWith("app://default-notification-sounds/")) {
+    const filename = decodeURIComponent(url.replace("app://default-notification-sounds/", "").replace(/\?.*$/, ""));
+    if (filename) return { type: "default", filename };
+  }
+  return { type: "builtin" };
+}
+
+function normalizeAudioBytes(raw: unknown): Uint8Array | null {
+  if (!raw) return null;
+  if (raw instanceof Uint8Array) return raw;
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (Array.isArray(raw)) return Uint8Array.from(raw.filter((v): v is number => typeof v === "number"));
+  if (typeof raw === "object" && raw !== null && "data" in raw) {
+    const data = (raw as { data?: unknown }).data;
+    if (Array.isArray(data)) return Uint8Array.from(data.filter((v): v is number => typeof v === "number"));
+  }
+  return null;
+}
+
+async function playAudioBytes(bytes: Uint8Array, mime: string): Promise<boolean> {
+  if (!bytes.length) return false;
+  const copiedBytes = new Uint8Array(bytes);
+  const blob = new Blob([copiedBytes.buffer], { type: mime || "audio/mpeg" });
+  const blobUrl = URL.createObjectURL(blob);
+  let revoked = false;
+  const revoke = () => {
+    if (revoked) return;
+    revoked = true;
+    URL.revokeObjectURL(blobUrl);
+  };
+  try {
+    const audio = new Audio(blobUrl);
+    audio.volume = 0.8;
+    audio.onended = revoke;
+    audio.onerror = revoke;
+    await audio.play();
+    setTimeout(revoke, 10000);
+    return true;
+  } catch (error) {
+    revoke();
+    logger.warn("Failed to play notification sound bytes:", error);
+    return false;
+  }
+}
+
+async function tryPlayNotificationSoundFromIpc(payload: NotificationSoundAudioPayload): Promise<boolean> {
+  if (payload.type === "builtin") return false;
+  if (typeof window.orc?.notificationSound?.getAudio !== "function") return false;
+  try {
+    const audioData = await window.orc.notificationSound.getAudio(payload);
+    if (!audioData) return false;
+    const bytes = normalizeAudioBytes(audioData.buffer);
+    if (!bytes) return false;
+    return await playAudioBytes(bytes, audioData.mime);
+  } catch (error) {
+    logger.warn("Failed to fetch notification sound bytes:", error);
+    return false;
+  }
+}
+
+async function playNotificationSoundWithFallbacks(): Promise<void> {
+  const payload = urlToAudioPayload(cachedNotificationSoundUrl);
+  if (await tryPlayNotificationSoundFromIpc(payload)) return;
+
   if (cachedNotificationSoundUrl) {
     try {
       const audio = new Audio(cachedNotificationSoundUrl);
       audio.volume = 0.8;
-      audio.play().catch((err) => {
-        logger.warn("Failed to play custom notification sound, falling back to built-in tone:", err);
-        playBuiltInTone();
-      });
+      await audio.play();
       return;
     } catch (error) {
-      logger.warn("Failed to play custom notification sound, falling back to built-in tone:", error);
-      playBuiltInTone();
+      logger.warn("Failed to play notification sound URL, falling back to built-in tone:", error);
     }
-  } else {
-    playBuiltInTone();
   }
+
+  playBuiltInTone();
+}
+
+function playNotificationSound(): void {
+  void playNotificationSoundWithFallbacks();
 }
 
 /**
@@ -276,5 +349,36 @@ export async function showKillSwitchReleasedNotification(): Promise<void> {
   } catch (error) {
     logger.warn("Failed to show kill switch released notification:", error);
     playNotificationSound();
+  }
+}
+
+/**
+ * Show a test desktop notification and play the currently selected sound.
+ * Used by Settings so users can quickly verify popup + tone behavior.
+ */
+export async function showTestDesktopNotification(): Promise<boolean> {
+  const hasPermission = await ensurePermission();
+  if (!hasPermission) return false;
+
+  try {
+    const icon = await getAppIconUrl();
+    const notification = new Notification("ORC Torrent Test Notification", {
+      body: "If you can see this popup and hear the selected tone, notifications are working.",
+      icon: icon ?? undefined,
+      tag: "orc-test-notification",
+    });
+
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+
+    setTimeout(() => notification.close(), 5000);
+    playNotificationSound();
+    return true;
+  } catch (error) {
+    logger.warn("Failed to show test desktop notification:", error);
+    playNotificationSound();
+    return false;
   }
 }
