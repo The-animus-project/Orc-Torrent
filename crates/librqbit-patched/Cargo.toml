@@ -327,3 +327,5 @@ version = "0.3"
 
 [build-dependencies.anyhow]
 version = "1"
+
+[workspace]

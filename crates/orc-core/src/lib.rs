@@ -579,11 +579,12 @@ fn lookup_country(reader: &Reader<Vec<u8>>, ip: &str) -> Option<String> {
     if is_private_ip(&ip_addr) {
         return None;
     }
-    let country: Country = reader.lookup(ip_addr).ok()?;
+    let result = reader.lookup(ip_addr).ok()?;
+    let country: Country = result.decode().ok()??;
     country
         .country
-        .and_then(|c| c.iso_code)
-        .map(|code| code.to_string())
+        .iso_code
+        .map(|code: &str| code.to_string())
 }
 
 #[allow(dead_code)]

@@ -27,4 +27,4 @@ tokio.workspace = true
 network-interface = "1.0"
 
 # GeoIP lookup for peer country detection
-maxminddb = "0.24"
+maxminddb = "0.27"
