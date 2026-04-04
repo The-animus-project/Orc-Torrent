@@ -10,6 +10,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 env:
   # Unsigned builds by default. For signed Windows installers: set secrets CSC_LINK + CSC_KEY_PASSWORD,
   # set this to 'true' when the runner can resolve the cert, and enable signing in ui/desktop/package.json win.*.
