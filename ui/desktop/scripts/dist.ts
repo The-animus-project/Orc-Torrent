@@ -75,10 +75,8 @@ function run(cmd: string, args: string[], cwd = projectRoot): void {
   if (isWin && cmd === "npm") {
     // Escape args properly for Windows shell
     const escapedArgs = args.map(arg => {
-      // If arg contains spaces or special chars, wrap in quotes
-      if (arg.includes(" ") || arg.includes("&") || arg.includes("|") || arg.includes(">") || arg.includes("<")) {
-        // Escape any existing quotes and wrap
-        return `"${arg.replace(/"/g, '\\"')}"`;
+      if (/["\s&|><^%!()]/.test(arg)) {
+        return `"${arg.replace(/%/g, "%%").replace(/"/g, '""')}"`;
       }
       return arg;
     });
@@ -668,8 +666,7 @@ function tryWindowsRmdir(dirPath: string): boolean {
   if (!isWin) return false;
   
   try {
-    // Use cmd.exe rmdir /s /q which can handle some locked files
-    const result = spawnSync("cmd.exe", ["/c", "rmdir", "/s", "/q", dirPath], {
+    const result = spawnSync("cmd.exe", ["/c", `rmdir /s /q "${dirPath}"`], {
       encoding: "utf8",
       shell: false,
       stdio: "pipe",
@@ -726,7 +723,8 @@ function tryTakeOwnershipAndDelete(dirPath: string): boolean {
       stdio: "pipe",
     });
     
-    const currentUser = process.env.USERNAME || process.env.USER || "Administrators";
+    const rawUser = process.env.USERNAME || process.env.USER || "Administrators";
+    const currentUser = rawUser.replace(/[^a-zA-Z0-9_\-. @]/g, "");
     const icaclsResult1 = spawnSync("icacls", [dirPath, "/grant", `${currentUser}:F`, "/T", "/q"], {
       encoding: "utf8",
       shell: false,

@@ -14,8 +14,8 @@ function run(cmd: string, args: string[] = [], opts: Record<string, unknown> = {
   if (isWin && (cmd === "npx" || cmd === "npm")) {
     // Escape args properly for Windows shell
     const escapedArgs = args.map(arg => {
-      if (arg.includes(" ") || arg.includes("&") || arg.includes("|") || arg.includes(">") || arg.includes("<")) {
-        return `"${arg.replace(/"/g, '\\"')}"`;
+      if (/["\s&|><^%!()]/.test(arg)) {
+        return `"${arg.replace(/%/g, "%%").replace(/"/g, '""')}"`;
       }
       return arg;
     });

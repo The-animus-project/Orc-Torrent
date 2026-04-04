@@ -107,8 +107,8 @@ function isCompileError(resolvedCmd: string, status: number): boolean {
 }
 
 function escapeArg(arg: string): string {
-  if (arg.includes(" ") || arg.includes("&") || arg.includes("|") || arg.includes(">") || arg.includes("<") || arg.includes('"')) {
-    return `"${arg.replace(/"/g, '\\"')}"`;
+  if (/["\s&|><^%!()]/.test(arg)) {
+    return `"${arg.replace(/%/g, "%%").replace(/"/g, '""')}"`;
   }
   return arg;
 }
