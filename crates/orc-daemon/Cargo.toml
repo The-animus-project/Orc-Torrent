@@ -1,0 +1,23 @@
+[package]
+name = "orc-daemon"
+version = "2.2.14"
+edition.workspace = true
+license.workspace = true
+
+authors = ["ORC Torrent / The ANIMUS PROJECT"]
+
+[dependencies]
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+base64.workspace = true
+librqbit.workspace = true
+orc-core = { path = "../orc-core" }
+subtle.workspace = true
+tower.workspace = true

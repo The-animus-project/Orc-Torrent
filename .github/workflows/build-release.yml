@@ -1,0 +1,77 @@
+# Production build: Windows installer + portable zip, upload to GitHub
+# - Run manually: Actions → Build release → Run workflow
+# - Or push a tag v* (e.g. v2.2.1) to create a GitHub Release with assets
+
+name: Build release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  # Unsigned builds by default. For signed Windows installers: set secrets CSC_LINK + CSC_KEY_PASSWORD,
+  # set this to 'true' when the runner can resolve the cert, and enable signing in ui/desktop/package.json win.*.
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/desktop/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ui/desktop
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+        working-directory: ui/desktop
+        continue-on-error: true
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: cargo audit
+        run: cargo audit
+        working-directory: crates
+        continue-on-error: true
+
+      - name: Build and package
+        run: npm run dist
+        working-directory: ui/desktop
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ORC-TORRENT-windows
+          path: |
+            ui/desktop/dist/*.exe
+            ui/desktop/dist/*.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        with:
+          files: |
+            ui/desktop/dist/*.exe
+            ui/desktop/dist/*.zip
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

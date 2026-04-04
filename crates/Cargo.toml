@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+  "orc-core",
+  "orc-daemon",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "signal", "time"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit", "timeout", "set-header"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+anyhow = "1.0"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+base64 = "0.22"
+
+# Embedded BitTorrent runtime used by the daemon.
+librqbit = "8.1.1"
+
+# Security dependencies
+subtle = "2.5"
+tower = { version = "0.5", features = ["limit"] }
+
+[patch.crates-io]
+# Use patched librqbit that re-exports PeerStatsFilter so we can show real connected peers.
+librqbit = { path = "librqbit-patched" }

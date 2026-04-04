@@ -1,0 +1,32 @@
+# Line endings: normalize to LF in repo; Git can convert on checkout per OS
+* text=auto eol=lf
+
+# Windows scripts (keep CRLF when checked out on Windows)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts (force LF)
+*.sh text eol=lf
+
+# Binary files (no line-ending or diff handling)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mmdb binary
+*.bin binary
+*.torrent binary
+*.exe binary
+*.dll binary
+*.pak binary
+*.asar binary
+*.mp3 binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+
+# Linguist: exclude from GitHub language stats if desired
+# /crates/librqbit-patched/ linguist-vendored
