@@ -179,7 +179,7 @@ default-features = false
 version = "1"
 
 [dependencies.lru]
-version = "0.14"
+version = "0.16"
 optional = true
 
 [dependencies.memmap2]
