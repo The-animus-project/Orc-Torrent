@@ -8,12 +8,29 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. We 
 
 **ORC Torrent is compatible with Windows, macOS, and Linux.** You can build and run it on any of these platforms.
 
+**Latest release: [v2.3.0](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.0)** — portable installers for all three platforms, with in-app GitHub auto-update.
+
 **ORC Torrent is actively developed.** We update the roadmap and documentation as we go. If you’re interested in where we’re headed or how to contribute, read on.
+
+---
+
+## Downloads
+
+Pre-built installers and portable archives are published on **[GitHub Releases](https://github.com/The-animus-project/Orc-Torrent/releases)**. CI builds run on every `v*` tag.
+
+| Platform | Portable (no install) | Installer |
+|----------|----------------------|-----------|
+| **Windows** (x64) | `ORC-TORRENT-<version>-win-x64.zip` | `ORC-TORRENT-Setup-<version>.exe` |
+| **macOS** (arm64) | `ORC-TORRENT-<version>-mac-arm64.zip` | `.dmg`, `.pkg` |
+| **Linux** (x64) | `ORC-TORRENT-<version>-linux-x86_64.AppImage` | `.deb` |
+
+The desktop app checks GitHub for updates automatically (Settings → Updates). Unsigned builds may show a security prompt on first launch — see [Install-Instructions](Install-Instructions/) per OS.
 
 ---
 
 ## Table of contents
 
+- [Downloads](#downloads)
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [What makes it different](#what-makes-it-different)
@@ -50,11 +67,13 @@ Screenshots of the ORC Torrent desktop client:
 | **Torrent management** | Add via magnet links or `.torrent` files; list, start, stop, remove, recheck, and announce torrents. |
 | **File control** | Per-file priority and content view; resume from existing downloads. |
 | **Peers and trackers** | Inspect connected peers and tracker status. |
-| **Premium search** | Premium ad-free builds can enable a compliant torrent search page with approved providers only. ORC Torrent does not ship piracy indexers or auto-download search results. |
+| **Torrent search** | Compliant search page with Internet Archive, open-content JSON, and user-defined RSS/Atom/JSON feeds. Results are display-only until you manually add a torrent. |
 | **Watch folders** | Auto-import `.torrent` files dropped into configured folders (debounced, duplicate-safe). |
 | **Seeding controls** | Global ratio and seed-time limits; completed torrents stop automatically when targets are met. |
 | **Bandwidth scheduling** | Normal and limited speed profiles with quiet-hours schedule. |
 | **Privacy dashboard** | Consolidated VPN/kill-switch risk card with one-click VPN Safety Mode. |
+| **Network page** | Adapter list, default route, DNS, VPN signal, and kill-switch enforcement status. |
+| **GitHub auto-update** | Check for updates, download in the background, and restart to install from Settings → Updates. |
 | **VPN and kill switch** | VPN interface detection (e.g. tun/wg); optional kill switch to pause all torrents when the VPN disconnects. |
 | **Network posture** | Policy, bind interface, and threat presets. |
 | **Security** | Request validation, error sanitization, optional admin token for remote or network use. |
@@ -73,7 +92,8 @@ Beyond standard BitTorrent behaviour, we’ve added:
 | **Network posture and policy** | Central policy for when network is allowed, bind-interface control, and threat presets so behaviour fits your setup. |
 | **Hardened daemon API** | Request validation, torrent ID checks, body size and concurrency limits, sanitized errors, constant-time admin token check, and security headers. |
 | **Daemon and desktop split** | The Rust daemon runs the BitTorrent session and REST API; the Electron app manages the daemon and provides the UI. That separation keeps the engine stable and lets us update pieces independently. |
-| **Torrent profiles** | Per-torrent mode settings in the UI. Overlay or anonymous routing is **not** implemented today. |
+| **Socket-level bind interface** | When a bind interface is set, the engine binds TCP, DHT, and tracker traffic to that address; posture changes hot-rebind without a daemon restart. |
+| **Policy persistence** | Kill switch, net posture, seeding, bandwidth, and watch-folder settings survive daemon restarts via `config.json`. |
 | **Custom notification sounds** | Multiple built-in sounds for download-complete and kill-switch events; pick one in settings or supply your own file. Enable/disable per event in the desktop app. |
 
 ---
@@ -84,8 +104,8 @@ We keep a roadmap here and update it as we progress. A more detailed, living roa
 
 | Phase | Description |
 |-------|-------------|
-| **Stabilization** (current) | Trust, reliability, tests, docs/UI honesty, and cross-platform polish. |
-| **Daily driver** (next) | Watch folders, privacy dashboard, VPN Safety Mode, seeding/bandwidth automation for credible day-to-day use. |
+| **Stabilization** (current) | Cross-platform polish, CI releases, tests, docs honesty, and reliability fixes after the v2.3.0 feature push. |
+| **Daily driver** (in progress) | Watch folders, privacy dashboard, VPN Safety Mode, seeding/bandwidth automation, and auto-update — shipped in **2.3.0**; ongoing hardening and UX refinement. |
 | **Ecosystem** (future) | Integrations and community-driven improvements; generic search provider interface only (no piracy indexers). |
 
 Documentation: [Install](docs/INSTALL.md) · [Development](docs/DEVELOPMENT.md) · [Codebase overview](docs/CODEBASE_OVERVIEW.md) · [Privacy/VPN](docs/PRIVACY_VPN.md) · [Known limitations](docs/KNOWN_LIMITATIONS.md) · [Configuration](docs/CONFIGURATION.md) · [Testing checklist](docs/TESTING_CHECKLIST.md)
@@ -155,12 +175,17 @@ Only if you skipped the integrated build and built the daemon manually:
 ```bash
 cd ui/desktop
 npm install
+npm run clean    # optional: remove old compile + release artifacts
 npm run build
 npm run dist
 ```
 
-- `npm run build` — release-builds `orc-daemon`, copies it to `assets/bin/`, then Vite renderer and TypeScript for main and preload. Output is under `ui/desktop/dist/` (main, preload, renderer); this is not the final `.exe` / installer until you package.
-- `npm run dist` — runs `build`, then full Electron build. Installers and portable archives are written to `ui/desktop/release/` (e.g. Windows NSIS + zip; Linux AppImage + `.deb`; macOS `.dmg` + `.zip` + `.pkg`).
+- `npm run build` — release-builds `orc-daemon`, copies it to `assets/bin/`, then Vite renderer and TypeScript for main and preload. Output is under `ui/desktop/dist/` (main, preload, renderer); this is not the final installer until you package.
+- `npm run dist` — runs `build`, then full Electron packaging. Installers and portable archives are written to `ui/desktop/release/` (e.g. Windows NSIS + zip; Linux AppImage + `.deb`; macOS `.dmg` + `.zip` + `.pkg`).
+
+**Linux via Docker** (from macOS or Windows hosts): `./scripts/build-linux-docker.sh` from the repo root.
+
+**Publishing a release:** push a `v*` tag (e.g. `v2.3.0`) or run the [Build release](.github/workflows/build-release.yml) workflow manually. Artifacts are attached to the matching GitHub Release.
 
 To run in development without packaging:
 
@@ -188,10 +213,10 @@ npm run dev
 ### Search
 
 - ORC Torrent ships a development `Mock Provider` and a strict `Open Content Feed` provider for legal/public-domain/open-license catalogs.
-- Built-in movie search providers (`YTS`, `The Pirate Bay`, `1337x`) are available but **disabled by default**; enable them in Search Settings if you want movie index results alongside Internet Archive.
-- Custom providers can now be added with either the built-in open-content JSON format or standard RSS/Atom torrent feeds for compliant catalogs.
-- Search results are display-only until the user manually clicks `Add`; the client never auto-downloads from search.
-- The UI reminder is: `Only use torrents you have the legal right to download.`
+- Optional built-in movie search providers (`YTS`, `The Pirate Bay`, `1337x`) are **disabled by default**; enable them in Search Settings if you want movie index results alongside Internet Archive.
+- Custom providers can be added with either the built-in open-content JSON format or standard RSS/Atom torrent feeds for compliant catalogs.
+- Search results are display-only until the user manually clicks **Add**; the client never auto-downloads from search.
+- The UI reminder is: *Only use torrents you have the legal right to download.*
 
 **Config file** (e.g. listen port):
 
@@ -211,11 +236,12 @@ Packaging in `ui/desktop/package.json` keeps `forceCodeSigning` and `signAndEdit
 
 ## Usage
 
-1. Install using the Windows installer (or run the portable build) and start **ORC TORRENT**.
-2. The app starts the daemon automatically and waits until it’s healthy before showing the UI.
+1. Download the installer or portable archive for your OS from [GitHub Releases](https://github.com/The-animus-project/Orc-Torrent/releases).
+2. Start **ORC TORRENT**. The app starts the daemon automatically and waits until it’s healthy before showing the UI.
 3. Add torrents via drag-and-drop, file picker, or associated magnet links.
 4. Use the torrent list and inspector for overview, files, peers, trackers, and transfers.
-5. Configure VPN, kill switch, and network posture in the app’s network and settings areas.
+5. Configure VPN, kill switch, network posture, watch folders, seeding, and bandwidth in Settings.
+6. Enable **Settings → Updates** to receive new releases from GitHub automatically.
 
 ---
 
@@ -225,7 +251,7 @@ We welcome contributions. The codebase is organized so the daemon and desktop ca
 
 - **Rust**: From `crates/`, run `cargo build --release -p orc-daemon`; run tests with `cargo test`.
 - **Desktop**: From `ui/desktop/`, run `npm run dev` for development; `npm run build` then `npm run dist` for a full package.
-- **CI**: The workflow in [.github/workflows/build-release.yml](.github/workflows/build-release.yml) runs on `workflow_dispatch` or tags `v*`, builds the Windows installer and zip, and can create a GitHub Release with those artifacts.
+- **CI**: The workflow in [.github/workflows/build-release.yml](.github/workflows/build-release.yml) runs on `workflow_dispatch` or tags `v*`, builds macOS, Linux, and Windows installers, and attaches them to the GitHub Release.
 
 If you’re not sure where to start, check the [roadmap](#roadmap) and open issues—we’re happy to point you to a good first task.
 
