@@ -10,35 +10,33 @@ interface DropZoneProps {
 /**
  * Drop zone overlay for drag-and-drop torrent files and magnet links
  */
-export const DropZone = memo<DropZoneProps>(({
-  onFileDrop,
-  onMagnetDrop,
-  disabled = false,
-  children,
-}) => {
+export const DropZone = memo<DropZoneProps>(({ onFileDrop, onMagnetDrop, disabled = false, children }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
 
-  const handleDragEnter = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (disabled) return;
-    
-    dragCounter.current++;
-    
-    // Check if dragging files or text (for magnet links)
-    if (e.dataTransfer?.types.includes("Files") || e.dataTransfer?.types.includes("text/plain")) {
-      setIsDragging(true);
-    }
-  }, [disabled]);
+  const handleDragEnter = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (disabled) return;
+
+      dragCounter.current++;
+
+      // Check if dragging files or text (for magnet links)
+      if (e.dataTransfer?.types.includes("Files") || e.dataTransfer?.types.includes("text/plain")) {
+        setIsDragging(true);
+      }
+    },
+    [disabled]
+  );
 
   const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     dragCounter.current--;
-    
+
     if (dragCounter.current === 0) {
       setIsDragging(false);
     }
@@ -49,41 +47,44 @@ export const DropZone = memo<DropZoneProps>(({
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    setIsDragging(false);
-    dragCounter.current = 0;
-    
-    if (disabled) return;
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    // Check for files first
-    const files = e.dataTransfer?.files;
-    if (files && files.length > 0) {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (file.name.endsWith(".torrent")) {
-          onFileDrop(file);
-          return; // Only handle first valid torrent file
+      setIsDragging(false);
+      dragCounter.current = 0;
+
+      if (disabled) return;
+
+      // Check for files first
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file.name.endsWith(".torrent")) {
+            onFileDrop(file);
+            return; // Only handle first valid torrent file
+          }
         }
       }
-    }
 
-    // Check for magnet link in text
-    const text = e.dataTransfer?.getData("text/plain");
-    if (text && text.trim().startsWith("magnet:?")) {
-      onMagnetDrop(text.trim());
-      return;
-    }
+      // Check for magnet link in text
+      const text = e.dataTransfer?.getData("text/plain");
+      if (text && text.trim().startsWith("magnet:?")) {
+        onMagnetDrop(text.trim());
+        return;
+      }
 
-    // Check for magnet link in URL
-    const url = e.dataTransfer?.getData("text/uri-list");
-    if (url && url.trim().startsWith("magnet:?")) {
-      onMagnetDrop(url.trim());
-      return;
-    }
-  }, [disabled, onFileDrop, onMagnetDrop]);
+      // Check for magnet link in URL
+      const url = e.dataTransfer?.getData("text/uri-list");
+      if (url && url.trim().startsWith("magnet:?")) {
+        onMagnetDrop(url.trim());
+        return;
+      }
+    },
+    [disabled, onFileDrop, onMagnetDrop]
+  );
 
   // Set up event listeners on the document
   useEffect(() => {
@@ -108,9 +109,7 @@ export const DropZone = memo<DropZoneProps>(({
           <div className="dropZoneContent">
             <div className="dropZoneIcon">📥</div>
             <div className="dropZoneTitle">Drop to Add Torrent</div>
-            <div className="dropZoneSubtitle">
-              Drop a .torrent file or magnet link
-            </div>
+            <div className="dropZoneSubtitle">Drop a .torrent file or magnet link</div>
           </div>
         </div>
       )}

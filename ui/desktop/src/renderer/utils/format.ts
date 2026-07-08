@@ -10,7 +10,10 @@ export function fmtBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
   let v = bytes;
-  while (v > 1024 && i < units.length - 1) { v /= 1024; i++; }
+  while (v > 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
@@ -24,7 +27,10 @@ export function fmtBytesPerSec(bps: number): string {
   const units = ["B/s", "KB/s", "MB/s", "GB/s"];
   let i = 0;
   let v = bps;
-  while (v > 1024 && i < units.length - 1) { v /= 1024; i++; }
+  while (v > 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
@@ -59,16 +65,16 @@ export function fmtEta(sec: number | null | undefined, state?: string): string {
   if (state === "seeding" || state === "complete") return "Seeding";
   if (state === "stopped" || state === "paused") return "—";
   if (state === "error") return "—";
-  
+
   // Invalid or zero ETA
   if (sec === null || sec === undefined || sec <= 0 || !isFinite(sec)) return "∞";
-  
+
   // Format time (cap very large ETA for display)
   const s = Math.min(Math.floor(sec), 999 * 3600);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const ss = s % 60;
-  
+
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${ss}s`;
   return `${ss}s`;
@@ -77,7 +83,7 @@ export function fmtEta(sec: number | null | undefined, state?: string): string {
 export function fmtSpeedDownUp(downBps: number, upBps: number): string {
   const down = downBps > 0 ? fmtBytesPerSec(downBps) : null;
   const up = upBps > 0 ? fmtBytesPerSec(upBps) : null;
-  
+
   if (down && up) return `↓ ${down} ↑ ${up}`;
   if (down) return `↓ ${down}`;
   if (up) return `↑ ${up}`;
@@ -97,15 +103,15 @@ export function fmtTimeElapsed(addedAtMs: number): string {
   const now = Date.now();
   const elapsedMs = now - addedAtMs;
   const elapsedSec = Math.floor(elapsedMs / 1000);
-  
+
   if (elapsedSec < 60) return "Just started";
-  
+
   const h = Math.floor(elapsedSec / 3600);
   const m = Math.floor((elapsedSec % 3600) / 60);
   const s = elapsedSec % 60;
   const d = Math.floor(h / 24);
   const hours = h % 24;
-  
+
   if (d > 0) return `${d}d ${hours}h`;
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${s}s`;
@@ -116,7 +122,7 @@ export function fmtSizeProgress(downloadedBytes: number, totalBytes: number): st
   if (!totalBytes || totalBytes === 0) {
     return "Downloading metadata...";
   }
-  
+
   const downloaded = fmtBytes(downloadedBytes);
   const total = fmtBytes(totalBytes);
   return `${downloaded} / ${total}`;
@@ -128,7 +134,7 @@ export async function fileToBase64(file: File): Promise<string> {
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error("File read timed out")), FILE_READ_TIMEOUT_MS);
   });
-  
+
   const readPromise = file.arrayBuffer().then((buf) => {
     const bytes = new Uint8Array(buf);
     let binary = "";
@@ -138,6 +144,6 @@ export async function fileToBase64(file: File): Promise<string> {
     }
     return btoa(binary);
   });
-  
+
   return Promise.race([readPromise, timeoutPromise]);
 }

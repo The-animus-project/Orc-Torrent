@@ -40,10 +40,7 @@ export function createEvent(
 /**
  * Add an event to the event list, maintaining max size
  */
-export function addEvent(
-  events: TorrentEvent[],
-  event: TorrentEvent
-): TorrentEvent[] {
+export function addEvent(events: TorrentEvent[], event: TorrentEvent): TorrentEvent[] {
   const newEvents = [event, ...events];
   if (newEvents.length > MAX_EVENTS) {
     return newEvents.slice(0, MAX_EVENTS);
@@ -61,10 +58,7 @@ export function clearEvents(): TorrentEvent[] {
 /**
  * Filter events by type
  */
-export function filterEventsByType(
-  events: TorrentEvent[],
-  types: EventType[]
-): TorrentEvent[] {
+export function filterEventsByType(events: TorrentEvent[], types: EventType[]): TorrentEvent[] {
   if (types.length === 0) return events;
   return events.filter((e) => types.includes(e.type));
 }
@@ -72,10 +66,7 @@ export function filterEventsByType(
 /**
  * Filter events by severity
  */
-export function filterEventsBySeverity(
-  events: TorrentEvent[],
-  severities: EventSeverity[]
-): TorrentEvent[] {
+export function filterEventsBySeverity(events: TorrentEvent[], severities: EventSeverity[]): TorrentEvent[] {
   if (severities.length === 0) return events;
   return events.filter((e) => severities.includes(e.severity));
 }
@@ -83,10 +74,7 @@ export function filterEventsBySeverity(
 /**
  * Search events by message or torrent name
  */
-export function searchEvents(
-  events: TorrentEvent[],
-  query: string
-): TorrentEvent[] {
+export function searchEvents(events: TorrentEvent[], query: string): TorrentEvent[] {
   if (!query.trim()) return events;
   const lowerQuery = query.toLowerCase();
   return events.filter(
@@ -197,7 +185,7 @@ export function formatEventDateTime(timestamp: number): string {
 export function getRelativeTime(timestamp: number): string {
   const now = Date.now();
   const diff = now - timestamp;
-  
+
   if (diff < 1000) return "just now";
   if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
@@ -226,12 +214,7 @@ export const ALL_EVENT_TYPES: EventType[] = [
 /**
  * All severity levels for filtering
  */
-export const ALL_SEVERITIES: EventSeverity[] = [
-  "info",
-  "warning",
-  "error",
-  "success",
-];
+export const ALL_SEVERITIES: EventSeverity[] = ["info", "warning", "error", "success"];
 
 /**
  * Get severity color class

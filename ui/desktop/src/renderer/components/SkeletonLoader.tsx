@@ -34,12 +34,7 @@ export const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({
     );
   }
 
-  return (
-    <div
-      className={`skeleton ${className}`}
-      style={{ width, height, borderRadius }}
-    />
-  );
+  return <div className={`skeleton ${className}`} style={{ width, height, borderRadius }} />;
 };
 
 export const SkeletonRow: React.FC<{ columns?: number }> = ({ columns = 5 }) => {
@@ -47,11 +42,7 @@ export const SkeletonRow: React.FC<{ columns?: number }> = ({ columns = 5 }) => 
     <tr className="skeleton-row">
       {Array.from({ length: columns }).map((_, i) => (
         <td key={i} className="tableCell">
-          <SkeletonLoader
-            width={i === 0 ? "80%" : "60%"}
-            height="var(--space-4)"
-            borderRadius="var(--radius-sm)"
-          />
+          <SkeletonLoader width={i === 0 ? "80%" : "60%"} height="var(--space-4)" borderRadius="var(--radius-sm)" />
         </td>
       ))}
     </tr>

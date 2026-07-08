@@ -4,15 +4,53 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ORC TORRENT</title>
+    <script>
+      (function () {
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var edition = params.get("edition") === "animus" ? "animus" : "standard";
+          if (edition === "animus") {
+            document.documentElement.dataset.appEdition = "animus";
+            document.documentElement.dataset.appTheme = "dark";
+            document.documentElement.style.colorScheme = "dark";
+            return;
+          }
+          var snapshot = window.orc && window.orc.theme && window.orc.theme.getSnapshot ? window.orc.theme.getSnapshot() : null;
+          var theme = snapshot && (snapshot.resolved === "dark" || snapshot.resolved === "light")
+            ? snapshot.resolved
+            : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.documentElement.dataset.appTheme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch (_err) {
+          document.documentElement.dataset.appTheme = "light";
+          document.documentElement.style.colorScheme = "light";
+        }
+      })();
+    </script>
     <style>
       /* Critical CSS - ensures something is visible immediately */
+      :root {
+        --bootstrap-bg: linear-gradient(180deg, #f8f3ea 0%, #f1eadf 100%);
+        --bootstrap-text: #1b1a17;
+      }
+      html[data-app-theme="dark"] {
+        --bootstrap-bg: linear-gradient(180deg, #111318 0%, #0b0d11 100%);
+        --bootstrap-text: #f5f7fb;
+      }
+      html[data-app-edition="animus"] {
+        --bootstrap-bg:
+          radial-gradient(circle at 18% 20%, rgba(157, 255, 0, 0.12) 0%, transparent 28%),
+          radial-gradient(circle at 82% 14%, rgba(255, 255, 255, 0.04) 0%, transparent 24%),
+          linear-gradient(180deg, #050605 0%, #020302 100%);
+        --bootstrap-text: #f4f4f4;
+      }
       html, body {
         margin: 0;
         padding: 0;
         width: 100%;
         height: 100%;
-        background: #000000;
-        color: #ffffff;
+        background: var(--bootstrap-bg);
+        color: var(--bootstrap-text);
         font-family: system-ui, -apple-system, sans-serif;
         overflow: hidden;
       }
@@ -21,7 +59,7 @@
         height: 100%;
         min-height: 100vh;
         display: block;
-        background: #000000;
+        background: var(--bootstrap-bg);
       }
       /* Loading fallback if JS doesn't load */
       body:not(.js-loaded) #root::before {
@@ -53,12 +91,13 @@
           var msg = escapeHtml(e.message || 'Unknown error');
           var root = document.getElementById('root');
           if (root) {
-            root.innerHTML = '<div style="padding: 40px; color: #ffffff; background: #000000; font-family: monospace; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;"><h1 style="color: #ff4444;">Failed to load application</h1><p>JavaScript module failed to load.</p><p style="font-size: 12px; opacity: 0.7;">Error: ' + msg + '</p></div>';
+            var theme = document.documentElement.dataset.appTheme === 'dark' ? 'dark' : 'light';
+            var bg = theme === 'dark' ? 'linear-gradient(180deg, #111318 0%, #0b0d11 100%)' : 'linear-gradient(180deg, #f8f3ea 0%, #f1eadf 100%)';
+            var fg = theme === 'dark' ? '#f5f7fb' : '#1b1a17';
+            root.innerHTML = '<div style="padding: 40px; color: ' + fg + '; background: ' + bg + '; font-family: monospace; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;"><h1 style="color: #ff4444;">Failed to load application</h1><p>JavaScript module failed to load.</p><p style="font-size: 12px; opacity: 0.7;">Error: ' + msg + '</p></div>';
           }
         }
       });
-      // Mark JS as loaded when script executes
-      document.body.className = 'js-loaded';
     </script>
   </body>
 </html>

@@ -36,7 +36,7 @@ export function getErrorMessage(error: unknown, fallback = "An unknown error occ
  */
 export function isNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  
+
   const message = error.message.toLowerCase();
   return (
     message.includes("fetch") ||
@@ -53,11 +53,11 @@ export function isNetworkError(error: unknown): boolean {
  */
 export function isClientError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  
+
   if (isApiError(error)) {
     return typeof error.status === "number" && error.status >= 400 && error.status < 500;
   }
-  
+
   return false;
 }
 
@@ -66,10 +66,10 @@ export function isClientError(error: unknown): boolean {
  */
 export function formatErrorForUser(error: unknown, context?: string): string {
   const message = getErrorMessage(error);
-  
+
   if (context) {
     return `${context}: ${message}`;
   }
-  
+
   return message;
 }

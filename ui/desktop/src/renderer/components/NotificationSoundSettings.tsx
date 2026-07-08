@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   setNotificationSoundUrl,
   previewNotificationSound,
@@ -8,45 +8,76 @@ import {
   NOTIFY_ON_COMPLETION_STORAGE_KEY,
   NOTIFY_ON_KILL_SWITCH_STORAGE_KEY,
 } from "../utils/notifications";
+import {
+  getCustomSoundSelectValue,
+  getNotificationSoundSelectOptions,
+  isCustomNotificationSoundUrl,
+  parseDefaultNotificationSoundUrl,
+  readStoredNotificationSoundPreference,
+  storedNotificationSoundPreferenceToUrl,
+} from "../../shared/notificationSoundRegistry";
 
 interface NotificationSoundSettingsProps {
   onError?: (msg: string) => void;
   onSuccess?: (msg: string) => void;
 }
 
-function defaultSoundLabel(filename: string): string {
-  return filename.replace(/\.mp3$/i, "").replace(/\s*[-–—|]\s*.*$/, "").trim() || filename;
-}
-
 export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({ onError, onSuccess }) => {
   const [currentUrl, setCurrentUrl] = useState<string | null>(null);
-  const [defaultSounds, setDefaultSounds] = useState<string[]>([]);
+  const [diskSounds, setDiskSounds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [notifyOnCompletion, setNotifyOnCompletion] = useState(() => getNotifyOnCompletion());
   const [notifyOnKillSwitch, setNotifyOnKillSwitch] = useState(() => getNotifyOnKillSwitch());
 
   const refreshUrl = useCallback(async () => {
-    if (typeof window.orc?.notificationSound?.getUrl !== "function") return null;
-    const url = await window.orc.notificationSound.getUrl();
+    let url: string | null = null;
+    if (typeof window.orc?.notificationSound?.getPreference === "function") {
+      const preference = await window.orc.notificationSound.getPreference();
+      if (typeof window.orc.notificationSound.getUrl === "function") {
+        url = await window.orc.notificationSound.getUrl();
+      }
+      url = url ?? storedNotificationSoundPreferenceToUrl(preference);
+    } else if (typeof window.orc?.notificationSound?.getUrl === "function") {
+      url = await window.orc.notificationSound.getUrl();
+    } else {
+      const stored = readStoredNotificationSoundPreference();
+      url = stored ? storedNotificationSoundPreferenceToUrl(stored) : null;
+    }
     setCurrentUrl(url);
     setNotificationSoundUrl(url);
     return url;
   }, []);
 
+  const refreshDiskSounds = useCallback(async () => {
+    if (typeof window.orc?.notificationSound?.getDefaults !== "function") {
+      setDiskSounds([]);
+      return;
+    }
+    const list = await window.orc.notificationSound.getDefaults();
+    setDiskSounds(list);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (typeof window.orc?.notificationSound?.getDefaults === "function") {
-        const list = await window.orc.notificationSound.getDefaults();
-        if (!cancelled) setDefaultSounds(list);
-      }
+      await refreshDiskSounds();
       await refreshUrl();
       if (!cancelled) setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshUrl]);
+  }, [refreshDiskSounds, refreshUrl]);
+
+  const isCustom = isCustomNotificationSoundUrl(currentUrl);
+  const isBuiltIn = currentUrl === null;
+  const currentDefaultFilename = parseDefaultNotificationSoundUrl(currentUrl);
+  const customSelectValue = getCustomSoundSelectValue();
+
+  const soundOptions = useMemo(() => getNotificationSoundSelectOptions(diskSounds, isCustom), [diskSounds, isCustom]);
+
+  const dropdownValue = isBuiltIn ? "" : isCustom ? customSelectValue : (currentDefaultFilename ?? "");
+  const dropdownValueInOptions = soundOptions.some((o) => o.value === dropdownValue);
 
   const handleSetDefault = useCallback(
     async (filename: string): Promise<boolean> => {
@@ -57,29 +88,33 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
       const ok = await window.orc.notificationSound.setDefault(filename);
       if (ok) {
         await refreshUrl();
-        onSuccess?.(`Notification sound: ${defaultSoundLabel(filename)}`);
+        await refreshDiskSounds();
+        const label = soundOptions.find((o) => o.value === filename)?.label ?? filename;
+        onSuccess?.(`Notification sound: ${label}`);
         return true;
       }
       onError?.("Failed to set default sound");
       return false;
     },
-    [refreshUrl, onError, onSuccess]
+    [refreshUrl, refreshDiskSounds, onError, onSuccess, soundOptions]
   );
 
   const handleChooseFile = useCallback(async () => {
     if (typeof window.orc?.notificationSound?.chooseFile !== "function") {
       onError?.("Notification sound is not available");
-      return;
+      return false;
     }
     const ok = await window.orc.notificationSound.chooseFile();
     if (ok) {
       await refreshUrl();
+      await refreshDiskSounds();
       onSuccess?.("Custom notification sound saved");
       previewNotificationSound();
-    } else {
-      onError?.("No file selected or save failed");
+      return true;
     }
-  }, [refreshUrl, onError, onSuccess]);
+    onError?.("No file selected or save failed");
+    return false;
+  }, [refreshUrl, refreshDiskSounds, onError, onSuccess]);
 
   const handleClear = useCallback(async () => {
     if (typeof window.orc?.notificationSound?.clear !== "function") return;
@@ -118,27 +153,31 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
     }
   }, []);
 
-  const currentDefaultFilename =
-    currentUrl?.startsWith("app://default-notification-sounds/") ?
-      decodeURIComponent(currentUrl.replace("app://default-notification-sounds/", "").replace(/\?.*$/, ""))
-    : null;
-  const isCustom = currentUrl === "app://notification-sound";
-  const isBuiltIn = currentUrl === null;
-
-  const dropdownValue = isBuiltIn ? "" : isCustom ? "__custom__" : (currentDefaultFilename ?? "");
-
   const handleDropdownChange = useCallback(
     async (e: React.ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value;
       if (value === "") {
         await handleClear();
         previewNotificationSound();
-      } else if (value !== "__custom__") {
-        const ok = await handleSetDefault(value);
-        if (ok) previewNotificationSound();
+        return;
       }
+      if (value === customSelectValue) {
+        if (!isCustom) {
+          await handleChooseFile();
+        } else {
+          previewNotificationSound();
+        }
+        return;
+      }
+      const option = soundOptions.find((o) => o.value === value);
+      if (!option?.available) {
+        onError?.("That sound file is missing from the notification-sounds folder");
+        return;
+      }
+      const ok = await handleSetDefault(value);
+      if (ok) previewNotificationSound();
     },
-    [handleClear, handleSetDefault]
+    [customSelectValue, handleClear, handleChooseFile, handleSetDefault, isCustom, onError, soundOptions]
   );
 
   if (loading) {
@@ -150,11 +189,13 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
     );
   }
 
+  const missingBundledCount = soundOptions.filter((o) => o.kind === "bundled" && !o.available).length;
+
   return (
     <div className="notificationSoundSettings">
       <div className="securitySettingsSectionTitle">Notification sound</div>
-      <div className="notificationToggles" style={{ marginBottom: 12 }}>
-        <label className="notificationToggleLabel" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+      <div className="notificationToggles">
+        <label className="notificationToggleLabel">
           <input
             type="checkbox"
             checked={notifyOnCompletion}
@@ -163,7 +204,7 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
           />
           <span>Desktop notification when a download finishes</span>
         </label>
-        <label className="notificationToggleLabel" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 6 }}>
+        <label className="notificationToggleLabel">
           <input
             type="checkbox"
             checked={notifyOnKillSwitch}
@@ -174,29 +215,40 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
         </label>
       </div>
       <p className="notificationSoundDescription">
-        Sound played when a torrent completes or when the kill switch activates. Choose from the list below, or add more MP3 files to the app’s notification-sounds folder to see them here.
+        Sound played when a torrent completes or when the kill switch activates. All bundled sounds are listed below;
+        pick &quot;Custom sound…&quot; or use Choose custom file to use your own audio.
       </p>
+      {missingBundledCount > 0 ? (
+        <p className="notificationSoundDescription notificationSoundWarning">
+          {missingBundledCount} bundled sound{missingBundledCount === 1 ? "" : "s"} missing from the app folder and
+          cannot be selected until the MP3 is installed.
+        </p>
+      ) : null}
       <div className="notificationSoundActions">
-        <div className="notificationSoundDefaults" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          <label className="notificationSoundDefaultsLabel" htmlFor="notification-sound-select" style={{ marginBottom: 0 }}>
+        <div className="notificationSoundDefaults notificationSoundDefaultsRow">
+          <label
+            className="notificationSoundDefaultsLabel notificationSoundDefaultsLabelInline"
+            htmlFor="notification-sound-select"
+          >
             Notification sound:
           </label>
           <select
             id="notification-sound-select"
             className="notificationSoundSelect"
-            value={dropdownValue}
+            value={dropdownValueInOptions ? dropdownValue : ""}
             onChange={handleDropdownChange}
             aria-label="Select notification sound"
           >
-            <option value="">Built-in tone</option>
-            {defaultSounds.map((name) => (
-              <option key={name} value={name}>
-                {defaultSoundLabel(name)}
+            {!dropdownValueInOptions && dropdownValue ? (
+              <option value={dropdownValue} disabled>
+                {dropdownValue} (missing — pick another sound)
+              </option>
+            ) : null}
+            {soundOptions.map((option) => (
+              <option key={option.value || "builtin"} value={option.value} disabled={!option.available}>
+                {option.available ? option.label : `${option.label} (not installed)`}
               </option>
             ))}
-            {isCustom && (
-              <option value="__custom__">Custom sound</option>
-            )}
           </select>
           <button
             type="button"
@@ -208,10 +260,10 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
             ▶ Test sound
           </button>
         </div>
-        <p className="notificationSoundDescription" style={{ marginTop: 4, marginBottom: 0, fontSize: 12 }}>
+        <p className="notificationSoundDescription notificationSoundHint">
           Click &quot;Test sound&quot; to play the selected sound, or change the dropdown to switch and hear it.
         </p>
-        <div className="profileButtons" style={{ marginTop: 8 }}>
+        <div className="profileButtons notificationSoundButtons">
           <button type="button" className="btn" onClick={handleChooseFile} title="Select your own audio file">
             Choose custom file…
           </button>
@@ -220,7 +272,6 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
             className="btn ghost"
             onClick={handleSendTestDesktopNotification}
             title="Show a test desktop popup using the selected sound"
-            style={{ marginLeft: 8 }}
           >
             Send test desktop notification
           </button>

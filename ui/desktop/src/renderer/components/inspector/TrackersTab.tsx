@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useState, useEffect, useMemo } from "react";
+import { useAdaptiveInterval, usePollingController } from "../../hooks";
 import type { Torrent } from "../../types";
 import { getJson, postJson } from "../../utils/api";
 import { logger } from "../../utils/logger";
@@ -28,13 +29,8 @@ interface TrackersTabProps {
 type SortField = "url" | "status" | "seeders" | "leechers" | "lastAnnounce";
 type SortDirection = "asc" | "desc";
 
-export const TrackersTab = memo<TrackersTabProps>(({
-  torrent,
-  online,
-  onUpdate,
-  onError,
-  onSuccess,
-}) => {
+export const TrackersTab = memo<TrackersTabProps>(({ torrent, online, onUpdate, onError, onSuccess }) => {
+  const { intervals } = usePollingController();
   const [trackers, setTrackers] = useState<Tracker[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortField, setSortField] = useState<SortField>("status");
@@ -44,13 +40,16 @@ export const TrackersTab = memo<TrackersTabProps>(({
   // Fetch trackers from API
   const fetchTrackers = useCallback(async () => {
     if (!online) return;
-    
+
     setLoading(true);
     try {
       const data = await getJson<{ trackers: Tracker[] }>(`/torrents/${torrent.id}/trackers`);
       const trackerList = data.trackers || [];
-      logger.logWithPrefix("TrackersTab", `Received ${trackerList.length} trackers for torrent ${torrent.id}:`, 
-        trackerList.map(t => t.url));
+      logger.logWithPrefix(
+        "TrackersTab",
+        `Received ${trackerList.length} trackers for torrent ${torrent.id}:`,
+        trackerList.map((t) => t.url)
+      );
       setTrackers(trackerList);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to fetch trackers";
@@ -66,12 +65,7 @@ export const TrackersTab = memo<TrackersTabProps>(({
     fetchTrackers();
   }, [fetchTrackers]);
 
-  // Auto-refresh trackers every 10 seconds when online
-  useEffect(() => {
-    if (!online) return;
-    const interval = setInterval(fetchTrackers, 10000);
-    return () => clearInterval(interval);
-  }, [online, fetchTrackers]);
+  useAdaptiveInterval(fetchTrackers, intervals.trackers, online);
 
   // Force announce to all trackers
   const handleForceAnnounce = useCallback(async () => {
@@ -89,15 +83,18 @@ export const TrackersTab = memo<TrackersTabProps>(({
   }, [torrent.id, online, onUpdate, onError, onSuccess, fetchTrackers]);
 
   // Copy tracker URL to clipboard
-  const handleCopyUrl = useCallback(async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedUrl(url);
-      setTimeout(() => setCopiedUrl(null), 2000);
-    } catch {
-      onError("Failed to copy URL to clipboard");
-    }
-  }, [onError]);
+  const handleCopyUrl = useCallback(
+    async (url: string) => {
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopiedUrl(url);
+        setTimeout(() => setCopiedUrl(null), 2000);
+      } catch {
+        onError("Failed to copy URL to clipboard");
+      }
+    },
+    [onError]
+  );
 
   // Get tracker type from URL
   const getTrackerType = useCallback((url: string): "http" | "udp" | "wss" | "dht" => {
@@ -110,17 +107,21 @@ export const TrackersTab = memo<TrackersTabProps>(({
   // Get tracker type icon
   const getTrackerTypeIcon = useCallback((type: "http" | "udp" | "wss" | "dht"): string => {
     switch (type) {
-      case "udp": return "◈"; // Diamond for UDP
-      case "wss": return "◎"; // Circle for WebSocket
-      case "dht": return "◉"; // Filled circle for DHT
-      default: return "●"; // Bullet for HTTP
+      case "udp":
+        return "◈"; // Diamond for UDP
+      case "wss":
+        return "◎"; // Circle for WebSocket
+      case "dht":
+        return "◉"; // Filled circle for DHT
+      default:
+        return "●"; // Bullet for HTTP
     }
   }, []);
 
   // Summary statistics (backend uses "not_working" for tracker errors)
   const stats = useMemo(() => {
-    const working = trackers.filter(t => t.status === "working").length;
-    const error = trackers.filter(t => t.status === "error" || t.status === "not_working").length;
+    const working = trackers.filter((t) => t.status === "working").length;
+    const error = trackers.filter((t) => t.status === "error" || t.status === "not_working").length;
     const totalSeeders = trackers.reduce((sum, t) => sum + (t.seeders ?? 0), 0);
     const totalLeechers = trackers.reduce((sum, t) => sum + (t.leechers ?? 0), 0);
     return { working, error, totalSeeders, totalLeechers, total: trackers.length };
@@ -136,7 +137,14 @@ export const TrackersTab = memo<TrackersTabProps>(({
           cmp = a.url.localeCompare(b.url);
           break;
         case "status": {
-          const statusOrder: Record<string, number> = { working: 0, updating: 1, unknown: 2, error: 3, not_working: 3, disabled: 4 };
+          const statusOrder: Record<string, number> = {
+            working: 0,
+            updating: 1,
+            unknown: 2,
+            error: 3,
+            not_working: 3,
+            disabled: 4,
+          };
           cmp = (statusOrder[a.status] ?? 2) - (statusOrder[b.status] ?? 2);
           break;
         }
@@ -156,14 +164,17 @@ export const TrackersTab = memo<TrackersTabProps>(({
   }, [trackers, sortField, sortDirection]);
 
   // Handle column sort
-  const handleSort = useCallback((field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(prev => prev === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDirection("asc");
-    }
-  }, [sortField]);
+  const handleSort = useCallback(
+    (field: SortField) => {
+      if (sortField === field) {
+        setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      } else {
+        setSortField(field);
+        setSortDirection("asc");
+      }
+    },
+    [sortField]
+  );
 
   // Format timestamp to relative time
   const formatTimestamp = (ms: number | null): string => {
@@ -186,12 +197,17 @@ export const TrackersTab = memo<TrackersTabProps>(({
   // Get status display info (backend uses "not_working" for tracker errors)
   const getStatusInfo = useCallback((status: string): { class: string; icon: string; label: string } => {
     switch (status) {
-      case "working": return { class: "ok", icon: "✓", label: "Working" };
-      case "updating": return { class: "updating", icon: "↻", label: "Updating" };
+      case "working":
+        return { class: "ok", icon: "✓", label: "Working" };
+      case "updating":
+        return { class: "updating", icon: "↻", label: "Updating" };
       case "error":
-      case "not_working": return { class: "error", icon: "✗", label: "Error" };
-      case "disabled": return { class: "disabled", icon: "○", label: "Disabled" };
-      default: return { class: "", icon: "?", label: "Unknown" };
+      case "not_working":
+        return { class: "error", icon: "✗", label: "Error" };
+      case "disabled":
+        return { class: "disabled", icon: "○", label: "Disabled" };
+      default:
+        return { class: "", icon: "?", label: "Unknown" };
     }
   }, []);
 
@@ -252,115 +268,122 @@ export const TrackersTab = memo<TrackersTabProps>(({
             ANNOUNCE ALL
           </button>
         </div>
-        
+
         <div className="trackerList">
           {!online ? (
             <div className="empty">
               <div className="emptyIcon">📡</div>
               <div className="emptyTitle">Not Connected</div>
-              <div className="emptySubtitle">
-                Connect to daemon to view tracker information
-              </div>
+              <div className="emptySubtitle">Connect to daemon to view tracker information</div>
             </div>
           ) : trackers.length === 0 && !loading ? (
             <div className="empty">
               <div className="emptyIcon">📋</div>
               <div className="emptyTitle">No Trackers</div>
               <div className="emptySubtitle">
-                This torrent has no trackers configured.<br />
+                This torrent has no trackers configured.
+                <br />
                 Peer discovery relies on DHT and PEX.
               </div>
             </div>
-          ) : trackers.length > 0 && (
-            <table className="table trackerTable">
-              <thead>
-                <tr>
-                  <th className="tableHeader sortable" onClick={() => handleSort("status")} style={{ width: "100px" }}>
-                    <div className="tableHeaderContent">
-                      Status <SortIndicator field="status" />
-                    </div>
-                  </th>
-                  <th className="tableHeader sortable" onClick={() => handleSort("url")}>
-                    <div className="tableHeaderContent">
-                      Tracker URL <SortIndicator field="url" />
-                    </div>
-                  </th>
-                  <th className="tableHeader sortable" onClick={() => handleSort("seeders")} style={{ width: "80px", textAlign: "right" }}>
-                    <div className="tableHeaderContent" style={{ justifyContent: "flex-end" }}>
-                      Seeds <SortIndicator field="seeders" />
-                    </div>
-                  </th>
-                  <th className="tableHeader sortable" onClick={() => handleSort("leechers")} style={{ width: "80px", textAlign: "right" }}>
-                    <div className="tableHeaderContent" style={{ justifyContent: "flex-end" }}>
-                      Peers <SortIndicator field="leechers" />
-                    </div>
-                  </th>
-                  <th className="tableHeader sortable" onClick={() => handleSort("lastAnnounce")} style={{ width: "120px" }}>
-                    <div className="tableHeaderContent">
-                      Last Update <SortIndicator field="lastAnnounce" />
-                    </div>
-                  </th>
-                  <th className="tableHeader" style={{ width: "100px" }}>
-                    Next Announce
-                  </th>
-                  <th className="tableHeader" style={{ width: "50px" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedTrackers.map((tracker, index) => {
-                  const statusInfo = getStatusInfo(tracker.status);
-                  const trackerType = getTrackerType(tracker.url);
-                  return (
-                    <tr key={`${tracker.url}-${index}`} className="tableRow">
-                      <td className="tableCell">
-                        <span className={`trackerStatus ${statusInfo.class}`}>
-                          <span className="trackerStatusIcon">{statusInfo.icon}</span>
-                          <span className="trackerStatusLabel">{statusInfo.label}</span>
-                        </span>
-                      </td>
-                      <td className="tableCell">
-                        <div className="trackerUrlCell">
-                          <span className="trackerTypeIcon" title={trackerType.toUpperCase()}>
-                            {getTrackerTypeIcon(trackerType)}
+          ) : (
+            trackers.length > 0 && (
+              <table className="table trackerTable">
+                <thead>
+                  <tr>
+                    <th
+                      className="tableHeader sortable"
+                      onClick={() => handleSort("status")}
+                      style={{ width: "100px" }}
+                    >
+                      <div className="tableHeaderContent">
+                        Status <SortIndicator field="status" />
+                      </div>
+                    </th>
+                    <th className="tableHeader sortable" onClick={() => handleSort("url")}>
+                      <div className="tableHeaderContent">
+                        Tracker URL <SortIndicator field="url" />
+                      </div>
+                    </th>
+                    <th
+                      className="tableHeader sortable"
+                      onClick={() => handleSort("seeders")}
+                      style={{ width: "80px", textAlign: "right" }}
+                    >
+                      <div className="tableHeaderContent" style={{ justifyContent: "flex-end" }}>
+                        Seeds <SortIndicator field="seeders" />
+                      </div>
+                    </th>
+                    <th
+                      className="tableHeader sortable"
+                      onClick={() => handleSort("leechers")}
+                      style={{ width: "80px", textAlign: "right" }}
+                    >
+                      <div className="tableHeaderContent" style={{ justifyContent: "flex-end" }}>
+                        Peers <SortIndicator field="leechers" />
+                      </div>
+                    </th>
+                    <th
+                      className="tableHeader sortable"
+                      onClick={() => handleSort("lastAnnounce")}
+                      style={{ width: "120px" }}
+                    >
+                      <div className="tableHeaderContent">
+                        Last Update <SortIndicator field="lastAnnounce" />
+                      </div>
+                    </th>
+                    <th className="tableHeader" style={{ width: "100px" }}>
+                      Next Announce
+                    </th>
+                    <th className="tableHeader" style={{ width: "50px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTrackers.map((tracker, index) => {
+                    const statusInfo = getStatusInfo(tracker.status);
+                    const trackerType = getTrackerType(tracker.url);
+                    return (
+                      <tr key={`${tracker.url}-${index}`} className="tableRow">
+                        <td className="tableCell">
+                          <span className={`trackerStatus ${statusInfo.class}`}>
+                            <span className="trackerStatusIcon">{statusInfo.icon}</span>
+                            <span className="trackerStatusLabel">{statusInfo.label}</span>
                           </span>
-                          <span className="trackerUrl" title={tracker.url}>
-                            {tracker.url}
-                          </span>
-                        </div>
-                        {tracker.error && (
-                          <div className="trackerError">{tracker.error}</div>
-                        )}
-                      </td>
-                      <td className="tableCell trackerNumber">
-                        {tracker.seeders !== null ? (
-                          <span className="seedersCount">{tracker.seeders}</span>
-                        ) : "—"}
-                      </td>
-                      <td className="tableCell trackerNumber">
-                        {tracker.leechers !== null ? (
-                          <span className="leechersCount">{tracker.leechers}</span>
-                        ) : "—"}
-                      </td>
-                      <td className="tableCell trackerTime">
-                        {formatTimestamp(tracker.last_announce_ms)}
-                      </td>
-                      <td className="tableCell trackerTime">
-                        {formatTimestamp(tracker.next_announce_ms)}
-                      </td>
-                      <td className="tableCell">
-                        <button
-                          className="btn ghost small iconBtn"
-                          onClick={() => handleCopyUrl(tracker.url)}
-                          title="Copy tracker URL"
-                        >
-                          {copiedUrl === tracker.url ? "✓" : "📋"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="tableCell">
+                          <div className="trackerUrlCell">
+                            <span className="trackerTypeIcon" title={trackerType.toUpperCase()}>
+                              {getTrackerTypeIcon(trackerType)}
+                            </span>
+                            <span className="trackerUrl" title={tracker.url}>
+                              {tracker.url}
+                            </span>
+                          </div>
+                          {tracker.error && <div className="trackerError">{tracker.error}</div>}
+                        </td>
+                        <td className="tableCell trackerNumber">
+                          {tracker.seeders !== null ? <span className="seedersCount">{tracker.seeders}</span> : "—"}
+                        </td>
+                        <td className="tableCell trackerNumber">
+                          {tracker.leechers !== null ? <span className="leechersCount">{tracker.leechers}</span> : "—"}
+                        </td>
+                        <td className="tableCell trackerTime">{formatTimestamp(tracker.last_announce_ms)}</td>
+                        <td className="tableCell trackerTime">{formatTimestamp(tracker.next_announce_ms)}</td>
+                        <td className="tableCell">
+                          <button
+                            className="btn ghost small iconBtn"
+                            onClick={() => handleCopyUrl(tracker.url)}
+                            title="Copy tracker URL"
+                          >
+                            {copiedUrl === tracker.url ? "✓" : "📋"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )
           )}
         </div>
       </div>

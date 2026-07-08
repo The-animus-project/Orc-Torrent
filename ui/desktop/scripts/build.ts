@@ -5,13 +5,14 @@ import { existsSync, mkdirSync, copyFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute, basename, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { syncAnimusBrandingAssets } from "./syncAnimusBranding.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // scripts/ is inside ui/desktop/scripts
-const projectRoot = resolve(__dirname, "..");        // ui/desktop
-const repoRoot = resolve(projectRoot, "..", "..");   // repo root
+const projectRoot = resolve(__dirname, ".."); // ui/desktop
+const repoRoot = resolve(projectRoot, "..", ".."); // repo root
 const isWin = process.platform === "win32";
 
 // Configuration constants
@@ -100,6 +101,77 @@ function syncWindowsAppIcon(): void {
   }
 }
 
+function syncSharedAssets(): void {
+  const sourceImageCandidates = [
+    join(projectRoot, "images", "orctorrent-logo.png"),
+    join(projectRoot, "images", "orc-torrent.png"),
+    join(repoRoot, "images", "orctorrent-logo.png"),
+    join(repoRoot, "images", "orc-torrent.png"),
+  ];
+
+  const targetImageDir = join(projectRoot, "assets", "images");
+  const targetLogo = join(targetImageDir, "orctorrent-logo.png");
+  const targetIconPng = join(targetImageDir, "orc-torrent.png");
+
+  const sourceImage = sourceImageCandidates.find((candidate) => existsSync(candidate));
+  if (!sourceImage) {
+    console.warn("WARNING: Could not find source PNG app image for shared assets.");
+    return;
+  }
+
+  try {
+    if (!existsSync(targetImageDir)) mkdirSync(targetImageDir, { recursive: true });
+    copyFileSync(sourceImage, targetLogo);
+    copyFileSync(sourceImage, targetIconPng);
+    console.log(`   Synced shared app image: ${formatPath(targetLogo)}`);
+    console.log(`   Synced shared app image: ${formatPath(targetIconPng)}`);
+  } catch (err) {
+    console.error(`ERROR: Failed to sync shared app images: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
+function syncMacAppIcon(): void {
+  if (isWin) return;
+
+  const sourceImageCandidates = [
+    join(projectRoot, "images", "orctorrent-logo.png"),
+    join(projectRoot, "images", "orc-torrent.png"),
+    join(repoRoot, "images", "orctorrent-logo.png"),
+    join(repoRoot, "images", "orc-torrent.png"),
+  ];
+  const sourceImage = sourceImageCandidates.find((candidate) => existsSync(candidate));
+  if (!sourceImage) {
+    console.warn("WARNING: Could not find source PNG for macOS app icon.");
+    return;
+  }
+
+  const targetIconDir = join(projectRoot, "assets", "icons");
+  const targetPng = join(targetIconDir, "icon-512.png");
+
+  try {
+    if (!existsSync(targetIconDir)) mkdirSync(targetIconDir, { recursive: true });
+
+    if (process.platform === "darwin") {
+      const r = spawnSync("sips", ["-z", "512", "512", sourceImage, "--out", targetPng], {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      if (r.status !== 0) {
+        throw new Error(r.stderr?.toString() || "sips resize failed");
+      }
+    } else {
+      copyFileSync(sourceImage, targetPng);
+    }
+
+    verifyBuildOutput(targetPng, "macOS app icon PNG");
+    console.log(`   Synced macOS app icon: ${formatPath(targetPng)}`);
+  } catch (err) {
+    console.error(`ERROR: Failed to sync macOS app icon: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
 function isCompileError(resolvedCmd: string, status: number): boolean {
   if (status === 0) return false;
   const tool = basename(resolvedCmd).toLowerCase();
@@ -152,10 +224,8 @@ function sh(cmd: string, args: string[] = [], opts: ShOpts = {}): void {
         // Windows .cmd/.bat files need execSync for proper path handling
         const quotedPath = `"${resolved}"`;
         const escapedArgs = args.map(escapeArg);
-        const command = escapedArgs.length > 0 
-          ? `${quotedPath} ${escapedArgs.join(" ")}` 
-          : quotedPath;
-        
+        const command = escapedArgs.length > 0 ? `${quotedPath} ${escapedArgs.join(" ")}` : quotedPath;
+
         // Only pass execSync-compatible options
         const execOpts: { stdio: "inherit"; cwd: string; env: NodeJS.ProcessEnv; timeout?: number } = {
           stdio: "inherit",
@@ -165,7 +235,7 @@ function sh(cmd: string, args: string[] = [], opts: ShOpts = {}): void {
         if (spawnOpts.timeout !== undefined) {
           execOpts.timeout = spawnOpts.timeout;
         }
-        
+
         execSync(command, execOpts);
         return; // Success
       } else {
@@ -248,7 +318,7 @@ function checkCommand(cmd: string, args: string[] = ["--version"]): boolean {
       return false;
     }
   }
-  
+
   const resolved = resolveCmd(cmd);
   try {
     const r = spawnSync(resolved, args, {
@@ -265,7 +335,7 @@ function checkCommand(cmd: string, args: string[] = ["--version"]): boolean {
 function printVersion(cmd: string, name: string): void {
   try {
     let version = "unknown";
-    
+
     if (isWin && cmd === "npm") {
       const output = execSync("npm --version", {
         stdio: "pipe",
@@ -283,7 +353,7 @@ function printVersion(cmd: string, name: string): void {
       });
       version = (r.stdout || "").toString().trim() || "unknown";
     }
-    
+
     console.log(`   OK ${name}: ${version}`);
   } catch {
     console.log(`   WARNING: ${name}: version check failed`);
@@ -295,6 +365,13 @@ function useExistingDaemonBinary(): boolean {
   const exeName = isWin ? "orc-daemon.exe" : "orc-daemon";
   const path = join(projectRoot, "assets", "bin", exeName);
   return existsSync(path);
+}
+
+/** When set, `cargo build --target <triple>` and read binary from `target/<triple>/...`. */
+function daemonCargoTargetTriple(): string | undefined {
+  const raw = process.env.ORC_DAEMON_CARGO_TARGET ?? process.env.CARGO_BUILD_TARGET;
+  const t = raw?.trim();
+  return t || undefined;
 }
 
 function verifyPrerequisites(): void {
@@ -401,7 +478,7 @@ function verifyBuildOutput(path: string, description: string): void {
     console.error(`   Expected: ${formatPath(path)}`);
     process.exit(1);
   }
-  
+
   try {
     const stats = statSync(path);
     if (stats.isFile() && stats.size === 0) {
@@ -449,21 +526,39 @@ function buildRustDaemon(stats: BuildStats): void {
   }
 
   const isDebug = process.env.BUILD_MODE === "debug";
-  const buildArgs = isDebug
-    ? ["build", "-p", "orc-daemon"]
-    : ["build", "--release", "-p", "orc-daemon"];
+  const cargoTarget = daemonCargoTargetTriple();
+  const buildArgs: string[] = ["build"];
+  if (!isDebug) buildArgs.push("--release");
+  if (cargoTarget) {
+    buildArgs.push("--target", cargoTarget);
+    console.log(`   Cargo target triple: ${cargoTarget}`);
+  }
+  buildArgs.push("-p", "orc-daemon");
 
   console.log(`   Running: cargo ${buildArgs.join(" ")}`);
   sh("cargo", buildArgs, { cwd: cargoDir, retries: 2, label: "cargo build" });
 
   const exeName = isWin ? "orc-daemon.exe" : "orc-daemon";
   const buildType = isDebug ? "debug" : "release";
-  const rustBinaryPath = join(cargoDir, "target", buildType, exeName);
+  const rustBinaryCandidates = cargoTarget
+    ? [
+        process.env.CARGO_TARGET_DIR ? join(process.env.CARGO_TARGET_DIR, cargoTarget, buildType, exeName) : null,
+        join(cargoDir, "target", cargoTarget, buildType, exeName),
+        join(repoRoot, "target", cargoTarget, buildType, exeName),
+      ].filter((value): value is string => Boolean(value))
+    : [
+        process.env.CARGO_TARGET_DIR ? join(process.env.CARGO_TARGET_DIR, buildType, exeName) : null,
+        join(cargoDir, "target", buildType, exeName),
+        join(repoRoot, "target", buildType, exeName),
+      ].filter((value): value is string => Boolean(value));
+  let rustBinaryPath = rustBinaryCandidates[0];
 
   // Wait for binary to appear (Cargo may take a moment to finish writing)
   let binaryExists = false;
   for (let i = 0; i < CONFIG.BINARY_WAIT_ATTEMPTS; i++) {
-    if (existsSync(rustBinaryPath)) {
+    const found = rustBinaryCandidates.find((candidate) => existsSync(candidate));
+    if (found) {
+      rustBinaryPath = found;
       binaryExists = true;
       break;
     }
@@ -471,8 +566,10 @@ function buildRustDaemon(stats: BuildStats): void {
   }
 
   if (!binaryExists) {
-    console.error(`\nERROR: Rust binary not found at expected path:`);
-    console.error(`   ${formatPath(rustBinaryPath)}`);
+    console.error(`\nERROR: Rust binary not found at expected paths:`);
+    for (const candidate of rustBinaryCandidates) {
+      console.error(`   ${formatPath(candidate)}`);
+    }
     console.error(`   Build type: ${buildType}`);
     process.exit(1);
   }
@@ -522,13 +619,13 @@ function buildRenderer(vite: string, stats: BuildStats): void {
   const stepStart = Date.now();
   console.log("\nBuilding Electron renderer...");
   sh(vite, ["build"], { retries: 1, label: "vite build" });
-  
+
   // Verify renderer build output
   const rendererDist = join(projectRoot, "dist", "renderer");
   if (existsSync(rendererDist)) {
     console.log(`   Renderer build output: ${formatPath(rendererDist)}`);
   }
-  
+
   const duration = Date.now() - stepStart;
   stats.steps.push({ name: "Electron renderer", duration });
   console.log(`   Completed in ${formatDuration(duration)}`);
@@ -537,7 +634,13 @@ function buildRenderer(vite: string, stats: BuildStats): void {
 function compileTypeScript(tsc: string, stats: BuildStats): void {
   const stepStart = Date.now();
   console.log("\nCompiling TypeScript...");
-  
+
+  const mainOutDir = join(projectRoot, "dist", "main");
+  if (existsSync(mainOutDir)) {
+    rmSync(mainOutDir, { recursive: true, force: true });
+    console.log(`   Reset main process output: ${formatPath(mainOutDir)}`);
+  }
+
   const tsConfigs = [
     { file: "tsconfig.main.json", name: "main" },
     { file: "tsconfig.preload.json", name: "preload" },
@@ -546,15 +649,27 @@ function compileTypeScript(tsc: string, stats: BuildStats): void {
   for (const config of tsConfigs) {
     const configStart = Date.now();
     sh(tsc, ["-p", config.file], { retries: 1, label: `tsc ${config.name}` });
-    
+
     // Verify TypeScript output
     const outDir = config.name === "main" ? "dist/main" : "dist/preload";
     const outPath = join(projectRoot, outDir);
     if (existsSync(outPath)) {
       console.log(`   ${config.name} compiled: ${formatPath(outPath)}`);
     }
+
+    if (config.name === "main") {
+      const nestedEntry = join(projectRoot, "dist", "main", "main", "main.js");
+      const staleFlatEntry = join(projectRoot, "dist", "main", "main.js");
+      verifyBuildOutput(nestedEntry, "Nested Electron main entrypoint");
+      if (existsSync(staleFlatEntry)) {
+        console.error(`\nERROR: Stale flat main entrypoint was emitted unexpectedly.`);
+        console.error(`   Remove or rename the conflicting output before packaging.`);
+        console.error(`   Unexpected file: ${formatPath(staleFlatEntry)}`);
+        process.exit(1);
+      }
+    }
   }
-  
+
   const duration = Date.now() - stepStart;
   stats.steps.push({ name: "TypeScript compilation", duration });
   console.log(`   Completed in ${formatDuration(duration)}`);
@@ -571,10 +686,12 @@ function main(): void {
   };
 
   console.log("Starting build process...\n");
-
   try {
     verifyPrerequisites();
     cleanBuildArtifacts();
+    syncAnimusBrandingAssets();
+    syncSharedAssets();
+    syncMacAppIcon();
     syncWindowsAppIcon();
 
     const tools = ensureNodeDeps();
@@ -584,13 +701,13 @@ function main(): void {
     compileTypeScript(tools.tsc, stats);
 
     const totalDuration = Date.now() - stats.startTime;
-    
+
     console.log("\n" + "=".repeat(60));
     console.log("Build complete! Ready for packaging.");
     console.log("=".repeat(60));
     console.log("\nBuild Statistics:");
     console.log(`   Total time: ${formatDuration(totalDuration)}`);
-    stats.steps.forEach(step => {
+    stats.steps.forEach((step) => {
       console.log(`   ${step.name}: ${formatDuration(step.duration)}`);
     });
     console.log("\nNext step: Run 'npm run dist' to create the installer.\n");

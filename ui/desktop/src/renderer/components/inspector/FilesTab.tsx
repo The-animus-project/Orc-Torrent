@@ -4,6 +4,11 @@ import { fmtBytes } from "../../utils/format";
 import { patchJson } from "../../utils/api";
 import { fetchTorrentContent, invalidateTorrentCache } from "../../utils/torrentFetcher";
 import { Spinner } from "../Spinner";
+import {
+  downloadBlockReason,
+  isAnimusMediaPolicyActive,
+  isDownloadAllowedForPath,
+} from "../../utils/mediaDownloadPolicy";
 
 interface FileNode {
   id: string;
@@ -33,13 +38,7 @@ interface FilesTabProps {
   onSuccess: (msg: string) => void;
 }
 
-export const FilesTab = memo<FilesTabProps>(({
-  torrent,
-  online,
-  onUpdate,
-  onError,
-  onSuccess,
-}) => {
+export const FilesTab = memo<FilesTabProps>(({ torrent, online, onUpdate, onError, onSuccess }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +52,7 @@ export const FilesTab = memo<FilesTabProps>(({
     entries.forEach((entry, index) => {
       const fullPath = entry.path.join("/");
       const nodeId = `file-${index}`;
-      
+
       // Map priority from API format to component format
       let priority: "skip" | "normal" | "high" = "normal";
       if (entry.priority === "skip") priority = "skip";
@@ -83,11 +82,11 @@ export const FilesTab = memo<FilesTabProps>(({
           const parentParts = entry.path.slice(0, -1);
           let currentPath = "";
           let currentParent: FileNode | null = null;
-          
+
           for (let i = 0; i < parentParts.length; i++) {
             currentPath = i === 0 ? parentParts[i] : `${currentPath}/${parentParts[i]}`;
             let dirNode = nodeMap.get(currentPath);
-            
+
             if (!dirNode) {
               dirNode = {
                 id: `dir-${currentPath}`,
@@ -99,7 +98,7 @@ export const FilesTab = memo<FilesTabProps>(({
                 children: [],
               };
               nodeMap.set(currentPath, dirNode);
-              
+
               if (currentParent) {
                 currentParent.children = currentParent.children || [];
                 currentParent.children.push(dirNode);
@@ -109,7 +108,7 @@ export const FilesTab = memo<FilesTabProps>(({
             }
             currentParent = dirNode;
           }
-          
+
           if (currentParent) {
             currentParent.children = currentParent.children || [];
             currentParent.children.push(node);
@@ -140,7 +139,7 @@ export const FilesTab = memo<FilesTabProps>(({
 
     const loadFiles = async (attempt = 0) => {
       if (cancelled) return;
-      
+
       try {
         // Use the enhanced fetcher with caching and retry logic
         const content = await fetchTorrentContent(torrent.id, {
@@ -148,24 +147,23 @@ export const FilesTab = memo<FilesTabProps>(({
           retryDelay: 500,
           forceRefresh: attempt > 0, // Force refresh on retry
         });
-        
+
         if (cancelled) return;
-        
+
         const fileTree = buildFileTree(content.files);
         setFiles(fileTree);
         setLoading(false);
         setError(null);
       } catch (e: unknown) {
         if (cancelled) return;
-        
+
         const message = e instanceof Error ? e.message : "Failed to load files";
-        
+
         // Retry for network errors or if no files yet (magnet link)
-        if (attempt < 3 && (
-          message.includes("Connection failed") ||
-          message.includes("fetch") ||
-          message.includes("network")
-        )) {
+        if (
+          attempt < 3 &&
+          (message.includes("Connection failed") || message.includes("fetch") || message.includes("network"))
+        ) {
           const delay = 1000 * Math.pow(2, attempt); // Exponential backoff
           retryTimeout = setTimeout(() => {
             if (!cancelled) {
@@ -174,7 +172,7 @@ export const FilesTab = memo<FilesTabProps>(({
           }, delay);
           return;
         }
-        
+
         setError(message);
         setLoading(false);
         onError(message);
@@ -196,13 +194,13 @@ export const FilesTab = memo<FilesTabProps>(({
       setLoading(false);
       return;
     }
-    
+
     setError(null);
     setLoading(true);
-    
+
     // Invalidate cache and force refresh
     invalidateTorrentCache(torrent.id);
-    
+
     try {
       const content = await fetchTorrentContent(torrent.id, {
         forceRefresh: true,
@@ -219,77 +217,87 @@ export const FilesTab = memo<FilesTabProps>(({
     }
   }, [torrent, online, buildFileTree, onError]);
 
-  const handlePriorityChange = useCallback(async (fileId: string, priority: "skip" | "normal" | "high") => {
-    if (!online) return;
-    
-    // Find the file node to get its path
-    const findFileNode = (nodes: FileNode[], targetId: string): FileNode | null => {
-      for (const node of nodes) {
-        if (node.id === targetId) {
-          return node;
-        }
-        if (node.children) {
-          const found = findFileNode(node.children, targetId);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-    
-    const fileNode = findFileNode(files, fileId);
-    if (!fileNode) {
-      onError("File not found");
-      return;
-    }
-    
-    // Convert path string to array (split by "/")
-    const pathArray = fileNode.path.split("/").filter(p => p.length > 0);
-    if (pathArray.length === 0) {
-      onError("Invalid file path");
-      return;
-    }
-    
-    // Map frontend priority to API format
-    const apiPriority = priority === "high" ? "download" : priority;
-    
-    // Optimistic update: update UI immediately
-    setFiles(prevFiles => {
-      const updateNode = (nodes: FileNode[]): FileNode[] => {
-        return nodes.map(node => {
-          if (node.id === fileId) {
-            return { ...node, priority };
+  const handlePriorityChange = useCallback(
+    async (fileId: string, priority: "skip" | "normal" | "high") => {
+      if (!online) return;
+
+      // Find the file node to get its path
+      const findFileNode = (nodes: FileNode[], targetId: string): FileNode | null => {
+        for (const node of nodes) {
+          if (node.id === targetId) {
+            return node;
           }
           if (node.children) {
-            return { ...node, children: updateNode(node.children) };
+            const found = findFileNode(node.children, targetId);
+            if (found) return found;
           }
-          return node;
-        });
+        }
+        return null;
       };
-      return updateNode(prevFiles);
-    });
-    
-    try {
-      // Use correct API endpoint: /torrents/:id/file-priority with path array
-      await patchJson(`/torrents/${torrent.id}/file-priority`, { 
-        path: pathArray,
-        priority: apiPriority 
+
+      const fileNode = findFileNode(files, fileId);
+      if (!fileNode) {
+        onError("File not found");
+        return;
+      }
+
+      if (isAnimusMediaPolicyActive() && priority !== "skip" && !isDownloadAllowedForPath(fileNode.path)) {
+        onError(
+          `AnimUS blocked "${fileNode.name}": ${downloadBlockReason(fileNode.path)}`
+        );
+        return;
+      }
+
+      // Convert path string to array (split by "/")
+      const pathArray = fileNode.path.split("/").filter((p) => p.length > 0);
+      if (pathArray.length === 0) {
+        onError("Invalid file path");
+        return;
+      }
+
+      // Map frontend priority to API format
+      const apiPriority = priority === "high" ? "download" : priority;
+
+      // Optimistic update: update UI immediately
+      setFiles((prevFiles) => {
+        const updateNode = (nodes: FileNode[]): FileNode[] => {
+          return nodes.map((node) => {
+            if (node.id === fileId) {
+              return { ...node, priority };
+            }
+            if (node.children) {
+              return { ...node, children: updateNode(node.children) };
+            }
+            return node;
+          });
+        };
+        return updateNode(prevFiles);
       });
-      // Invalidate cache to ensure fresh data on next fetch
-      invalidateTorrentCache(torrent.id);
-      onUpdate();
-      onSuccess("File priority updated");
-    } catch (e: unknown) {
-      // Revert optimistic update on error
-      invalidateTorrentCache(torrent.id);
-      const message = e instanceof Error ? e.message : "Failed to update file priority";
-      onError(message);
-      // Trigger refetch to restore correct state
-      handleRetry();
-    }
-  }, [torrent.id, online, files, onUpdate, onError, onSuccess, handleRetry]);
+
+      try {
+        // Use correct API endpoint: /torrents/:id/file-priority with path array
+        await patchJson(`/torrents/${torrent.id}/file-priority`, {
+          path: pathArray,
+          priority: apiPriority,
+        });
+        // Invalidate cache to ensure fresh data on next fetch
+        invalidateTorrentCache(torrent.id);
+        onUpdate();
+        onSuccess("File priority updated");
+      } catch (e: unknown) {
+        // Revert optimistic update on error
+        invalidateTorrentCache(torrent.id);
+        const message = e instanceof Error ? e.message : "Failed to update file priority";
+        onError(message);
+        // Trigger refetch to restore correct state
+        handleRetry();
+      }
+    },
+    [torrent.id, online, files, onUpdate, onError, onSuccess, handleRetry]
+  );
 
   const toggleExpand = useCallback((path: string) => {
-    setExpandedPaths(prev => {
+    setExpandedPaths((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
         next.delete(path);
@@ -300,52 +308,47 @@ export const FilesTab = memo<FilesTabProps>(({
     });
   }, []);
 
-  const renderFileNode = useCallback((node: FileNode, level: number = 0): React.ReactNode => {
-    const isExpanded = expandedPaths.has(node.path);
-    const hasChildren = node.children && node.children.length > 0;
-    const progress = node.size > 0 ? (node.downloaded / node.size) * 100 : 0;
+  const renderFileNode = useCallback(
+    (node: FileNode, level: number = 0): React.ReactNode => {
+      const isExpanded = expandedPaths.has(node.path);
+      const hasChildren = node.children && node.children.length > 0;
+      const progress = node.size > 0 ? (node.downloaded / node.size) * 100 : 0;
 
-    return (
-      <div key={node.id} className="fileNode">
-        <div
-          className="fileNodeRow"
-          style={{ paddingLeft: `${level * 20}px` }}
-        >
-          {hasChildren && (
-            <button
-              className="fileNodeExpand"
-              onClick={() => toggleExpand(node.path)}
-            >
-              {isExpanded ? "▼" : "▶"}
-            </button>
-          )}
-          <div className="fileNodeName">{node.name}</div>
-          <div className="fileNodeSize">{fmtBytes(node.size)}</div>
-          <div className="fileNodeProgress">
-            <div className="bar small">
-              <div className="fill" style={{ width: `${progress}%` }} />
+      return (
+        <div key={node.id} className="fileNode">
+          <div className="fileNodeRow" style={{ paddingLeft: `${level * 20}px` }}>
+            {hasChildren && (
+              <button className="fileNodeExpand" onClick={() => toggleExpand(node.path)}>
+                {isExpanded ? "▼" : "▶"}
+              </button>
+            )}
+            <div className="fileNodeName">{node.name}</div>
+            <div className="fileNodeSize">{fmtBytes(node.size)}</div>
+            <div className="fileNodeProgress">
+              <div className="bar small">
+                <div className="fill" style={{ width: `${progress}%` }} />
+              </div>
+              <span>{progress.toFixed(1)}%</span>
             </div>
-            <span>{progress.toFixed(1)}%</span>
+            <select
+              className="select small"
+              value={node.priority}
+              onChange={(e) => handlePriorityChange(node.id, e.target.value as "skip" | "normal" | "high")}
+              disabled={!online}
+            >
+              <option value="skip">Skip</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+            </select>
           </div>
-          <select
-            className="select small"
-            value={node.priority}
-            onChange={(e) => handlePriorityChange(node.id, e.target.value as "skip" | "normal" | "high")}
-            disabled={!online}
-          >
-            <option value="skip">Skip</option>
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
-          </select>
+          {hasChildren && isExpanded && (
+            <div className="fileNodeChildren">{node.children!.map((child) => renderFileNode(child, level + 1))}</div>
+          )}
         </div>
-        {hasChildren && isExpanded && (
-          <div className="fileNodeChildren">
-            {node.children!.map(child => renderFileNode(child, level + 1))}
-          </div>
-        )}
-      </div>
-    );
-  }, [expandedPaths, toggleExpand, handlePriorityChange, online]);
+      );
+    },
+    [expandedPaths, toggleExpand, handlePriorityChange, online]
+  );
 
   return (
     <div className="inspectorTabContent">
@@ -361,7 +364,10 @@ export const FilesTab = memo<FilesTabProps>(({
               <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Fetching file list from daemon</div>
             </div>
           ) : error ? (
-            <div className="empty" style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "center" }}>
+            <div
+              className="empty"
+              style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "center" }}
+            >
               <div style={{ color: "var(--error)", textAlign: "center" }}>
                 <div style={{ marginBottom: "4px", fontWeight: 600 }}>Failed to load files</div>
                 <div style={{ fontSize: "12px", opacity: 0.8 }}>{error}</div>
@@ -380,7 +386,7 @@ export const FilesTab = memo<FilesTabProps>(({
               </div>
             </div>
           ) : (
-            files.map(file => renderFileNode(file))
+            files.map((file) => renderFileNode(file))
           )}
         </div>
       </div>

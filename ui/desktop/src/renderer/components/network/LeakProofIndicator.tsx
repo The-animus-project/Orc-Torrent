@@ -5,9 +5,7 @@ interface LeakProofIndicatorProps {
   netPosture: NetPosture | null;
 }
 
-export const LeakProofIndicator = memo<LeakProofIndicatorProps>(({
-  netPosture,
-}) => {
+export const LeakProofIndicator = memo<LeakProofIndicatorProps>(({ netPosture }) => {
   const isLeakProof = netPosture?.leak_proof_enabled ?? false;
   const isProtected = netPosture?.state === "protected";
 
@@ -17,14 +15,15 @@ export const LeakProofIndicator = memo<LeakProofIndicatorProps>(({
       <div className="networkWidgetContent">
         <div className={`networkWidgetStatus ${isProtected ? "ok" : "bad"}`}>
           <span className={`statusIndicator ${isProtected ? "enabled" : "disabled"}`} />
-          <span className="networkWidgetStatusText">
-            {isProtected ? "CONFIRMED SAFE" : "RISK DETECTED"}
-          </span>
+          <span className="networkWidgetStatusText">{isProtected ? "Configured" : "Not configured"}</span>
         </div>
         <div className="networkWidgetDetail">
           <span className="networkWidgetLabel">Leak-proof:</span>
           <span className="networkWidgetValue">{isLeakProof ? "ENABLED" : "DISABLED"}</span>
         </div>
+        <p className="networkWidgetNote" style={{ marginTop: "8px", fontSize: "0.85em" }}>
+          Bind interface is advisory; socket-level enforcement is not guaranteed.
+        </p>
         {!isProtected && (
           <div className="networkWidgetNote" style={{ color: "var(--error)", marginTop: "8px" }}>
             Traffic may escape via non-bound interfaces

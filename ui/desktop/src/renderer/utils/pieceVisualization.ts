@@ -14,11 +14,11 @@ export function calculatePieceStates(
   downloadingPieces: Set<number> = new Set()
 ): PieceData[] {
   const pieces: PieceData[] = [];
-  
+
   for (let i = 0; i < totalPieces; i++) {
     const completed = i < completedPieces;
     const downloading = downloadingPieces.has(i);
-    
+
     pieces.push({
       index: i,
       completed,
@@ -26,7 +26,7 @@ export function calculatePieceStates(
       missing: !completed && !downloading,
     });
   }
-  
+
   return pieces;
 }
 

@@ -21,11 +21,11 @@ class TorrentCache {
   private contentCache = new Map<string, CacheEntry<TorrentContent>>();
   private statusCache = new Map<string, CacheEntry<TorrentStatus>>();
   private pendingRequests = new Map<string, Promise<any>>();
-  
+
   // Cache TTLs (time to live) - optimized for performance
   private readonly CONTENT_TTL = 60000; // 60 seconds for file lists (rarely changes during download)
-  private readonly STATUS_TTL = 2500;   // 2.5 seconds for status (balanced between responsiveness and performance)
-  
+  private readonly STATUS_TTL = 2500; // 2.5 seconds for status (balanced between responsiveness and performance)
+
   // Maximum cache size
   private readonly MAX_CACHE_SIZE = 200; // Increased for larger torrent lists
 
@@ -35,13 +35,13 @@ class TorrentCache {
   private getCached<T>(cache: Map<string, CacheEntry<T>>, key: string, ttl: number): T | null {
     const entry = cache.get(key);
     if (!entry) return null;
-    
+
     const age = Date.now() - entry.timestamp;
     if (age > ttl) {
       cache.delete(key);
       return null;
     }
-    
+
     return entry.data;
   }
 
@@ -51,13 +51,12 @@ class TorrentCache {
   private setCached<T>(cache: Map<string, CacheEntry<T>>, key: string, data: T, etag?: string): void {
     // Evict oldest entries if cache is too large
     if (cache.size >= this.MAX_CACHE_SIZE) {
-      const oldestKey = Array.from(cache.entries())
-        .sort((a, b) => a[1].timestamp - b[1].timestamp)[0]?.[0];
+      const oldestKey = Array.from(cache.entries()).sort((a, b) => a[1].timestamp - b[1].timestamp)[0]?.[0];
       if (oldestKey) {
         cache.delete(oldestKey);
       }
     }
-    
+
     cache.set(key, {
       data,
       timestamp: Date.now(),
@@ -74,7 +73,7 @@ class TorrentCache {
     forceRefresh = false
   ): Promise<TorrentContent> {
     const cacheKey = `content:${torrentId}`;
-    
+
     // Check cache first (unless force refresh)
     if (!forceRefresh) {
       const cached = this.getCached(this.contentCache, cacheKey, this.CONTENT_TTL);
@@ -82,13 +81,13 @@ class TorrentCache {
         return cached;
       }
     }
-    
+
     // Check if request is already in flight
     const pending = this.pendingRequests.get(cacheKey);
     if (pending) {
       return pending;
     }
-    
+
     // Start new request
     const request = fetcher()
       .then((data) => {
@@ -100,7 +99,7 @@ class TorrentCache {
         this.pendingRequests.delete(cacheKey);
         throw error;
       });
-    
+
     this.pendingRequests.set(cacheKey, request);
     return request;
   }
@@ -114,7 +113,7 @@ class TorrentCache {
     forceRefresh = false
   ): Promise<TorrentStatus> {
     const cacheKey = `status:${torrentId}`;
-    
+
     // Check cache first (unless force refresh)
     if (!forceRefresh) {
       const cached = this.getCached(this.statusCache, cacheKey, this.STATUS_TTL);
@@ -122,13 +121,13 @@ class TorrentCache {
         return cached;
       }
     }
-    
+
     // Check if request is already in flight
     const pending = this.pendingRequests.get(cacheKey);
     if (pending) {
       return pending;
     }
-    
+
     // Start new request
     const request = fetcher()
       .then((data) => {
@@ -139,14 +138,14 @@ class TorrentCache {
           // If we were downloading/seeding and got an error, check if it's transient
           // Keep the previous state for a short time to prevent flickering
           const cacheAge = Date.now() - cached.timestamp;
-          if ((cachedState === "downloading" || cachedState === "seeding") && 
-              cacheAge < 3000) { // Within last 3 seconds
+          if ((cachedState === "downloading" || cachedState === "seeding") && cacheAge < 3000) {
+            // Within last 3 seconds
             // Return cached state instead of error to prevent flickering
             // The next fetch will show the error if it persists
             return cached.data;
           }
         }
-        
+
         this.setCached(this.statusCache, cacheKey, data);
         this.pendingRequests.delete(cacheKey);
         return data;
@@ -165,7 +164,7 @@ class TorrentCache {
         }
         throw error;
       });
-    
+
     this.pendingRequests.set(cacheKey, request);
     return request;
   }

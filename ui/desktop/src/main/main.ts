@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, ChildProcess, exec, execSync } from "node:child_process";
@@ -6,7 +6,71 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import crypto from "node:crypto";
-import { mkdirSync, createWriteStream, existsSync, accessSync, constants, readFileSync, readdirSync, watchFile, unwatchFile, statSync, writeFileSync, unlinkSync, copyFileSync, openSync, readSync, closeSync } from "node:fs";
+import {
+  mkdirSync,
+  createWriteStream,
+  existsSync,
+  accessSync,
+  constants,
+  readFileSync,
+  readdirSync,
+  watchFile,
+  unwatchFile,
+  statSync,
+  writeFileSync,
+  unlinkSync,
+  copyFileSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
+import {
+  NOTIFICATION_SOUND_CUSTOM_URL,
+  NOTIFICATION_SOUND_DEFAULT_URL_PREFIX,
+  NOTIFICATION_SOUNDS_DIR_NAME,
+  buildDefaultNotificationSoundUrl,
+  isSafeNotificationSoundFilename,
+  notificationSoundMetaToPreference,
+  sortNotificationSoundFilenames,
+  type StoredNotificationSoundPreference,
+} from "../shared/notificationSoundRegistry.js";
+import {
+  fromElectronThemeSource,
+  isAppThemeMode,
+  toElectronThemeSource,
+  type AppThemeMode,
+  type AppThemeState,
+  type ResolvedAppTheme,
+} from "../shared/appThemeRegistry.js";
+import { initUpdater, registerUpdaterIpc } from "./updater.js";
+import { getEditionBranding, isAnimusEdition } from "../shared/appEdition.js";
+
+function guardStdioPipe(stream: NodeJS.WriteStream | null | undefined): void {
+  stream?.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE" || err.code === "ENOTCONN") {
+      return;
+    }
+  });
+}
+
+function safeConsoleLog(...args: unknown[]): void {
+  try {
+    console.log(...args);
+  } catch {
+    // stdout may be closed when Electron is not launched from a terminal.
+  }
+}
+
+function safeConsoleError(...args: unknown[]): void {
+  try {
+    console.error(...args);
+  } catch {
+    // stderr may be closed when Electron is not launched from a terminal.
+  }
+}
+
+guardStdioPipe(process.stdout);
+guardStdioPipe(process.stderr);
 
 // ES module polyfill for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +78,7 @@ const __dirname = path.dirname(__filename);
 
 const isDev = !app.isPackaged;
 const APP_USER_MODEL_ID = "com.orc.torrent";
+const APP_THEME_META = "app_theme_meta.json";
 
 if (process.platform === "win32") {
   app.setAppUserModelId(APP_USER_MODEL_ID);
@@ -48,37 +113,162 @@ const MIN_RESTART_COOLDOWN_MS = 3000; // Minimum time between restarts to preven
 // Health check configuration
 const DAEMON_HEALTH_CHECK_INTERVAL_MS = 10000;
 const DAEMON_HEALTH_CHECK_TIMEOUT_MS = 10000;
-/** Minimum splash display time for max-impact startup animation (ms) */
-const MIN_SPLASH_DISPLAY_MS = 6000;
+/** Minimum splash display time — 0 = dismiss as soon as daemon and renderer are ready */
+const MIN_SPLASH_DISPLAY_MS = 0;
 /** Splash exit animation duration (ms) */
 const SPLASH_EXIT_MS = 1500;
+/** Skip exit animation when splash was visible for less than this (ms) */
+const SPLASH_EXIT_SKIP_THRESHOLD_MS = 300;
 
 /** Notification sound: filename (no extension) and meta file in userData */
 const NOTIFICATION_SOUND_BASENAME = "notification_sound";
 const NOTIFICATION_SOUND_META = "notification_sound_meta.json";
-/** Folder name for bundled default notification sounds (next to renderer) */
-const NOTIFICATION_SOUNDS_DEFAULT_DIR = "notification-sounds";
+
+function resolveFirstExistingPath(candidates: string[]): string | undefined {
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function getDesktopProjectRoot(): string {
+  const candidates = [path.resolve(__dirname, "../../../"), path.resolve(__dirname, "../../"), process.cwd()];
+
+  for (const candidate of candidates) {
+    if (existsSync(path.join(candidate, "package.json")) && existsSync(path.join(candidate, "splash.html"))) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
+const desktopEditionBranding = getEditionBranding(getDesktopProjectRoot());
+
+if (isAnimusEdition()) {
+  app.setName(desktopEditionBranding.appName);
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.orc.torrent.animus");
+  }
+}
+
+function getRepoRoot(): string {
+  return path.resolve(getDesktopProjectRoot(), "..", "..");
+}
+
+function resolveBuiltArtifactPath(...segments: string[]): string {
+  const candidates = [path.join(__dirname, "..", "..", ...segments), path.join(__dirname, "..", ...segments)];
+  return resolveFirstExistingPath(candidates) ?? candidates[0];
+}
 
 /** Path to folder containing default notification sound MP3s (next to renderer in build, or public in dev). */
 function getDefaultNotificationSoundsDir(): string {
-  const nextToRenderer = path.join(__dirname, "..", "renderer", NOTIFICATION_SOUNDS_DEFAULT_DIR);
-  if (existsSync(nextToRenderer)) return nextToRenderer;
-  const inPublic = path.join(__dirname, "..", "..", "public", NOTIFICATION_SOUNDS_DEFAULT_DIR);
-  if (existsSync(inPublic)) return inPublic;
-  return nextToRenderer;
+  const candidates = [
+    resolveBuiltArtifactPath("renderer", NOTIFICATION_SOUNDS_DIR_NAME),
+    path.join(app.getAppPath(), "dist", "renderer", NOTIFICATION_SOUNDS_DIR_NAME),
+    path.join(app.getAppPath(), "public", NOTIFICATION_SOUNDS_DIR_NAME),
+    path.join(getDesktopProjectRoot(), "public", NOTIFICATION_SOUNDS_DIR_NAME),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(dir)) return dir;
+  }
+  return candidates[0];
+}
+
+function getAppThemeMetaPath(): string {
+  return path.join(app.getPath("userData"), APP_THEME_META);
+}
+
+function readStoredAppThemeMode(): AppThemeMode {
+  const metaPath = getAppThemeMetaPath();
+  if (!existsSync(metaPath)) return "auto";
+  try {
+    const parsed = JSON.parse(readFileSync(metaPath, "utf8")) as { source?: string };
+    return parsed.source && isAppThemeMode(parsed.source) ? parsed.source : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+function persistAppThemeMode(source: AppThemeMode): void {
+  try {
+    writeFileSync(getAppThemeMetaPath(), JSON.stringify({ source }, null, 2), "utf8");
+  } catch (err) {
+    console.error("[Theme] Failed to persist app theme preference:", err);
+  }
+}
+
+function getResolvedAppTheme(): ResolvedAppTheme {
+  return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+}
+
+function getCurrentAppThemeState(): AppThemeState {
+  return {
+    source: fromElectronThemeSource(nativeTheme.themeSource),
+    resolved: getResolvedAppTheme(),
+  };
+}
+
+function applyAppThemeMode(source: AppThemeMode, persist = false): AppThemeState {
+  nativeTheme.themeSource = toElectronThemeSource(source);
+  if (persist) {
+    persistAppThemeMode(source);
+  }
+  return getCurrentAppThemeState();
+}
+
+function getWindowBackgroundColor(theme: ResolvedAppTheme): string {
+  if (isAnimusEdition()) {
+    return "#050605";
+  }
+  return theme === "dark" ? "#0f1115" : "#f8f3ea";
+}
+
+function pushThemeStateToWindow(win: BrowserWindow | null, state: AppThemeState): void {
+  if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return;
+  win.webContents.send("app-theme:changed", state);
+}
+
+function pushThemeStateToSplash(state: AppThemeState): void {
+  if (
+    !splashWindow ||
+    splashWindow.isDestroyed() ||
+    !splashWindow.webContents ||
+    splashWindow.webContents.isDestroyed()
+  )
+    return;
+  splashWindow.setBackgroundColor(getWindowBackgroundColor(state.resolved));
+  splashWindow.webContents.executeJavaScript(`window.__applyOrcTheme?.(${JSON.stringify(state)});`, true).catch(() => {
+    // The splash page may not have finished loading yet.
+  });
+}
+
+function broadcastAppThemeState(state = getCurrentAppThemeState()): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setBackgroundColor(getWindowBackgroundColor(state.resolved));
+  }
+  pushThemeStateToWindow(mainWindow, state);
+  pushThemeStateToSplash(state);
 }
 
 /** Minimal fallback splash HTML when splash.html fails to load (data URL) */
-const SPLASH_FALLBACK_DATA_URL =
-  "data:text/html;charset=utf-8," +
-  encodeURIComponent(`
+function getSplashFallbackDataUrl(theme: ResolvedAppTheme): string {
+  const background = theme === "dark" ? "#0f1115" : "#f8f3ea";
+  const foreground = theme === "dark" ? "#ffffff" : "#1b1a17";
+  const muted = theme === "dark" ? "rgba(255,255,255,0.5)" : "rgba(27,26,23,0.5)";
+  const border = theme === "dark" ? "rgba(255,255,255,0.2)" : "rgba(31,29,26,0.15)";
+  const borderTop = theme === "dark" ? "rgba(255,255,255,0.9)" : "rgba(31,29,26,0.85)";
+
+  return (
+    "data:text/html;charset=utf-8," +
+    encodeURIComponent(`
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>ORC TORRENT</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
     width: 100%; height: 100%;
-    background: #000; color: #fff;
+    background: ${background}; color: ${foreground};
     font-family: system-ui, sans-serif;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
@@ -88,8 +278,8 @@ const SPLASH_FALLBACK_DATA_URL =
   body.splash-exit { opacity: 0; }
   .spinner {
     width: 56px; height: 56px;
-    border: 3px solid rgba(255,255,255,0.2);
-    border-top-color: rgba(255,255,255,0.9);
+    border: 3px solid ${border};
+    border-top-color: ${borderTop};
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -100,14 +290,19 @@ const SPLASH_FALLBACK_DATA_URL =
 <body>
   <div class="spinner"></div>
   <div class="title"><span class="title-orc">ORC</span> TORRENT</div>
-  <div style="font-size: 12px; color: rgba(255,255,255,0.5);">Loading...</div>
+  <div style="font-size: 12px; color: ${muted};">Loading...</div>
 </body></html>
-`);
+`)
+  );
+}
 
 let mainWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 /** When splash was shown (for minimum display enforcement) */
 let splashShownAt: number | null = null;
+let rendererReportedReady = false;
+let mainWindowReadyToShow = false;
+let mainWindowRevealed = false;
 let daemonProc: ChildProcess | null = null;
 let daemonAdminToken: string = "";
 let daemonSpawnedByApp = false;
@@ -144,25 +339,29 @@ function cleanupLogWatchers(): void {
 
 // Global error handlers with Windows-specific improvements
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+  safeConsoleError("Unhandled Rejection at:", promise, "reason:", reason);
   const errorMessage = reason instanceof Error ? reason.stack || reason.message : String(reason);
-  console.error("Unhandled rejection details:", errorMessage);
-  
+  safeConsoleError("Unhandled rejection details:", errorMessage);
+
   // Log to daemon log if available
   if (daemonLogStream) {
     try {
       daemonLogStream.write(`[unhandledRejection] ${errorMessage}\n`);
     } catch (logErr) {
-      console.error("Failed to write unhandled rejection to log:", logErr);
+      safeConsoleError("Failed to write unhandled rejection to log:", logErr);
     }
   }
 });
 
 process.on("uncaughtException", (error) => {
-  console.error("Uncaught Exception:", error);
-  const errorMessage = error.stack || error.message;
   const errorCode = (error as NodeJS.ErrnoException).code;
-  
+  if (errorCode === "EPIPE" || errorCode === "ENOTCONN") {
+    return;
+  }
+
+  safeConsoleError("Uncaught Exception:", error);
+  const errorMessage = error.stack || error.message;
+
   // Log to daemon log if available
   if (daemonLogStream) {
     try {
@@ -181,15 +380,15 @@ process.on("uncaughtException", (error) => {
         }
       }
     } catch (logErr) {
-      console.error("Failed to write uncaught exception to log:", logErr);
+      safeConsoleError("Failed to write uncaught exception to log:", logErr);
     }
   }
-  
+
   // Show error dialog to user (only if app is ready, to avoid crashes)
   try {
     if (app && app.isReady()) {
       let userMessage = `An unexpected error occurred:\n\n${errorMessage}\n\nThe application may be unstable.`;
-      
+
       // Windows-specific user guidance
       if (process.platform === "win32") {
         if (errorCode === "EACCES" || errorCode === "EPERM") {
@@ -198,11 +397,11 @@ process.on("uncaughtException", (error) => {
           userMessage += `\n\nA required file is missing. Check if antivirus software blocked it.`;
         }
       }
-      
+
       dialog.showErrorBox("Unexpected Error", userMessage);
     }
   } catch (dialogErr) {
-    console.error("Failed to show error dialog:", dialogErr);
+    safeConsoleError("Failed to show error dialog:", dialogErr);
   }
 });
 
@@ -212,7 +411,7 @@ function getIconPath(): string | undefined {
   const icoName = "icon.ico";
   const preferIco = process.platform === "win32";
   if (isDev) {
-    const assetsDir = path.resolve(__dirname, "../../assets");
+    const assetsDir = path.join(getDesktopProjectRoot(), "assets");
     const devIco = path.join(assetsDir, "icons", icoName);
     const devFlatIco = path.join(assetsDir, icoName);
     const devPng = path.join(assetsDir, "images", pngName);
@@ -225,7 +424,7 @@ function getIconPath(): string | undefined {
       if (existsSync(devIco)) return devIco;
       if (existsSync(devFlatIco)) return devFlatIco;
     }
-    const repoRoot = path.resolve(__dirname, "../../../..");
+    const repoRoot = getRepoRoot();
     const orcIco = path.join(repoRoot, "icons", "orc-torrent.ico");
     const orcPng = path.join(repoRoot, "images", "orc-torrent.png");
     if (preferIco) {
@@ -264,23 +463,24 @@ function getIconPath(): string | undefined {
 function createSplashWindow() {
   splashShownAt = Date.now();
   const iconPath = getIconPath();
+  const themeState = getCurrentAppThemeState();
 
   // Determine splash HTML path
   let splashPath: string;
   if (isDev) {
-    splashPath = path.resolve(__dirname, "../../splash.html");
+    splashPath = path.join(getDesktopProjectRoot(), "splash.html");
   } else {
     const appPath = app.getAppPath();
     splashPath = path.join(appPath, "splash.html");
   }
 
   splashWindow = new BrowserWindow({
-    width: 520,
-    height: 620,
+    width: isAnimusEdition() ? 460 : 520,
+    height: isAnimusEdition() ? 780 : 620,
     frame: false,
     alwaysOnTop: true,
     transparent: false,
-    backgroundColor: "#000000",
+    backgroundColor: getWindowBackgroundColor(themeState.resolved),
     resizable: false,
     center: true,
     icon: iconPath,
@@ -291,18 +491,29 @@ function createSplashWindow() {
     },
   });
 
-  splashWindow.loadFile(splashPath).catch((err) => {
-    console.error("[Splash] Failed to load splash screen:", err);
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      splashWindow.loadURL(SPLASH_FALLBACK_DATA_URL).catch((fallbackErr) => {
-        console.error("[Splash] Fallback splash failed:", fallbackErr);
-        if (splashWindow && !splashWindow.isDestroyed()) {
-          splashWindow.close();
-          splashWindow = null;
-        }
-      });
-    }
-  });
+  splashWindow
+    .loadFile(splashPath, {
+      query: {
+        edition: desktopEditionBranding.edition,
+        theme: themeState.resolved,
+        source: themeState.source,
+        splashBackground: desktopEditionBranding.splashBackgroundUrl,
+        splashLogo: desktopEditionBranding.splashLogoUrl,
+        splashEmblem: desktopEditionBranding.splashEmblemUrl,
+      },
+    })
+    .catch((err) => {
+      console.error("[Splash] Failed to load splash screen:", err);
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.loadURL(getSplashFallbackDataUrl(themeState.resolved)).catch((fallbackErr) => {
+          console.error("[Splash] Fallback splash failed:", fallbackErr);
+          if (splashWindow && !splashWindow.isDestroyed()) {
+            splashWindow.close();
+            splashWindow = null;
+          }
+        });
+      }
+    });
 
   // Prevent navigation away from splash
   splashWindow.webContents.on("will-navigate", (e) => {
@@ -312,18 +523,26 @@ function createSplashWindow() {
   // SECURITY: Block window.open() from splash as well
   splashWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
+  splashWindow.webContents.on("did-finish-load", () => {
+    pushThemeStateToSplash(getCurrentAppThemeState());
+  });
+
   return splashWindow;
 }
 
 async function closeSplashWindow() {
   if (splashWindow && !splashWindow.isDestroyed()) {
-    try {
-      await splashWindow.webContents.executeJavaScript(`
-        document.body.classList.add('splash-exit');
-      `);
-      await new Promise(resolve => setTimeout(resolve, SPLASH_EXIT_MS));
-    } catch (err) {
-      console.warn("[Splash] Failed to play exit animation:", err);
+    const elapsed = splashShownAt != null ? Date.now() - splashShownAt : 0;
+    const skipExitAnimation = elapsed < SPLASH_EXIT_SKIP_THRESHOLD_MS;
+    if (!skipExitAnimation) {
+      try {
+        await splashWindow.webContents.executeJavaScript(`
+          document.body.classList.add('splash-exit');
+        `);
+        await new Promise((resolve) => setTimeout(resolve, SPLASH_EXIT_MS));
+      } catch (err) {
+        console.warn("[Splash] Failed to play exit animation:", err);
+      }
     }
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.close();
@@ -333,31 +552,116 @@ async function closeSplashWindow() {
   splashShownAt = null;
 }
 
+async function revealMainWindowWhenReady() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindowRevealed) {
+    return;
+  }
+  if (!mainWindowReadyToShow || !rendererReportedReady) {
+    return;
+  }
+
+  mainWindowRevealed = true;
+
+  // Kick daemon startup in the background, but don't let splash dismissal depend on it.
+  if (!(await isDaemonHealthy())) {
+    console.warn("Daemon not healthy when renderer became ready, attempting to start...");
+    void startDaemonIfNeeded().catch((err) => {
+      console.error("Background daemon start failed while revealing main window:", err);
+    });
+  }
+
+  // Enforce minimum splash display only when configured (0 = dismiss immediately when ready)
+  if (splashShownAt != null && MIN_SPLASH_DISPLAY_MS > 0) {
+    const elapsed = Date.now() - splashShownAt;
+    if (elapsed < MIN_SPLASH_DISPLAY_MS) {
+      await new Promise((r) => setTimeout(r, MIN_SPLASH_DISPLAY_MS - elapsed));
+    }
+  }
+
+  await closeSplashWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.show();
+
+  // Send any pending magnet links once window is ready
+  if (pendingMagnetLinks.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        for (const link of pendingMagnetLinks) {
+          mainWindow.webContents.send("magnet-link", link);
+          console.log(`Sent pending magnet link: ${link.substring(0, 50)}...`);
+        }
+        pendingMagnetLinks = [];
+      }
+    } catch (err) {
+      console.error("Failed to send magnet links:", err);
+    }
+  }
+
+  // Send any pending torrent file once window is ready
+  if (pendingTorrentFile && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      const data = JSON.parse(pendingTorrentFile);
+      if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send("open-torrent-file", data);
+        console.log(`Sent pending torrent file: ${data.fileName}`);
+        pendingTorrentFile = null;
+      }
+    } catch (err) {
+      console.error("Failed to send torrent file:", err);
+    }
+  }
+}
+
 function createWindow() {
   const iconPath = getIconPath();
+  const themeState = getCurrentAppThemeState();
+  rendererReportedReady = false;
+  mainWindowReadyToShow = false;
+  mainWindowRevealed = false;
 
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 760,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#000000",
-    title: "ORC TORRENT",
+    backgroundColor: getWindowBackgroundColor(themeState.resolved),
+    title: desktopEditionBranding.windowTitle,
     icon: iconPath, // Set window icon
     webPreferences: {
-      preload: path.join(__dirname, "../preload/preload.js"),
+      preload: resolveBuiltArtifactPath("preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true, // SECURITY: Enable sandbox for better security isolation
     },
   });
 
+  const pushWindowVisibilityState = () => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.webContents || mainWindow.webContents.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send("window:visibility", {
+      focused: mainWindow.isFocused(),
+      minimized: mainWindow.isMinimized(),
+      visible: mainWindow.isVisible(),
+    });
+  };
+
+  mainWindow.on("focus", pushWindowVisibilityState);
+  mainWindow.on("blur", pushWindowVisibilityState);
+  mainWindow.on("minimize", pushWindowVisibilityState);
+  mainWindow.on("restore", pushWindowVisibilityState);
+  mainWindow.on("hide", pushWindowVisibilityState);
+  mainWindow.on("show", pushWindowVisibilityState);
+  pushWindowVisibilityState();
+
   // Add error handlers to log failed resource loads
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     console.error(`[Main] Failed to load resource: ${validatedURL}`);
     console.error(`[Main] Error code: ${errorCode}, Description: ${errorDescription}`);
     console.error(`[Main] Is main frame: ${isMainFrame}`);
-    
+
     if (isMainFrame) {
       // Main frame failed to load - show error to user
       dialog.showErrorBox(
@@ -367,7 +671,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+  mainWindow.webContents.on("console-message", (event, level, message, line, sourceId) => {
     // Electron console levels: 0=log, 1=info, 2=warn, 3=error
     if (level >= 2) {
       console.error(`[Renderer] ${message}`);
@@ -381,84 +685,60 @@ function createWindow() {
   // SECURITY: Block window.open() from renderer to prevent arbitrary external URLs
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-  mainWindow.once("ready-to-show", async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      // Ensure daemon is running when window is shown
-      if (!await isDaemonHealthy()) {
-        console.warn("Daemon not healthy when window ready-to-show, attempting to start...");
-        await startDaemonIfNeeded();
+  mainWindow.once("ready-to-show", () => {
+    mainWindowReadyToShow = true;
+    void revealMainWindowWhenReady();
+  });
+
+  mainWindow.webContents.once("did-finish-load", () => {
+    setTimeout(() => {
+      if (!mainWindowRevealed && mainWindowReadyToShow) {
+        console.warn("[Main] Renderer ready signal timed out, revealing window after did-finish-load fallback.");
+        rendererReportedReady = true;
+        void revealMainWindowWhenReady();
       }
-      
-      // Enforce minimum splash display for max-impact startup animation
-      if (splashShownAt != null) {
-        const elapsed = Date.now() - splashShownAt;
-        if (elapsed < MIN_SPLASH_DISPLAY_MS) {
-          await new Promise((r) => setTimeout(r, MIN_SPLASH_DISPLAY_MS - elapsed));
-        }
-      }
-      await closeSplashWindow();
-      mainWindow.show();
-      
-      // Send any pending magnet links once window is ready
-      if (pendingMagnetLinks.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
-        try {
-          if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-            for (const link of pendingMagnetLinks) {
-              mainWindow.webContents.send("magnet-link", link);
-              console.log(`Sent pending magnet link: ${link.substring(0, 50)}...`);
-            }
-            pendingMagnetLinks = [];
-          }
-        } catch (err) {
-          console.error("Failed to send magnet links:", err);
-        }
-      }
-      
-      // Send any pending torrent file once window is ready
-      if (pendingTorrentFile && mainWindow && !mainWindow.isDestroyed()) {
-        try {
-          const data = JSON.parse(pendingTorrentFile);
-          if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-            mainWindow.webContents.send("open-torrent-file", data);
-            console.log(`Sent pending torrent file: ${data.fileName}`);
-            pendingTorrentFile = null;
-          }
-        } catch (err) {
-          console.error("Failed to send torrent file:", err);
-        }
-      }
-    }
+    }, 8000);
   });
 
   if (isDev) {
-    mainWindow.loadURL("http://127.0.0.1:5173");
+    const url = new URL("http://127.0.0.1:5173");
+    url.searchParams.set("edition", desktopEditionBranding.edition);
+    mainWindow.loadURL(url.toString());
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     // When packaged, files are in app.asar or app/ directory
     // Use app.getAppPath() which correctly resolves to the app directory
     // even when opened via file association (it returns the asar path or app directory)
     const appPath = app.getAppPath();
-    
+
     // Build the path to index.html relative to app root
     // Electron's loadFile() automatically handles asar archives, so we don't need to check existsSync
     // The path should be relative to the app root (where package.json is)
     const indexHtml = path.join(appPath, "dist", "renderer", "index.html");
-    
+
     console.log(`[Main] Loading HTML from app path: ${appPath}`);
     console.log(`[Main] HTML file path: ${indexHtml}`);
-    
+
     // loadFile() handles asar archives automatically, so we can use it directly
     // If the file doesn't exist, loadFile will throw an error which we'll catch
-    mainWindow.loadFile(indexHtml).catch((err) => {
+    mainWindow.loadFile(indexHtml, {
+      query: {
+        edition: desktopEditionBranding.edition,
+      },
+    }).catch((err) => {
       console.error(`[Main] Failed to load HTML file:`, err);
       console.error(`[Main] App path: ${appPath}`);
       console.error(`[Main] __dirname: ${__dirname}`);
       console.error(`[Main] resourcesPath: ${process.resourcesPath || "N/A"}`);
-      
+
       if (mainWindow && !mainWindow.isDestroyed()) {
-        const fallbackPath = path.join(__dirname, "../renderer/index.html");
+        const fallbackPath = resolveBuiltArtifactPath("renderer", "index.html");
         console.log(`[Main] Trying fallback path: ${fallbackPath}`);
-        mainWindow.loadFile(fallbackPath).catch((fallbackErr) => {
+        mainWindow.loadFile(fallbackPath, {
+          query: {
+            edition: desktopEditionBranding.edition,
+          },
+        }).catch((fallbackErr) => {
           console.error(`[Main] Fallback path also failed:`, fallbackErr);
           dialog.showErrorBox(
             "Failed to Load UI",
@@ -484,7 +764,9 @@ function handleMagnetLink(magnetUrl: string) {
 
   const trimmed = magnetUrl.trim();
   if (!trimmed.startsWith("magnet:?")) {
-    console.warn(`[Magnet] Invalid magnet link format: does not start with "magnet:?" - received: ${trimmed.substring(0, 50)}...`);
+    console.warn(
+      `[Magnet] Invalid magnet link format: does not start with "magnet:?" - received: ${trimmed.substring(0, 50)}...`
+    );
     return;
   }
 
@@ -522,31 +804,31 @@ interface VpnStatus {
 function detectVpn(): VpnStatus {
   const interfaces = os.networkInterfaces();
   const vpnPatterns = [
-    /^tun\d+/i,      // TUN interfaces (Linux, macOS)
-    /^tap\d+/i,      // TAP interfaces (Linux, Windows)
-    /^wg\d+/i,        // WireGuard interfaces
-    /^utun\d+/i,      // macOS VPN interfaces
-    /^ppp\d+/i,       // PPP interfaces (macOS, Linux)
-    /vpn/i,           // Generic VPN naming
-    /tunnel/i,        // Tunnel interfaces (Mullvad Tunnel, etc.)
-    /nordlynx/i,      // NordVPN
-    /openvpn/i,       // OpenVPN
-    /wireguard/i,     // WireGuard
-    /proton/i,        // ProtonVPN
-    /expressvpn/i,    // ExpressVPN
-    /surfshark/i,     // Surfshark
-    /mullvad/i,       // Mullvad VPN
-    /nordvpn/i,       // NordVPN
-    /cyberghost/i,    // CyberGhost
+    /^tun\d+/i, // TUN interfaces (Linux, macOS)
+    /^tap\d+/i, // TAP interfaces (Linux, Windows)
+    /^wg\d+/i, // WireGuard interfaces
+    /^utun\d+/i, // macOS VPN interfaces
+    /^ppp\d+/i, // PPP interfaces (macOS, Linux)
+    /vpn/i, // Generic VPN naming
+    /tunnel/i, // Tunnel interfaces (Mullvad Tunnel, etc.)
+    /nordlynx/i, // NordVPN
+    /openvpn/i, // OpenVPN
+    /wireguard/i, // WireGuard
+    /proton/i, // ProtonVPN
+    /expressvpn/i, // ExpressVPN
+    /surfshark/i, // Surfshark
+    /mullvad/i, // Mullvad VPN
+    /nordvpn/i, // NordVPN
+    /cyberghost/i, // CyberGhost
     /private.*internet/i, // Private Internet Access
-    /pia/i,           // Private Internet Access (abbrev)
-    /tailscale/i,     // Tailscale
-    /wintun/i,        // WinTun (Windows WireGuard)
+    /pia/i, // Private Internet Access (abbrev)
+    /tailscale/i, // Tailscale
+    /wintun/i, // WinTun (Windows WireGuard)
   ];
 
   for (const [name, addrs] of Object.entries(interfaces)) {
     if (!addrs || addrs.length === 0) continue;
-    
+
     // Check if interface name matches VPN patterns
     for (const pattern of vpnPatterns) {
       if (pattern.test(name)) {
@@ -557,9 +839,17 @@ function detectVpn(): VpnStatus {
     // On Windows, also check for TAP adapters and common VPN naming patterns
     if (process.platform === "win32") {
       const lowerName = name.toLowerCase();
-      if (lowerName.includes("tap") || lowerName.includes("tun") || lowerName.includes("vpn") || 
-          lowerName.includes("tunnel") || lowerName.includes("mullvad") || lowerName.includes("nordvpn") ||
-          lowerName.includes("wireguard") || lowerName.includes("openvpn") || lowerName.includes("wintun")) {
+      if (
+        lowerName.includes("tap") ||
+        lowerName.includes("tun") ||
+        lowerName.includes("vpn") ||
+        lowerName.includes("tunnel") ||
+        lowerName.includes("mullvad") ||
+        lowerName.includes("nordvpn") ||
+        lowerName.includes("wireguard") ||
+        lowerName.includes("openvpn") ||
+        lowerName.includes("wintun")
+      ) {
         return { detected: true, interfaceName: name };
       }
     }
@@ -627,7 +917,7 @@ async function checkDirectoryPermissions(dirPath: string): Promise<{ writable: b
           fs.unlinkSync(testFile);
         }
       } catch {}
-      
+
       if (errCode === "EACCES" || errCode === "EPERM") {
         return { writable: false, error: `Permission denied writing to directory: ${dirPath}` };
       }
@@ -679,21 +969,21 @@ async function findWritableLogDirectory(): Promise<{ path: string; error?: strin
     console.warn("Failed to get userData path:", err);
   }
 
-  candidates.push({ 
-    path: path.join(os.tmpdir(), "orc-torrent", "logs"), 
-    name: "temp/orc-torrent/logs" 
+  candidates.push({
+    path: path.join(os.tmpdir(), "orc-torrent", "logs"),
+    name: "temp/orc-torrent/logs",
   });
 
-  candidates.push({ 
-    path: os.tmpdir(), 
-    name: "temp (direct)" 
+  candidates.push({
+    path: os.tmpdir(),
+    name: "temp (direct)",
   });
 
   if (isDev) {
     try {
-      candidates.push({ 
-        path: path.join(process.cwd(), "logs"), 
-        name: "cwd/logs" 
+      candidates.push({
+        path: path.join(process.cwd(), "logs"),
+        name: "cwd/logs",
       });
     } catch {}
   }
@@ -764,12 +1054,18 @@ function httpRequestJson(method: "GET" | "POST", pathname: string, headers?: Rec
             return reject(new Error(`HTTP ${res.statusCode}: ${data || res.statusMessage}`));
           }
           if (!data) return resolve({});
-          try { resolve(JSON.parse(data)); } catch { resolve({ raw: data }); }
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            resolve({ raw: data });
+          }
         });
       }
     );
     req.on("error", reject);
-    req.on("timeout", () => { req.destroy(new Error("timeout")); });
+    req.on("timeout", () => {
+      req.destroy(new Error("timeout"));
+    });
     req.end();
   });
 }
@@ -854,12 +1150,18 @@ function httpGetJson(pathname: string): Promise<any> {
         let data = "";
         res.on("data", (c) => (data += c));
         res.on("end", () => {
-          try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(e);
+          }
         });
       }
     );
     req.on("error", reject);
-    req.on("timeout", () => { req.destroy(new Error("timeout")); });
+    req.on("timeout", () => {
+      req.destroy(new Error("timeout"));
+    });
     req.end();
   });
 }
@@ -965,10 +1267,7 @@ async function killProcess(pid: number): Promise<boolean> {
         return;
       }
       const stderrMsg = stderr.toLowerCase();
-      if (
-        stderr.includes("Access is denied") ||
-        stderrMsg.includes("access denied")
-      ) {
+      if (stderr.includes("Access is denied") || stderrMsg.includes("access denied")) {
         console.warn(`[Port Hygiene] Permission denied killing process ${pid}. May need Administrator rights.`);
         resolve(false);
       } else if (stderr.includes("not found") || stderr.toLowerCase().includes("not running")) {
@@ -991,7 +1290,9 @@ async function cleanupStalePeerPorts(): Promise<{ cleaned: number; pids: number[
   const killedPids = new Set<number>();
   let cleaned = 0;
 
-  console.log(`[Port Hygiene] Checking peer ports ${PEER_PORTS[0]}-${PEER_PORTS[PEER_PORTS.length - 1]} for stale processes...`);
+  console.log(
+    `[Port Hygiene] Checking peer ports ${PEER_PORTS[0]}-${PEER_PORTS[PEER_PORTS.length - 1]} for stale processes...`
+  );
 
   for (const port of PEER_PORTS) {
     const pid = await findProcessUsingPort(port);
@@ -1029,7 +1330,9 @@ async function cleanupStalePeerPorts(): Promise<{ cleaned: number; pids: number[
  * @param options.forceKillEvenIfHealthy - When true, kill the process on the port even if it
  *   responds to health checks, so we can spawn our own daemon with ORC_DOWNLOAD_DIR set.
  */
-async function cleanupStaleProcessesOnPort(options?: { forceKillEvenIfHealthy?: boolean }): Promise<{ cleaned: boolean; pid?: number }> {
+async function cleanupStaleProcessesOnPort(options?: {
+  forceKillEvenIfHealthy?: boolean;
+}): Promise<{ cleaned: boolean; pid?: number }> {
   if (process.platform !== "win32") {
     // For now, only implement Windows. Unix systems can be added later.
     return { cleaned: false };
@@ -1082,7 +1385,7 @@ async function cleanupStaleProcessesOnPort(options?: { forceKillEvenIfHealthy?: 
     if (killed) {
       // Wait a moment for port to be released
       await new Promise((r) => setTimeout(r, 500));
-      
+
       // Verify port is now free
       const stillInUse = await new Promise<boolean>((resolve) => {
         const testSocket = net.createConnection(DAEMON_PORT, DAEMON_HOST, () => {
@@ -1123,10 +1426,8 @@ function resolveDaemonBinary(): string {
   console.log(`[Binary Resolution] process.execPath: ${process.execPath}`);
 
   // Packaged: shipped into resources/bin via electron-builder extraResources
-  const packaged = process.resourcesPath 
-    ? path.join(process.resourcesPath, "bin", exe)
-    : null;
-  
+  const packaged = process.resourcesPath ? path.join(process.resourcesPath, "bin", exe) : null;
+
   if (packaged) {
     console.log(`[Binary Resolution] Packaged path candidate: ${packaged} (exists: ${existsSync(packaged)})`);
   }
@@ -1181,10 +1482,8 @@ function resolveDaemonBinary(): string {
     }
   }
 
-  const fallback = isDev 
-    ? devCandidate 
-    : (packaged || packagedNextToExe || packagedSameDir || devAsset);
-  
+  const fallback = isDev ? devCandidate : packaged || packagedNextToExe || packagedSameDir || devAsset;
+
   console.warn(`No binary found in expected locations, using fallback: ${fallback}`);
   console.warn(`Checked paths:`);
   for (const candidate of candidates) {
@@ -1200,7 +1499,7 @@ function resolveDaemonBinary(): string {
   console.warn(`  __dirname: ${__dirname}`);
   console.warn(`  isDev: ${isDev}`);
   console.warn(`  isPackaged: ${app.isPackaged}`);
-  
+
   return fallback;
 }
 
@@ -1208,7 +1507,9 @@ async function startDaemonIfNeeded(): Promise<boolean> {
   if (await isDaemonHealthy()) {
     const cleanupResult = await cleanupStaleProcessesOnPort({ forceKillEvenIfHealthy: true });
     if (cleanupResult.cleaned && cleanupResult.pid) {
-      console.log(`[Start] Replaced external daemon (PID ${cleanupResult.pid}) with app-owned daemon (ORC_DOWNLOAD_DIR set)`);
+      console.log(
+        `[Start] Replaced external daemon (PID ${cleanupResult.pid}) with app-owned daemon (ORC_DOWNLOAD_DIR set)`
+      );
       await new Promise((r) => setTimeout(r, 500)); // Allow port to be released
     } else if (!cleanupResult.cleaned) {
       isRestarting = false;
@@ -1223,19 +1524,19 @@ async function startDaemonIfNeeded(): Promise<boolean> {
     isRestarting = false;
     return false;
   }
-  
+
   // Prevent concurrent restart attempts
   if (isRestarting) {
     console.warn("[START] Already restarting, skipping duplicate start attempt");
     return false;
   }
-  
+
   // If there's a pending restart, cancel it since we're starting now
   if (daemonRestartTimeout) {
     clearTimeout(daemonRestartTimeout);
     daemonRestartTimeout = null;
   }
-  
+
   isRestarting = true;
 
   // Self-healing port hygiene: Clean up stale processes before starting
@@ -1245,7 +1546,9 @@ async function startDaemonIfNeeded(): Promise<boolean> {
     console.log(`[Port Hygiene] Cleaned up stale process (PID: ${cleanupResult.pid})`);
     if (daemonLogStream) {
       try {
-        daemonLogStream.write(`[Port Hygiene] Cleaned up stale daemon process (PID: ${cleanupResult.pid}) before starting new daemon\n`);
+        daemonLogStream.write(
+          `[Port Hygiene] Cleaned up stale daemon process (PID: ${cleanupResult.pid}) before starting new daemon\n`
+        );
       } catch {}
     }
   } else if (cleanupResult.pid) {
@@ -1256,10 +1559,14 @@ async function startDaemonIfNeeded(): Promise<boolean> {
   console.log(`[Port Hygiene] Checking for stale processes on peer ports (6881-6890)...`);
   const peerCleanupResult = await cleanupStalePeerPorts();
   if (peerCleanupResult.cleaned > 0) {
-    console.log(`[Port Hygiene] Cleaned up ${peerCleanupResult.cleaned} stale process(es) from peer ports (PIDs: ${peerCleanupResult.pids.join(', ')})`);
+    console.log(
+      `[Port Hygiene] Cleaned up ${peerCleanupResult.cleaned} stale process(es) from peer ports (PIDs: ${peerCleanupResult.pids.join(", ")})`
+    );
     if (daemonLogStream) {
       try {
-        daemonLogStream.write(`[Port Hygiene] Cleaned up ${peerCleanupResult.cleaned} stale process(es) from peer ports\n`);
+        daemonLogStream.write(
+          `[Port Hygiene] Cleaned up ${peerCleanupResult.cleaned} stale process(es) from peer ports\n`
+        );
       } catch {}
     }
   }
@@ -1272,7 +1579,7 @@ async function startDaemonIfNeeded(): Promise<boolean> {
   if (!binCheck.accessible) {
     const errorMsg = `Binary permission check failed: ${binCheck.error}`;
     console.error(`[Pre-flight] ${errorMsg}`);
-    
+
     // Try to find an alternative binary
     console.log("[Pre-flight] Attempting to find alternative binary...");
     const altBin = resolveDaemonBinary(); // This will try all candidates again
@@ -1306,13 +1613,14 @@ async function startDaemonIfNeeded(): Promise<boolean> {
     DAEMON_BIND: `${DAEMON_HOST}:${DAEMON_PORT}`,
     DAEMON_ADMIN_TOKEN: daemonAdminToken,
     RUST_LOG: "info,orc_bt_core=debug,orc_daemon=debug", // Enable verbose logging
-    ORC_DOWNLOAD_DIR: app.getPath('downloads'), // Save torrents in user's Downloads folder
+    ORC_DOWNLOAD_DIR: app.getPath("downloads"), // Save torrents in user's Downloads folder
+    ...(isAnimusEdition() ? { ORC_TORRENT_EDITION: "animus" } : {}),
   };
 
   console.log("[Pre-flight] Finding writable log directory...");
   let logFile: string;
   let log: ReturnType<typeof createWriteStream>;
-  
+
   const logDirResult = await findWritableLogDirectory();
   if (logDirResult) {
     logFile = logDirResult.path;
@@ -1342,7 +1650,7 @@ async function startDaemonIfNeeded(): Promise<boolean> {
     logFile = tempLogFile;
     currentDaemonLogPath = logFile;
   }
-  
+
   if (daemonLogStream) {
     try {
       daemonLogStream.end();
@@ -1351,7 +1659,7 @@ async function startDaemonIfNeeded(): Promise<boolean> {
     }
     daemonLogStream = null;
   }
-  
+
   try {
     log = createWriteStream(logFile, { flags: "a" });
     daemonLogStream = log;
@@ -1375,30 +1683,32 @@ async function startDaemonIfNeeded(): Promise<boolean> {
       console.error(`isDev: ${isDev}`);
       throw new Error(errorMsg);
     }
-    
+
     console.log(`Starting daemon from: ${bin}`);
     console.log(`Daemon bind: ${DAEMON_HOST}:${DAEMON_PORT}`);
     console.log(`Log file: ${logFile}`);
-    
+
     daemonProc = spawn(bin, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     daemonSpawnedByApp = true;
-    
+
     console.log(`Daemon process spawned (PID: ${daemonProc.pid || "unknown"})`);
-    
+
     // Log initial process info
     try {
       log.write(`[STARTUP] Daemon process started\n`);
       log.write(`[STARTUP] PID: ${daemonProc.pid || "unknown"}\n`);
       log.write(`[STARTUP] Binary: ${bin}\n`);
       log.write(`[STARTUP] Bind: ${DAEMON_HOST}:${DAEMON_PORT}\n`);
-      log.write(`[STARTUP] Environment: DAEMON_BIND=${env.DAEMON_BIND}, DAEMON_ADMIN_TOKEN=${env.DAEMON_ADMIN_TOKEN ? "set" : "not set"}, RUST_LOG=${env.RUST_LOG}, ORC_DOWNLOAD_DIR=${env.ORC_DOWNLOAD_DIR}\n`);
+      log.write(
+        `[STARTUP] Environment: DAEMON_BIND=${env.DAEMON_BIND}, DAEMON_ADMIN_TOKEN=${env.DAEMON_ADMIN_TOKEN ? "set" : "not set"}, RUST_LOG=${env.RUST_LOG}, ORC_DOWNLOAD_DIR=${env.ORC_DOWNLOAD_DIR}\n`
+      );
     } catch (logErr) {
       console.error("Failed to write startup info to log:", logErr);
     }
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
     const errorMessage = error.message || String(e);
-    
+
     try {
       log.write(`[ERROR] Failed to spawn daemon: ${errorMessage}\n`);
       log.write(`[ERROR] Binary path: ${bin}\n`);
@@ -1413,10 +1723,10 @@ async function startDaemonIfNeeded(): Promise<boolean> {
       console.error("Failed to write error to log:", logErr);
     }
     daemonLogStream = null;
-    
+
     // User-friendly error messages
     let userMessage: string;
-    
+
     if (isDev) {
       // Developer mode - show build instructions
       userMessage = `Could not start the Rust daemon.
@@ -1470,7 +1780,7 @@ ${bin}`;
 - Ensure the file is not read-only`;
       }
     }
-    
+
     dialog.showErrorBox("Daemon start failed", userMessage);
     isRestarting = false;
     return false;
@@ -1490,10 +1800,10 @@ ${bin}`;
     return false;
   }
 
-    daemonProc.on("error", (err) => {
+  daemonProc.on("error", (err) => {
     const errorMsg = err instanceof Error ? err.message : String(err);
     const errorStack = err instanceof Error ? err.stack : undefined;
-    
+
     try {
       log.write(`[daemon error] ${errorMsg}\n`);
       if (errorStack) {
@@ -1513,7 +1823,7 @@ ${bin}`;
     } catch (logErr) {
       console.error("Failed to write daemon error to log:", logErr);
     }
-    
+
     // If we get an error event, the process will likely exit soon
     // But we'll let the exit handler deal with restart logic
     console.error(`[CRITICAL] Daemon process error: ${errorMsg}`);
@@ -1530,18 +1840,18 @@ ${bin}`;
       const lines = output.trim().split("\n");
       lines.forEach((line: string) => {
         if (line.trim()) {
-          console.log(`[Daemon stdout] ${line}`);
+          safeConsoleLog(`[Daemon stdout] ${line}`);
           // Check for key startup messages
           if (line.includes("listening on") || line.includes("daemon listening")) {
-            console.log(`[STARTUP] Daemon is listening - should become healthy soon`);
+            safeConsoleLog(`[STARTUP] Daemon is listening - should become healthy soon`);
           }
         }
       });
     } catch (logErr) {
-      console.error("Failed to write stdout to log:", logErr);
+      safeConsoleError("Failed to write stdout to log:", logErr);
     }
   });
-  
+
   daemonProc.stderr?.on("data", (b) => {
     try {
       const output = b.toString();
@@ -1550,27 +1860,32 @@ ${bin}`;
       const lines = output.trim().split("\n");
       lines.forEach((line: string) => {
         if (line.trim()) {
-          console.error(`[Daemon stderr] ${line}`);
+          safeConsoleError(`[Daemon stderr] ${line}`);
           // Check for critical errors
-          if (line.includes("error") || line.includes("Error") || line.includes("ERROR") || 
-              line.includes("failed to bind") || line.includes("panic")) {
-            console.error(`[CRITICAL] Daemon error detected: ${line}`);
+          if (
+            line.includes("error") ||
+            line.includes("Error") ||
+            line.includes("ERROR") ||
+            line.includes("failed to bind") ||
+            line.includes("panic")
+          ) {
+            safeConsoleError(`[CRITICAL] Daemon error detected: ${line}`);
           }
         }
       });
     } catch (logErr) {
-      console.error("Failed to write stderr to log:", logErr);
+      safeConsoleError("Failed to write stderr to log:", logErr);
     }
   });
 
   daemonProc.on("exit", (code, signal) => {
     const procRef = daemonProc;
     daemonProc = null; // Clear reference immediately to prevent race conditions
-    
+
     try {
       log.write(`\n[daemon exit] code=${code}, signal=${signal || "none"}\n`);
       console.error(`[Daemon Exit] Process exited with code: ${code}, signal: ${signal || "none"}`);
-      
+
       // On Windows, provide exit code meaning
       if (process.platform === "win32" && code !== null && code !== 0) {
         log.write(`[WARNING] Daemon exited with non-zero code ${code}\n`);
@@ -1581,7 +1896,7 @@ ${bin}`;
         log.write(`[INFO]   4 = failed to bind port (port may be in use)\n`);
         log.write(`[INFO]   5 = server error\n`);
         log.write(`[INFO]   3221226505 = access violation (crash)\n`);
-        
+
         if (code === 4) {
           log.write(`[ERROR] Port ${DAEMON_PORT} is likely already in use!\n`);
           log.write(`[ERROR] Check with: netstat -ano | findstr :${DAEMON_PORT}\n`);
@@ -1591,11 +1906,13 @@ ${bin}`;
     } catch (logErr) {
       console.error("Failed to write exit code to log:", logErr);
     }
-    
+
     // Don't restart if we're shutting down or if we didn't spawn this process
     if (isShuttingDown || !daemonSpawnedByApp) {
       try {
-        log.write(`[INFO] Not restarting daemon (shutting down: ${isShuttingDown}, spawned by app: ${daemonSpawnedByApp})\n`);
+        log.write(
+          `[INFO] Not restarting daemon (shutting down: ${isShuttingDown}, spawned by app: ${daemonSpawnedByApp})\n`
+        );
         if (log !== (process.stderr as any) && typeof log.end === "function") {
           log.end(() => {
             daemonLogStream = null;
@@ -1609,7 +1926,7 @@ ${bin}`;
       }
       return;
     }
-    
+
     // Check if we've exceeded max restart attempts
     if (daemonRestartAttempts >= MAX_RESTART_ATTEMPTS) {
       try {
@@ -1626,7 +1943,7 @@ ${bin}`;
         console.error("Error closing log stream:", closeErr);
         daemonLogStream = null;
       }
-      
+
       // Show error to user after max attempts
       if (mainWindow && !mainWindow.isDestroyed()) {
         dialog.showErrorBox(
@@ -1636,31 +1953,34 @@ ${bin}`;
       }
       return;
     }
-    
+
     // For a managed daemon, we always restart on exit (regardless of exit code)
     // to keep the service running. The only exceptions are:
     // For exit code 4 (port in use), use shorter delay since we'll clean up the port
     const isPortInUse = code === 4;
-    const delay = isPortInUse 
+    const delay = isPortInUse
       ? Math.min(1000, INITIAL_RESTART_DELAY_MS) // 1 second for port issues
-      : Math.min(
-          INITIAL_RESTART_DELAY_MS * Math.pow(2, daemonRestartAttempts),
-          MAX_RESTART_DELAY_MS
-        );
+      : Math.min(INITIAL_RESTART_DELAY_MS * Math.pow(2, daemonRestartAttempts), MAX_RESTART_DELAY_MS);
     daemonRestartAttempts++;
-    
+
     try {
       if (isPortInUse) {
-        log.write(`[INFO] Daemon exited due to port in use. Will cleanup and restart in ${delay}ms (attempt ${daemonRestartAttempts}/${MAX_RESTART_ATTEMPTS})\n`);
+        log.write(
+          `[INFO] Daemon exited due to port in use. Will cleanup and restart in ${delay}ms (attempt ${daemonRestartAttempts}/${MAX_RESTART_ATTEMPTS})\n`
+        );
       } else {
-        log.write(`[INFO] Daemon exited unexpectedly (code: ${code}). Will restart in ${delay}ms (attempt ${daemonRestartAttempts}/${MAX_RESTART_ATTEMPTS})\n`);
+        log.write(
+          `[INFO] Daemon exited unexpectedly (code: ${code}). Will restart in ${delay}ms (attempt ${daemonRestartAttempts}/${MAX_RESTART_ATTEMPTS})\n`
+        );
       }
     } catch (logErr) {
       console.error("Failed to write restart info to log:", logErr);
     }
-    
-    console.warn(`Daemon crashed (exit code: ${code}). Restarting in ${delay}ms (attempt ${daemonRestartAttempts}/${MAX_RESTART_ATTEMPTS})...`);
-    
+
+    console.warn(
+      `Daemon crashed (exit code: ${code}). Restarting in ${delay}ms (attempt ${daemonRestartAttempts}/${MAX_RESTART_ATTEMPTS})...`
+    );
+
     // Schedule restart with exponential backoff (or shorter delay for port issues)
     daemonRestartTimeout = setTimeout(async () => {
       daemonRestartTimeout = null;
@@ -1669,18 +1989,20 @@ ${bin}`;
         isRestarting = false;
         return;
       }
-      
+
       // Prevent concurrent restart attempts
       if (isRestarting) {
         console.warn("[RESTART] Already restarting, skipping duplicate restart attempt");
         return;
       }
-      
+
       // Enforce cooldown period to prevent rapid restart loops
       const timeSinceLastRestart = Date.now() - lastRestartTime;
       if (timeSinceLastRestart < MIN_RESTART_COOLDOWN_MS) {
         const remainingCooldown = MIN_RESTART_COOLDOWN_MS - timeSinceLastRestart;
-        console.warn(`[RESTART COOLDOWN] Too soon since last restart (${timeSinceLastRestart}ms < ${MIN_RESTART_COOLDOWN_MS}ms). Waiting ${remainingCooldown}ms more...`);
+        console.warn(
+          `[RESTART COOLDOWN] Too soon since last restart (${timeSinceLastRestart}ms < ${MIN_RESTART_COOLDOWN_MS}ms). Waiting ${remainingCooldown}ms more...`
+        );
         daemonRestartTimeout = setTimeout(async () => {
           daemonRestartTimeout = null;
           // Retry after cooldown
@@ -1698,16 +2020,16 @@ ${bin}`;
         }, remainingCooldown);
         return;
       }
-      
+
       lastRestartTime = Date.now();
       isRestarting = true;
-      
+
       try {
         console.log(`Attempting to restart daemon (attempt ${daemonRestartAttempts}/${MAX_RESTART_ATTEMPTS})...`);
         // Reset the spawned flag temporarily so startDaemonIfNeeded will actually start it
         daemonSpawnedByApp = false;
         await startDaemonIfNeeded();
-        
+
         // Wait for daemon to become healthy (increased timeout for reliability)
         const healthy = await waitForHealthy(DAEMON_HEALTH_CHECK_TIMEOUT_MS);
         if (healthy) {
@@ -1715,10 +2037,12 @@ ${bin}`;
           // Schedule counter reset after a period of stability
           // This gives the daemon time to prove it's stable
           setTimeout(async () => {
-            if (!isShuttingDown && await isDaemonHealthy()) {
+            if (!isShuttingDown && (await isDaemonHealthy())) {
               daemonRestartAttempts = 0;
               lastRestartTime = 0; // Reset cooldown timer on successful stability
-              console.log(`Daemon has been stable for ${DAEMON_STABILITY_PERIOD_MS / 1000} seconds, resetting restart attempt counter`);
+              console.log(
+                `Daemon has been stable for ${DAEMON_STABILITY_PERIOD_MS / 1000} seconds, resetting restart attempt counter`
+              );
               try {
                 if (daemonLogStream && daemonLogStream !== (process.stderr as any)) {
                   daemonLogStream.write(`[INFO] Daemon stable, restart counter reset to 0\n`);
@@ -1744,19 +2068,23 @@ ${bin}`;
 
   console.log(`Waiting for daemon to become healthy (timeout: ${DAEMON_HEALTH_CHECK_TIMEOUT_MS / 1000}s)...`);
   try {
-    log.write(`[HEALTH CHECK] Starting health check, waiting up to ${DAEMON_HEALTH_CHECK_TIMEOUT_MS / 1000} seconds...\n`);
+    log.write(
+      `[HEALTH CHECK] Starting health check, waiting up to ${DAEMON_HEALTH_CHECK_TIMEOUT_MS / 1000} seconds...\n`
+    );
     log.write(`[HEALTH CHECK] Checking if daemon is listening on ${DAEMON_HOST}:${DAEMON_PORT}...\n`);
   } catch (logErr) {
     // Ignore log errors
   }
-  
+
   const up = await waitForHealthy(DAEMON_HEALTH_CHECK_TIMEOUT_MS);
   if (!up) {
     // Log diagnostic information
     try {
-      log.write(`[HEALTH CHECK] Failed - daemon did not become healthy within ${DAEMON_HEALTH_CHECK_TIMEOUT_MS / 1000} seconds\n`);
+      log.write(
+        `[HEALTH CHECK] Failed - daemon did not become healthy within ${DAEMON_HEALTH_CHECK_TIMEOUT_MS / 1000} seconds\n`
+      );
       log.write(`[DIAGNOSTIC] Checking if process is still running...\n`);
-      
+
       // Check if process is still alive
       if (daemonProc) {
         try {
@@ -1786,10 +2114,10 @@ ${bin}`;
       } else {
         log.write(`[DIAGNOSTIC] Process reference is null\n`);
       }
-      
+
       // Check if port is accessible
       log.write(`[DIAGNOSTIC] Checking if port ${DAEMON_PORT} is accessible...\n`);
-      
+
       // Try to connect to the port to see if it's listening
       try {
         const testSocket = net.createConnection(DAEMON_PORT, DAEMON_HOST, () => {
@@ -1831,7 +2159,7 @@ ${bin}`;
     } else {
       processStatus = "process reference lost";
     }
-    
+
     const errorMsg = `The daemon process started but did not become healthy.
 
 Port: ${DAEMON_PORT}
@@ -1852,27 +2180,27 @@ The log file contains detailed error messages from the daemon process.
 To check if port is in use:
 Windows: netstat -ano | findstr :${DAEMON_PORT}
 Linux/Mac: lsof -i :${DAEMON_PORT}`;
-    
+
     console.error(errorMsg);
     console.error(`Process status: ${processStatus}`);
     if (exitCode !== null) {
       console.error(`Exit code: ${exitCode}`);
     }
-    
+
     dialog.showErrorBox("Daemon not responding", errorMsg);
     isRestarting = false;
     return false;
   } else {
     console.log(`Daemon is healthy and reachable on ${DAEMON_HOST}:${DAEMON_PORT}`);
-    
+
     // Wait for daemon to be ready (fully initialized) before allowing operations
-    console.log(`Waiting for daemon to become ready (timeout: ${DAEMON_HEALTH_CHECK_TIMEOUT_MS * 2 / 1000}s)...`);
+    console.log(`Waiting for daemon to become ready (timeout: ${(DAEMON_HEALTH_CHECK_TIMEOUT_MS * 2) / 1000}s)...`);
     try {
       log.write(`[READINESS CHECK] Daemon is healthy, waiting for readiness...\n`);
     } catch (logErr) {
       // Ignore log errors
     }
-    
+
     const ready = await waitForReady(DAEMON_HEALTH_CHECK_TIMEOUT_MS * 2);
     if (!ready) {
       console.warn(`Daemon is healthy but not ready within timeout - operations may fail`);
@@ -1890,7 +2218,7 @@ Linux/Mac: lsof -i :${DAEMON_PORT}`;
         // Ignore log errors
       }
     }
-    
+
     // Reset restart counter on successful start
     daemonRestartAttempts = 0;
     lastRestartTime = 0; // Reset cooldown timer on successful start
@@ -1905,7 +2233,7 @@ async function gracefulShutdownIfOwned() {
   // Store reference to avoid race condition
   const procRef = daemonProc;
   const logStreamRef = daemonLogStream;
-  
+
   try {
     await httpRequestJson("POST", "/admin/shutdown", { "x-admin-token": daemonAdminToken });
   } catch {
@@ -1921,11 +2249,11 @@ async function gracefulShutdownIfOwned() {
   }
 
   if ((procRef as any).exitCode === null && !procRef.killed) {
-    try { 
-      procRef.kill(); 
+    try {
+      procRef.kill();
     } catch {}
   }
-  
+
   if (logStreamRef && logStreamRef !== (process.stderr as any) && typeof logStreamRef.end === "function") {
     try {
       logStreamRef.end();
@@ -1948,10 +2276,10 @@ async function checkWindowsFirewallRule(ruleName: string): Promise<FirewallRuleI
   return new Promise((resolve) => {
     const escaped = ruleName.replace(/"/g, '""');
     const command = `netsh advfirewall firewall show rule name="${escaped}"`;
-    exec(command, { encoding: 'utf8' }, (error, stdout, stderr) => {
+    exec(command, { encoding: "utf8" }, (error, stdout, stderr) => {
       if (error) {
-        const msg = (error.message || stderr || String(stdout || '')).toLowerCase();
-        const accessDenied = isElevationError(msg) || msg.includes('access is denied') || msg.includes('access denied');
+        const msg = (error.message || stderr || String(stdout || "")).toLowerCase();
+        const accessDenied = isElevationError(msg) || msg.includes("access is denied") || msg.includes("access denied");
         resolve({
           exists: false,
           managed: false,
@@ -1975,10 +2303,10 @@ async function checkWindowsFirewallOutboundRules(): Promise<{ exists: boolean; c
   return new Promise((resolve) => {
     // Check for any ORC TORRENT outbound rules
     const command = `netsh advfirewall firewall show rule name=all | findstr /C:"ORC" /C:"orc" | findstr /C:"Outbound"`;
-    exec(command, { encoding: 'utf8' }, (error, stdout, stderr) => {
+    exec(command, { encoding: "utf8" }, (error, stdout, stderr) => {
       if (error) {
-        const msg = (error.message || stderr || String(stdout || '')).toLowerCase();
-        const accessDenied = isElevationError(msg) || msg.includes('access is denied') || msg.includes('access denied');
+        const msg = (error.message || stderr || String(stdout || "")).toLowerCase();
+        const accessDenied = isElevationError(msg) || msg.includes("access is denied") || msg.includes("access denied");
         resolve({
           exists: false,
           checkAccessDenied: accessDenied,
@@ -1986,7 +2314,7 @@ async function checkWindowsFirewallOutboundRules(): Promise<{ exists: boolean; c
         return;
       }
       // If we get output, outbound rules exist
-      const hasOutboundRules = stdout.trim().length > 0 && stdout.toLowerCase().includes('outbound');
+      const hasOutboundRules = stdout.trim().length > 0 && stdout.toLowerCase().includes("outbound");
       resolve({ exists: hasOutboundRules });
     });
   });
@@ -1996,7 +2324,7 @@ async function checkIfFirewallManaged(): Promise<boolean> {
   return new Promise((resolve) => {
     // Check if firewall is managed by Group Policy
     const command = `netsh advfirewall show allprofiles state`;
-    exec(command, { encoding: 'utf8' }, (error, stdout) => {
+    exec(command, { encoding: "utf8" }, (error, stdout) => {
       if (error) {
         resolve(false);
         return;
@@ -2012,8 +2340,8 @@ interface AddFirewallRuleOptions {
   ruleName: string;
   exePath: string;
   port?: number; // Specific port (optional - if not provided, allows any port for the program)
-  protocol?: 'tcp' | 'udp' | 'both'; // Default: 'tcp'
-  profile?: 'private' | 'public' | 'domain' | 'all'; // Default: 'private'
+  protocol?: "tcp" | "udp" | "both"; // Default: 'tcp'
+  profile?: "private" | "public" | "domain" | "all"; // Default: 'private'
   scope?: string; // e.g., "LocalSubnet" or specific IP range
 }
 
@@ -2037,115 +2365,120 @@ function isElevationError(msg: string): boolean {
 }
 
 async function addWindowsFirewallRulesBatch(
-  rules: Array<{ port: number; protocol?: 'tcp' | 'udp' | 'both'; profile?: 'private' | 'public' | 'domain' | 'all' }>,
+  rules: Array<{ port: number; protocol?: "tcp" | "udp" | "both"; profile?: "private" | "public" | "domain" | "all" }>,
   exePath: string,
   baseRuleName: string = "ORC TORRENT BitTorrent Peer"
 ): Promise<{ success: boolean; error?: string; needsElevation?: boolean; added: number; skipped: number }> {
   return new Promise((resolve) => {
     const escapeForCmd = (str: string) => str.replace(/"/g, '""');
     const escapedExePath = escapeForCmd(exePath);
-    const validProfiles = ['private', 'public', 'domain'];
-    
+    const validProfiles = ["private", "public", "domain"];
+
     // Build all netsh commands in a single PowerShell script
     const netshCommands: string[] = [];
-    
+
     for (const rule of rules) {
       const port = rule.port;
-      const protocol = rule.protocol || 'both';
-      const profile = rule.profile || 'all';
-      const profilesToUse = profile === 'all' ? validProfiles : [profile];
-      const protocolsToUse = protocol === 'both' ? ['tcp', 'udp'] : [protocol];
-      
+      const protocol = rule.protocol || "both";
+      const profile = rule.profile || "all";
+      const profilesToUse = profile === "all" ? validProfiles : [profile];
+      const protocolsToUse = protocol === "both" ? ["tcp", "udp"] : [protocol];
+
       for (const prof of profilesToUse) {
         for (const proto of protocolsToUse) {
-          const ruleSuffix = profilesToUse.length > 1 || protocolsToUse.length > 1 ? ` (${prof}/${proto})` : '';
+          const ruleSuffix = profilesToUse.length > 1 || protocolsToUse.length > 1 ? ` (${prof}/${proto})` : "";
           const fullRuleName = `${baseRuleName} Port ${port}${ruleSuffix}`;
           const escapedRuleName = escapeForCmd(fullRuleName);
-          
+
           // Build netsh commands for both inbound and outbound
-          const createNetshCommand = (direction: 'in' | 'out') => {
-            const directionSuffix = direction === 'out' ? ' Out' : '';
+          const createNetshCommand = (direction: "in" | "out") => {
+            const directionSuffix = direction === "out" ? " Out" : "";
             const fullRuleNameWithDir = `${baseRuleName} Port ${port}${directionSuffix}${ruleSuffix}`;
             const escapedRuleNameWithDir = escapeForCmd(fullRuleNameWithDir);
-            
+
             const netshArgs = [
-              'advfirewall',
-              'firewall',
-              'add',
-              'rule',
+              "advfirewall",
+              "firewall",
+              "add",
+              "rule",
               `name="${escapedRuleNameWithDir}"`,
               `dir=${direction}`,
-              'action=allow',
+              "action=allow",
               `program="${escapedExePath}"`,
               `profile=${prof}`,
-              'enable=yes',
+              "enable=yes",
               `localport=${port}`,
-              `protocol=${proto}`
+              `protocol=${proto}`,
             ];
-            
+
             // Build netsh command with proper escaping
-            const netshArgsEscaped = netshArgs.map(arg => {
+            const netshArgsEscaped = netshArgs.map((arg) => {
               // Escape single quotes for PowerShell
               return `'${arg.replace(/'/g, "''")}'`;
             });
-            
-            return `try { ` +
-              `  $result = & netsh ${netshArgsEscaped.join(' ')} 2>&1; ` +
+
+            return (
+              `try { ` +
+              `  $result = & netsh ${netshArgsEscaped.join(" ")} 2>&1; ` +
               `  if ($LASTEXITCODE -eq 0) { $added++ } ` +
               `  elseif ($result -match 'already exists|object already exists') { $skipped++ } ` +
               `  else { Write-Warning "Failed to add rule: $result" } ` +
               `} catch { ` +
               `  if ($_.Exception.Message -match 'already exists|object already exists') { $skipped++ } ` +
               `  else { Write-Warning "Error: $($_.Exception.Message)" } ` +
-              `}`;
+              `}`
+            );
           };
-          
+
           // Add both inbound and outbound commands
-          netshCommands.push(createNetshCommand('in'));
-          netshCommands.push(createNetshCommand('out'));
+          netshCommands.push(createNetshCommand("in"));
+          netshCommands.push(createNetshCommand("out"));
         }
       }
     }
-    
+
     if (netshCommands.length === 0) {
       resolve({ success: true, added: 0, skipped: 0 });
       return;
     }
-    
+
     // Create single PowerShell script that runs all commands with elevation
     const psScript = [
       '$ErrorActionPreference = "Continue"',
-      '$added = 0',
-      '$skipped = 0',
+      "$added = 0",
+      "$skipped = 0",
       ...netshCommands,
       'Write-Host "BATCH_RESULT: Added=$added Skipped=$skipped"',
-      'if ($added -gt 0 -or $skipped -gt 0) { exit 0 } else { exit 1 }'
-    ].join('\n');
-    
+      "if ($added -gt 0 -or $skipped -gt 0) { exit 0 } else { exit 1 }",
+    ].join("\n");
+
     // Use temporary file approach to avoid command-line length limits
     // Write script to temp file, then execute it with elevation
     const tempDir = os.tmpdir();
-    const tempScriptPath = path.join(tempDir, `orc-firewall-rules-${Date.now()}-${Math.random().toString(36).substring(7)}.ps1`);
-    
+    const tempScriptPath = path.join(
+      tempDir,
+      `orc-firewall-rules-${Date.now()}-${Math.random().toString(36).substring(7)}.ps1`
+    );
+
     try {
       // Write script to temp file
-      writeFileSync(tempScriptPath, psScript, 'utf8');
-      
+      writeFileSync(tempScriptPath, psScript, "utf8");
+
       // Create wrapper that elevates and runs the temp script file (single UAC prompt)
       const wrapperScript = [
-        `$scriptPath = "${tempScriptPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`,
+        `$scriptPath = "${tempScriptPath.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
         '$process = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $scriptPath -Verb RunAs -Wait -PassThru -NoNewWindow',
-        '$exitCode = $process.ExitCode',
-        'Remove-Item -Path $scriptPath -Force -ErrorAction SilentlyContinue',
-        'exit $exitCode'
-      ].join('; ');
-      
-      const wrapperBytes = Buffer.from(wrapperScript, 'utf16le');
-      const wrapperBase64 = wrapperBytes.toString('base64');
+        "$exitCode = $process.ExitCode",
+        "Remove-Item -Path $scriptPath -Force -ErrorAction SilentlyContinue",
+        "exit $exitCode",
+      ].join("; ");
+
+      const wrapperBytes = Buffer.from(wrapperScript, "utf16le");
+      const wrapperBase64 = wrapperBytes.toString("base64");
       const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${wrapperBase64}`;
-      
+
       // Execute with elevation (single UAC prompt)
-      exec(command, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      exec(command, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
         // Clean up temp file even if execution failed
         try {
           if (existsSync(tempScriptPath)) {
@@ -2154,37 +2487,37 @@ async function addWindowsFirewallRulesBatch(
         } catch (cleanupErr) {
           // Ignore cleanup errors
         }
-        
+
         if (error) {
-        const errorMsg = (error.message || stderr || String(stdout || '')).toLowerCase();
-        if (isElevationError(errorMsg)) {
-          resolve({ success: false, error: RUN_AS_ADMIN_MSG, needsElevation: true, added: 0, skipped: 0 });
+          const errorMsg = (error.message || stderr || String(stdout || "")).toLowerCase();
+          if (isElevationError(errorMsg)) {
+            resolve({ success: false, error: RUN_AS_ADMIN_MSG, needsElevation: true, added: 0, skipped: 0 });
+            return;
+          }
+          // Try to parse added/skipped from output
+          const batchMatch = stdout.match(/BATCH_RESULT:\s*Added=(\d+)\s+Skipped=(\d+)/);
+          if (batchMatch) {
+            const added = parseInt(batchMatch[1], 10);
+            const skipped = parseInt(batchMatch[2], 10);
+            if (added > 0 || skipped > 0) {
+              resolve({ success: true, added, skipped });
+              return;
+            }
+          }
+
+          resolve({ success: false, error: error.message || stderr || "Unknown error", added: 0, skipped: 0 });
           return;
         }
-        // Try to parse added/skipped from output
+
+        // Parse output to get counts
         const batchMatch = stdout.match(/BATCH_RESULT:\s*Added=(\d+)\s+Skipped=(\d+)/);
         if (batchMatch) {
           const added = parseInt(batchMatch[1], 10);
           const skipped = parseInt(batchMatch[2], 10);
-          if (added > 0 || skipped > 0) {
-            resolve({ success: true, added, skipped });
-            return;
-          }
+          resolve({ success: true, added, skipped });
+        } else {
+          resolve({ success: true, added: 0, skipped: 0 });
         }
-        
-        resolve({ success: false, error: error.message || stderr || 'Unknown error', added: 0, skipped: 0 });
-        return;
-      }
-      
-      // Parse output to get counts
-      const batchMatch = stdout.match(/BATCH_RESULT:\s*Added=(\d+)\s+Skipped=(\d+)/);
-      if (batchMatch) {
-        const added = parseInt(batchMatch[1], 10);
-        const skipped = parseInt(batchMatch[2], 10);
-        resolve({ success: true, added, skipped });
-      } else {
-        resolve({ success: true, added: 0, skipped: 0 });
-      }
       });
     } catch (writeError) {
       // If we can't write the temp file, fall back to old method (but this may still fail)
@@ -2193,46 +2526,49 @@ async function addWindowsFirewallRulesBatch(
   });
 }
 
-async function addWindowsFirewallRule(options: AddFirewallRuleOptions): Promise<{ success: boolean; error?: string; needsElevation?: boolean }> {
+async function addWindowsFirewallRule(
+  options: AddFirewallRuleOptions
+): Promise<{ success: boolean; error?: string; needsElevation?: boolean }> {
   return new Promise((resolve) => {
-    const { ruleName, exePath, port, protocol = 'tcp', profile = 'private', scope } = options;
-    
+    const { ruleName, exePath, port, protocol = "tcp", profile = "private", scope } = options;
+
     // Validate port if provided
     if (port !== undefined && (port < 1 || port > 65535 || !Number.isInteger(port))) {
       resolve({ success: false, error: `Invalid port: ${port}. Must be between 1 and 65535.` });
       return;
     }
-    
+
     // Validate profile - 'all' is not a valid netsh profile, need to handle separately
-    const validProfiles = ['private', 'public', 'domain'];
-    const profilesToUse = profile === 'all' ? validProfiles : [profile];
-    
+    const validProfiles = ["private", "public", "domain"];
+    const profilesToUse = profile === "all" ? validProfiles : [profile];
+
     // Escape rule name and path for use in netsh command-line arguments
     // Use double-quote escaping for Windows command-line
     const escapeForCmd = (str: string) => str.replace(/"/g, '""');
     const escapedRuleName = escapeForCmd(ruleName);
     const escapedExePath = escapeForCmd(exePath);
-    
+
     // For each profile, create a separate rule (netsh doesn't support 'all' directly)
     // Also handle protocol 'both' by creating separate TCP and UDP rules
-    const protocolsToUse = protocol === 'both' ? ['tcp', 'udp'] : [protocol];
-    
-    const createRule = (prof: string, proto: string, portSuffix: string = '') => {
-      const ruleSuffix = profilesToUse.length > 1 || protocolsToUse.length > 1 || portSuffix ? ` (${prof}/${proto}${portSuffix})` : '';
+    const protocolsToUse = protocol === "both" ? ["tcp", "udp"] : [protocol];
+
+    const createRule = (prof: string, proto: string, portSuffix: string = "") => {
+      const ruleSuffix =
+        profilesToUse.length > 1 || protocolsToUse.length > 1 || portSuffix ? ` (${prof}/${proto}${portSuffix})` : "";
       const fullRuleName = `${ruleName}${ruleSuffix}`;
-      
+
       // Escape rule name and path for netsh (double-quote escaping)
       const escapedRuleNameForNetsh = escapeForCmd(fullRuleName);
       const escapedExePathForNetsh = escapedExePath;
-      
+
       // Build netsh arguments - escape each value properly
       // For values in double quotes (name, program), we already escaped double quotes
       // Create both inbound and outbound rules for full connectivity
-      const createRuleForDirection = (direction: 'in' | 'out') => {
-        const directionSuffix = direction === 'out' ? ' Out' : '';
+      const createRuleForDirection = (direction: "in" | "out") => {
+        const directionSuffix = direction === "out" ? " Out" : "";
         const fullRuleNameWithDir = `${ruleName}${directionSuffix}${ruleSuffix}`;
         const escapedRuleNameForNetsh = escapeForCmd(fullRuleNameWithDir).replace(/'/g, "''");
-        
+
         const netshArgsArray = [
           `'advfirewall'`,
           `'firewall'`,
@@ -2243,60 +2579,60 @@ async function addWindowsFirewallRule(options: AddFirewallRuleOptions): Promise<
           `'action=allow'`,
           `'program="${escapedExePathForNetsh.replace(/'/g, "''")}"'`,
           `'profile=${prof}'`,
-          `'enable=yes'`
+          `'enable=yes'`,
         ];
-        
+
         if (port) {
           netshArgsArray.push(`'localport=${port}'`, `'protocol=${proto}'`);
         } else {
           netshArgsArray.push(`'protocol=${proto}'`);
         }
-        
+
         if (scope) {
           netshArgsArray.push(`'remoteip=${scope.replace(/'/g, "''")}'`);
         }
-        
+
         return netshArgsArray;
       };
-      
+
       // Create PowerShell script that elevates and runs netsh for both directions
       // Use encoded command to avoid escaping issues with special characters in paths
       const createPsScript = (netshArgs: string[]) => {
         const psScript = [
-          '$netshArgs = @(' + netshArgs.join(',') + ')',
+          "$netshArgs = @(" + netshArgs.join(",") + ")",
           "$process = Start-Process -FilePath 'netsh' -ArgumentList $netshArgs -Verb RunAs -Wait -PassThru",
-          'exit $process.ExitCode'
-        ].join('\n');
-        
+          "exit $process.ExitCode",
+        ].join("\n");
+
         // Encode PowerShell script as base64 (UTF-16LE encoded) to avoid escaping issues
-        const psScriptBytes = Buffer.from(psScript, 'utf16le');
-        const psScriptBase64 = psScriptBytes.toString('base64');
-        
+        const psScriptBytes = Buffer.from(psScript, "utf16le");
+        const psScriptBase64 = psScriptBytes.toString("base64");
+
         return `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${psScriptBase64}`;
       };
-      
+
       // Get commands for both inbound and outbound
-      const netshArgsArrayIn = createRuleForDirection('in');
-      const netshArgsArrayOut = createRuleForDirection('out');
-      
+      const netshArgsArrayIn = createRuleForDirection("in");
+      const netshArgsArrayOut = createRuleForDirection("out");
+
       // Return commands for both inbound and outbound
       return {
         inbound: createPsScript(netshArgsArrayIn),
-        outbound: createPsScript(netshArgsArrayOut)
+        outbound: createPsScript(netshArgsArrayOut),
       };
     };
-    
+
     // Create commands for all profile/protocol combinations (both inbound and outbound)
     const commands: string[] = [];
     for (const prof of profilesToUse) {
       for (const proto of protocolsToUse) {
-        const portSuffix = port ? `:${port}` : '';
+        const portSuffix = port ? `:${port}` : "";
         const ruleCommands = createRule(prof, proto, portSuffix);
         commands.push(ruleCommands.inbound);
         commands.push(ruleCommands.outbound); // Add outbound rule for peer connections
       }
     }
-    
+
     // Execute all commands sequentially
     let commandIndex = 0;
     const executeNext = () => {
@@ -2304,13 +2640,13 @@ async function addWindowsFirewallRule(options: AddFirewallRuleOptions): Promise<
         resolve({ success: true });
         return;
       }
-      
-      exec(commands[commandIndex], { encoding: 'utf8' }, (error, stdout, stderr) => {
+
+      exec(commands[commandIndex], { encoding: "utf8" }, (error, stdout, stderr) => {
         if (error) {
           // If error occurs, check if it's because rule already exists (that's OK)
-          const errorMsg = (error.message || stderr || String(stdout || ''));
+          const errorMsg = error.message || stderr || String(stdout || "");
           const lower = errorMsg.toLowerCase();
-          if (lower.includes('already exists') || lower.includes('object already exists')) {
+          if (lower.includes("already exists") || lower.includes("object already exists")) {
             // Rule exists, continue to next command
             commandIndex++;
             executeNext();
@@ -2321,15 +2657,15 @@ async function addWindowsFirewallRule(options: AddFirewallRuleOptions): Promise<
             resolve({ success: false, error: RUN_AS_ADMIN_MSG, needsElevation: true });
             return;
           }
-          resolve({ success: false, error: error.message || stderr || 'Unknown error' });
+          resolve({ success: false, error: error.message || stderr || "Unknown error" });
           return;
         }
-        
+
         commandIndex++;
         executeNext();
       });
     };
-    
+
     executeNext();
   });
 }
@@ -2339,15 +2675,15 @@ async function removeWindowsFirewallRule(ruleName: string): Promise<{ success: b
     // Remove firewall rules (may require elevation if rule was created with elevation)
     // First try without elevation, if it fails try with elevation
     const escapedRuleName = ruleName.replace(/"/g, '""');
-    
+
     // Try to find all rules matching the name pattern (may have multiple for different profiles/protocols)
     const findRulesCommand = `netsh advfirewall firewall show rule name="${escapedRuleName}" verbose | findstr /C:"Rule Name"`;
-    
-    exec(findRulesCommand, { encoding: 'utf8' }, (findError, findStdout) => {
+
+    exec(findRulesCommand, { encoding: "utf8" }, (findError, findStdout) => {
       // Get all matching rule names
       const ruleNames: string[] = [];
       if (!findError && findStdout) {
-        const lines = findStdout.split('\n');
+        const lines = findStdout.split("\n");
         for (const line of lines) {
           const match = line.match(/Rule Name:\s*(.+)/i);
           if (match && match[1]) {
@@ -2358,18 +2694,18 @@ async function removeWindowsFirewallRule(ruleName: string): Promise<{ success: b
           }
         }
       }
-      
+
       // If no rules found by pattern, try exact name
       if (ruleNames.length === 0) {
         ruleNames.push(ruleName);
       }
-      
+
       // Create commands to delete all matching rules
-      const commands = ruleNames.map(name => {
+      const commands = ruleNames.map((name) => {
         const escaped = name.replace(/"/g, '""');
         return `netsh advfirewall firewall delete rule name="${escaped}"`;
       });
-      
+
       // Try deleting without elevation first
       let commandIndex = 0;
       const executeNext = () => {
@@ -2377,36 +2713,36 @@ async function removeWindowsFirewallRule(ruleName: string): Promise<{ success: b
           resolve({ success: true });
           return;
         }
-        
-        exec(commands[commandIndex], { encoding: 'utf8' }, (error, stdout, stderr) => {
+
+        exec(commands[commandIndex], { encoding: "utf8" }, (error, stdout, stderr) => {
           if (error) {
             // If access denied, try with elevation
-            const errorMsg = (error.message || stderr || '').toLowerCase();
-            if (errorMsg.includes('access') || errorMsg.includes('denied') || errorMsg.includes('administrator')) {
+            const errorMsg = (error.message || stderr || "").toLowerCase();
+            if (errorMsg.includes("access") || errorMsg.includes("denied") || errorMsg.includes("administrator")) {
               // Try with elevation
               const ruleToDelete = ruleNames[commandIndex];
               // Escape for netsh command-line (double-quote escaping)
               const escapedForNetsh = ruleToDelete.replace(/"/g, '""');
               // Escape for PowerShell single-quoted string
               const escapedForPs = escapedForNetsh.replace(/'/g, "''");
-              
+
               const psScript = [
-                "$ruleName = '" + escapedForPs.replace(/\$/g, '$$') + "'",
-                '$netshArgs = @(\'advfirewall\',\'firewall\',\'delete\',\'rule\',"name=`"$ruleName`"")',
-                '$process = Start-Process -FilePath \'netsh\' -ArgumentList $netshArgs -Verb RunAs -Wait -PassThru',
-                'exit $process.ExitCode'
-              ].join('\n');
-              
-              const psScriptBytes = Buffer.from(psScript, 'utf16le');
-              const psScriptBase64 = psScriptBytes.toString('base64');
+                "$ruleName = '" + escapedForPs.replace(/\$/g, "$$") + "'",
+                "$netshArgs = @('advfirewall','firewall','delete','rule',\"name=`\"$ruleName`\"\")",
+                "$process = Start-Process -FilePath 'netsh' -ArgumentList $netshArgs -Verb RunAs -Wait -PassThru",
+                "exit $process.ExitCode",
+              ].join("\n");
+
+              const psScriptBytes = Buffer.from(psScript, "utf16le");
+              const psScriptBase64 = psScriptBytes.toString("base64");
               const elevatedCommand = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${psScriptBase64}`;
-              
-              exec(elevatedCommand, { encoding: 'utf8' }, (elevError, elevStdout, elevStderr) => {
+
+              exec(elevatedCommand, { encoding: "utf8" }, (elevError, elevStdout, elevStderr) => {
                 if (elevError) {
                   // Ignore "object not found" errors (rule already deleted)
-                  const elevErrorMsg = (elevError.message || elevStderr || '').toLowerCase();
-                  if (!elevErrorMsg.includes('not found') && !elevErrorMsg.includes('cannot find')) {
-                    resolve({ success: false, error: elevError.message || elevStderr || 'Unknown error' });
+                  const elevErrorMsg = (elevError.message || elevStderr || "").toLowerCase();
+                  if (!elevErrorMsg.includes("not found") && !elevErrorMsg.includes("cannot find")) {
+                    resolve({ success: false, error: elevError.message || elevStderr || "Unknown error" });
                     return;
                   }
                 }
@@ -2415,20 +2751,20 @@ async function removeWindowsFirewallRule(ruleName: string): Promise<{ success: b
               });
               return;
             }
-            
+
             // Ignore "object not found" errors (rule already deleted)
             const errorMsgLower = errorMsg.toLowerCase();
-            if (!errorMsgLower.includes('not found') && !errorMsgLower.includes('cannot find')) {
-              resolve({ success: false, error: error.message || stderr || 'Unknown error' });
+            if (!errorMsgLower.includes("not found") && !errorMsgLower.includes("cannot find")) {
+              resolve({ success: false, error: error.message || stderr || "Unknown error" });
               return;
             }
           }
-          
+
           commandIndex++;
           executeNext();
         });
       };
-      
+
       executeNext();
     });
   });
@@ -2436,9 +2772,9 @@ async function removeWindowsFirewallRule(ruleName: string): Promise<{ success: b
 
 /**
  * Windows Firewall Management (Best Practices Implementation)
- * 
+ *
  * Following Windows desktop application best practices for networking apps:
- * 
+ *
  * 1. **No automatic prompts on startup** - App runs as standard user by default
  * 2. **Opt-in firewall rules** - Only request firewall rules when user explicitly enables
  *    features requiring inbound connections (e.g., seeding, remote control)
@@ -2446,9 +2782,8 @@ async function removeWindowsFirewallRule(ruleName: string): Promise<{ success: b
  *    and private profile by default (not public networks)
  * 4. **Detect managed environments** - Gracefully handle Group Policy managed firewalls
  * 5. **Clean separation** - Firewall operations are isolated and only triggered by user action
- * 
+ *
  */
-
 
 // Protocol registration will be done in app.whenReady() to ensure app is fully initialized
 
@@ -2524,17 +2859,19 @@ function normalizeTorrentFilePath(filePath: string): string {
   }
 
   let normalized = filePath.trim();
-  
+
   // Strip surrounding quotes if present (Windows quotes paths with spaces)
-  if ((normalized.startsWith('"') && normalized.endsWith('"')) ||
-      (normalized.startsWith("'") && normalized.endsWith("'"))) {
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"')) ||
+    (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
     normalized = normalized.slice(1, -1);
   }
 
   // Handle long path prefix (\\?\) - preserve it for Windows
   const isLongPath = normalized.startsWith("\\\\?\\");
   const isUncLongPath = normalized.startsWith("\\\\?\\UNC\\");
-  
+
   if (isUncLongPath) {
     // Convert \\?\UNC\server\share to \\server\share
     normalized = "\\\\" + normalized.substring(8);
@@ -2578,23 +2915,23 @@ function checkTorrentFileAssociation(): { isRegistered: boolean; details: string
     // (assuming the installer ran with perMachine: true)
     const execPath = app.getPath("exe");
     const isInstalled = execPath.includes("Program Files") || execPath.includes("AppData");
-    
+
     if (isInstalled) {
-      return { 
-        isRegistered: true, 
-        details: `App appears to be installed at: ${execPath}. File associations should be registered if installed via NSIS installer with perMachine: true.` 
+      return {
+        isRegistered: true,
+        details: `App appears to be installed at: ${execPath}. File associations should be registered if installed via NSIS installer with perMachine: true.`,
       };
     } else {
-      return { 
-        isRegistered: false, 
-        details: `App is packaged but may not be properly installed. Executable path: ${execPath}. File associations require proper installation.` 
+      return {
+        isRegistered: false,
+        details: `App is packaged but may not be properly installed. Executable path: ${execPath}. File associations require proper installation.`,
       };
     }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    return { 
-      isRegistered: false, 
-      details: `Could not verify file association status: ${error}` 
+    return {
+      isRegistered: false,
+      details: `Could not verify file association status: ${error}`,
     };
   }
 }
@@ -2608,9 +2945,9 @@ function handleTorrentFile(filePath: string) {
   try {
     // Normalize the path to handle Windows edge cases
     const normalizedPath = normalizeTorrentFilePath(filePath);
-    
+
     console.log(`[Torrent File] Processing torrent file: ${normalizedPath}`);
-    
+
     // Verify file exists before trying to read
     if (!existsSync(normalizedPath)) {
       const errorMsg = `Torrent file not found: ${normalizedPath}\n\nPossible causes:\n- The file was moved or deleted\n- The path contains invalid characters\n- Network path is unavailable\n- Insufficient permissions to access the file`;
@@ -2648,7 +2985,7 @@ function handleTorrentFile(filePath: string) {
       const error = readErr instanceof Error ? readErr : new Error(String(readErr));
       const errorCode = (readErr as NodeJS.ErrnoException).code;
       let errorMsg = `Failed to read torrent file: ${error.message}\n\nFile: ${normalizedPath}\n\nPossible causes:\n- File is locked by another program\n- Insufficient permissions\n- File is corrupted or invalid\n- Network path is unavailable`;
-      
+
       // Add specific error code information if available
       if (errorCode) {
         errorMsg += `\n\nError code: ${errorCode}`;
@@ -2660,7 +2997,7 @@ function handleTorrentFile(filePath: string) {
           errorMsg += "\n\nFile is locked. Please close any programs using this file and try again.";
         }
       }
-      
+
       console.error(`[Torrent File] ${errorMsg}`);
       if (mainWindow && !mainWindow.isDestroyed()) {
         dialog.showErrorBox("Torrent File Read Error", errorMsg);
@@ -2670,7 +3007,7 @@ function handleTorrentFile(filePath: string) {
       }
       return;
     }
-    
+
     const base64 = fileBuffer.toString("base64");
     const fileName = path.basename(normalizedPath);
 
@@ -2706,7 +3043,7 @@ function handleTorrentFile(filePath: string) {
       // If send failed, store for later
       pendingTorrentFile = JSON.stringify(data);
       console.log(`[Torrent File] Stored torrent file for later: ${fileName}`);
-      
+
       // Retry multiple times with increasing delays
       // Clear any existing retry interval first
       if (torrentFileRetryInterval) {
@@ -2744,7 +3081,7 @@ function handleTorrentFile(filePath: string) {
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     let errorMsg = `Failed to process torrent file:\n\n${error.message}`;
-    
+
     // Add helpful context based on error type
     if (error.message.includes("ENOENT") || error.message.includes("not found")) {
       errorMsg += "\n\nThe file may have been moved, deleted, or the path is incorrect.";
@@ -2755,7 +3092,7 @@ function handleTorrentFile(filePath: string) {
     } else {
       errorMsg += `\n\nTechnical details:\n${error.stack || ""}`;
     }
-    
+
     console.error(`[Torrent File] ${errorMsg}`);
     if (mainWindow && !mainWindow.isDestroyed()) {
       dialog.showErrorBox("Torrent File Processing Error", errorMsg);
@@ -2786,7 +3123,7 @@ app.on("before-quit", (e) => {
   // Mark that we're shutting down to prevent restarts
   isShuttingDown = true;
   isRestarting = false; // Clear restart flag on shutdown
-  
+
   // Notify renderer about shutdown so it can show shutdown overlay
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
     try {
@@ -2810,7 +3147,7 @@ function continueShutdown(e: Electron.Event) {
     clearTimeout(daemonRestartTimeout);
     daemonRestartTimeout = null;
   }
-  
+
   // Stop daemon health check
   if (daemonHealthCheckInterval) {
     clearInterval(daemonHealthCheckInterval);
@@ -2828,7 +3165,7 @@ function continueShutdown(e: Electron.Event) {
 
   // Close splash window if still open
   closeSplashWindow();
-  
+
   if (daemonSpawnedByApp) {
     e.preventDefault();
     gracefulShutdownIfOwned()
@@ -2845,813 +3182,930 @@ function continueShutdown(e: Electron.Event) {
   }
 }
 
-app.whenReady().then(async () => {
-  try {
-    protocol.handle("app", (request) => {
-      const url = request.url;
-      if (url === "app://notification-sound" || url.startsWith("app://notification-sound?")) {
-        const userData = app.getPath("userData");
-        const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
-        if (!existsSync(metaPath)) {
-          return new Response("", { status: 404 });
-        }
-        try {
-          const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { type?: string; ext?: string; filename?: string };
-          if (meta.type === "default") {
-            return new Response("", { status: 404 });
-          }
-          const ext = meta.ext ?? ".wav";
-          const soundPath = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
-          if (!existsSync(soundPath)) {
-            return new Response("", { status: 404 });
-          }
-          const buf = readFileSync(soundPath);
-          const mime = ext === ".mp3" ? "audio/mpeg" : ext === ".ogg" ? "audio/ogg" : ext === ".m4a" ? "audio/mp4" : "audio/wav";
-          return new Response(buf, { headers: { "Content-Type": mime } });
-        } catch {
-          return new Response("", { status: 404 });
-        }
-      }
-      if (url.startsWith("app://default-notification-sounds/")) {
-        try {
-          const filename = decodeURIComponent(url.slice("app://default-notification-sounds/".length).replace(/\?.*$/, ""));
-          if (!filename || filename.includes("..") || path.isAbsolute(filename)) {
-            return new Response("", { status: 404 });
-          }
-          const dir = getDefaultNotificationSoundsDir();
-          const soundPath = path.join(dir, path.basename(filename));
-          if (!existsSync(soundPath) || path.extname(soundPath).toLowerCase() !== ".mp3") {
-            return new Response("", { status: 404 });
-          }
-          const buf = readFileSync(soundPath);
-          return new Response(buf, { headers: { "Content-Type": "audio/mpeg" } });
-        } catch {
-          return new Response("", { status: 404 });
-        }
-      }
-      return new Response("", { status: 404 });
-    });
-
-    ipcMain.handle("get-icon-path", async () => getIconPath() ?? null);
-
-    // Firewall management (Windows only; validated options)
-    const FIREWALL_BASE_RULE_NAME = "ORC TORRENT BitTorrent Peer";
-    const VALID_PROTOCOLS = ["tcp", "udp", "both"] as const;
-    const VALID_PROFILES = ["private", "public", "domain", "all"] as const;
-    const MIN_PORT = 1;
-    const MAX_PORT = 65535;
-    const MAX_PORTS_BATCH = 50;
-
-    ipcMain.handle("firewall:check", async (): Promise<{ exists: boolean; managed?: boolean; error?: string; checkAccessDenied?: boolean }> => {
-      if (process.platform !== "win32") {
-        return { exists: false, managed: false };
-      }
-      try {
-        const inbound = await checkWindowsFirewallRule(FIREWALL_BASE_RULE_NAME);
-        const outbound = await checkWindowsFirewallOutboundRules();
-        return {
-          exists: inbound.exists || outbound.exists,
-          managed: inbound.managed,
-          error: inbound.error,
-          checkAccessDenied: inbound.checkAccessDenied ?? outbound.checkAccessDenied,
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return { exists: false, error: msg };
-      }
-    });
-
-    ipcMain.handle("firewall:check-managed", async (): Promise<boolean> => {
-      if (process.platform !== "win32") return false;
-      return checkIfFirewallManaged();
-    });
-
-    ipcMain.handle("firewall:add-rule", async (_event, options?: { port?: number; protocol?: "tcp" | "udp" | "both"; profile?: "private" | "public" | "domain" | "all" }): Promise<{ success: boolean; error?: string; needsElevation?: boolean; added?: number; skipped?: number }> => {
-      if (process.platform !== "win32") {
-        return { success: false, error: "Firewall management is only available on Windows" };
-      }
-      if (options != null && (typeof options !== "object" || Array.isArray(options))) {
-        return { success: false, error: "Invalid firewall options" };
-      }
-      const port = options?.port ?? 6881;
-      if (typeof port !== "number" || !Number.isInteger(port) || port < MIN_PORT || port > MAX_PORT) {
-        return { success: false, error: `Port must be an integer between ${MIN_PORT} and ${MAX_PORT}` };
-      }
-      const protocol = options?.protocol ?? "both";
-      if (!VALID_PROTOCOLS.includes(protocol)) {
-        return { success: false, error: `Protocol must be one of: ${VALID_PROTOCOLS.join(", ")}` };
-      }
-      const profile = options?.profile ?? "all";
-      if (!VALID_PROFILES.includes(profile)) {
-        return { success: false, error: `Profile must be one of: ${VALID_PROFILES.join(", ")}` };
-      }
-      const exePath = app.getPath("exe");
-      return addWindowsFirewallRulesBatch([{ port, protocol, profile }], exePath, FIREWALL_BASE_RULE_NAME);
-    });
-
-    ipcMain.handle("firewall:add-rules-batch", async (_event, options?: { ports: number[]; protocol?: "tcp" | "udp" | "both"; profile?: "private" | "public" | "domain" | "all" }): Promise<{ success: boolean; error?: string; needsElevation?: boolean; added?: number; skipped?: number }> => {
-      if (process.platform !== "win32") {
-        return { success: false, error: "Firewall management is only available on Windows" };
-      }
-      if (options != null && (typeof options !== "object" || Array.isArray(options))) {
-        return { success: false, error: "Invalid firewall options" };
-      }
-      const ports = Array.isArray(options?.ports) ? options.ports : [];
-      if (ports.length === 0) {
-        return { success: false, error: "At least one port is required" };
-      }
-      if (ports.length > MAX_PORTS_BATCH) {
-        return { success: false, error: `Maximum ${MAX_PORTS_BATCH} ports per batch` };
-      }
-      const validPorts = ports.filter((p): p is number => typeof p === "number" && Number.isInteger(p) && p >= MIN_PORT && p <= MAX_PORT);
-      if (validPorts.length !== ports.length) {
-        return { success: false, error: `All ports must be integers between ${MIN_PORT} and ${MAX_PORT}` };
-      }
-      const uniquePorts = [...new Set(validPorts)];
-      const protocol = options?.protocol ?? "both";
-      if (!VALID_PROTOCOLS.includes(protocol)) {
-        return { success: false, error: `Protocol must be one of: ${VALID_PROTOCOLS.join(", ")}` };
-      }
-      const profile = options?.profile ?? "all";
-      if (!VALID_PROFILES.includes(profile)) {
-        return { success: false, error: `Profile must be one of: ${VALID_PROFILES.join(", ")}` };
-      }
-      const rules = uniquePorts.map((port) => ({ port, protocol, profile }));
-      const exePath = app.getPath("exe");
-      return addWindowsFirewallRulesBatch(rules, exePath, FIREWALL_BASE_RULE_NAME);
-    });
-
-    ipcMain.handle("firewall:remove-rule", async (): Promise<{ success: boolean; error?: string }> => {
-      if (process.platform !== "win32") {
-        return { success: true };
-      }
-      return removeWindowsFirewallRule(FIREWALL_BASE_RULE_NAME);
-    });
-
-    ipcMain.handle("dialog:choose-save-folder", async (): Promise<string | null> => {
-      const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
-      if (!win || win.isDestroyed()) return null;
-      const result = await dialog.showOpenDialog(win, {
-        properties: ["openDirectory"],
-        title: "Choose folder for torrent (save / seed from existing files)",
+app
+  .whenReady()
+  .then(async () => {
+    try {
+      applyAppThemeMode(readStoredAppThemeMode());
+      nativeTheme.on("updated", () => {
+        broadcastAppThemeState(getCurrentAppThemeState());
       });
-      if (result.canceled || result.filePaths.length === 0) return null;
-      return result.filePaths[0] ?? null;
-    });
 
-    // Notification sound: choose file (copied to userData), get URL for renderer, or clear
-    ipcMain.handle("notification-sound:choose", async (): Promise<boolean> => {
-      const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
-      if (!win || win.isDestroyed()) return false;
-      const result = await dialog.showOpenDialog(win, {
-        properties: ["openFile"],
-        title: "Choose notification sound",
-        filters: [
-          { name: "Audio", extensions: ["wav", "mp3", "ogg", "m4a", "aac"] },
-          { name: "All", extensions: ["*"] },
-        ],
-      });
-      if (result.canceled || result.filePaths.length === 0) return false;
-      const src = result.filePaths[0];
-      const ext = path.extname(src).toLowerCase() || ".wav";
-      const userData = app.getPath("userData");
-      const dest = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
-      const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
-      try {
-        copyFileSync(src, dest);
-        writeFileSync(metaPath, JSON.stringify({ type: "custom", ext }));
-        return true;
-      } catch (err) {
-        console.error("Failed to save notification sound:", err);
-        return false;
-      }
-    });
-
-    ipcMain.handle("notification-sound:set-default", async (_event, filename: string): Promise<boolean> => {
-      if (typeof filename !== "string" || !filename.trim() || filename.includes("..")) return false;
-      const base = path.basename(filename);
-      if (!/^[a-zA-Z0-9][a-zA-Z0-9 ._-]*\.mp3$/i.test(base)) return false;
-      const dir = getDefaultNotificationSoundsDir();
-      const soundPath = path.join(dir, base);
-      if (!existsSync(soundPath)) return false;
-      const userData = app.getPath("userData");
-      const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
-      try {
-        writeFileSync(metaPath, JSON.stringify({ type: "default", filename: base }));
-        return true;
-      } catch (err) {
-        console.error("Failed to set default notification sound:", err);
-        return false;
-      }
-    });
-
-    ipcMain.handle("notification-sound:get-defaults", async (): Promise<string[]> => {
-      try {
-        const dir = getDefaultNotificationSoundsDir();
-        if (!existsSync(dir)) return [];
-        const files = readdirSync(dir, { withFileTypes: true });
-        return files
-          .filter((f) => f.isFile() && path.extname(f.name).toLowerCase() === ".mp3")
-          .map((f) => f.name)
-          .sort();
-      } catch {
-        return [];
-      }
-    });
-
-    ipcMain.handle("notification-sound:get-url", async (): Promise<string | null> => {
-      const userData = app.getPath("userData");
-      const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
-      if (!existsSync(metaPath)) return null;
-      try {
-        const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { type?: string; ext?: string; filename?: string };
-        if (meta.type === "default" && meta.filename) {
-          const dir = getDefaultNotificationSoundsDir();
-          const soundPath = path.join(dir, path.basename(meta.filename));
-          return existsSync(soundPath) ? "app://default-notification-sounds/" + encodeURIComponent(meta.filename) : null;
-        }
-        const ext = meta.ext ?? ".wav";
-        const soundPath = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
-        return existsSync(soundPath) ? "app://notification-sound" : null;
-      } catch {
-        return null;
-      }
-    });
-
-    ipcMain.handle("notification-sound:clear", async (): Promise<void> => {
-      const userData = app.getPath("userData");
-      const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
-      const exts = [".wav", ".mp3", ".ogg", ".m4a", ".aac"];
-      try {
-        for (const ext of exts) {
-          const p = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
-          if (existsSync(p)) unlinkSync(p);
-        }
-        if (existsSync(metaPath)) unlinkSync(metaPath);
-      } catch (err) {
-        console.error("Failed to clear notification sound:", err);
-      }
-    });
-
-    /** Return raw audio bytes for preview (avoids app:// protocol loading issues in renderer). */
-    ipcMain.handle(
-      "notification-sound:get-audio",
-      async (
-        _event,
-        payload: { type: "builtin" } | { type: "default"; filename: string } | { type: "custom" }
-      ): Promise<{ buffer: Buffer; mime: string } | null> => {
-        if (payload.type === "builtin") return null;
-        try {
-          if (payload.type === "default") {
-            const { filename } = payload;
-            if (!filename || filename.includes("..")) return null;
-            const dir = getDefaultNotificationSoundsDir();
-            const soundPath = path.join(dir, path.basename(filename));
-            if (!existsSync(soundPath) || path.extname(soundPath).toLowerCase() !== ".mp3") return null;
-            const buf = readFileSync(soundPath);
-            return { buffer: buf, mime: "audio/mpeg" };
-          }
+      protocol.handle("app", (request) => {
+        const url = request.url;
+        if (url === NOTIFICATION_SOUND_CUSTOM_URL || url.startsWith(`${NOTIFICATION_SOUND_CUSTOM_URL}?`)) {
           const userData = app.getPath("userData");
           const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
-          if (!existsSync(metaPath)) return null;
-          const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { type?: string; ext?: string };
-          if (meta.type === "default") return null;
+          if (!existsSync(metaPath)) {
+            return new Response("", { status: 404 });
+          }
+          try {
+            const meta = JSON.parse(readFileSync(metaPath, "utf8")) as {
+              type?: string;
+              ext?: string;
+              filename?: string;
+            };
+            if (meta.type === "default") {
+              return new Response("", { status: 404 });
+            }
+            const ext = meta.ext ?? ".wav";
+            const soundPath = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
+            if (!existsSync(soundPath)) {
+              return new Response("", { status: 404 });
+            }
+            const buf = readFileSync(soundPath);
+            const mime =
+              ext === ".mp3" ? "audio/mpeg" : ext === ".ogg" ? "audio/ogg" : ext === ".m4a" ? "audio/mp4" : "audio/wav";
+            return new Response(buf, { headers: { "Content-Type": mime } });
+          } catch {
+            return new Response("", { status: 404 });
+          }
+        }
+        if (url.startsWith(NOTIFICATION_SOUND_DEFAULT_URL_PREFIX)) {
+          try {
+            const filename = decodeURIComponent(
+              url.slice(NOTIFICATION_SOUND_DEFAULT_URL_PREFIX.length).replace(/\?.*$/, "")
+            );
+            if (!isSafeNotificationSoundFilename(filename)) {
+              return new Response("", { status: 404 });
+            }
+            const dir = getDefaultNotificationSoundsDir();
+            const soundPath = path.join(dir, path.basename(filename));
+            if (!existsSync(soundPath) || path.extname(soundPath).toLowerCase() !== ".mp3") {
+              return new Response("", { status: 404 });
+            }
+            const buf = readFileSync(soundPath);
+            return new Response(buf, { headers: { "Content-Type": "audio/mpeg" } });
+          } catch {
+            return new Response("", { status: 404 });
+          }
+        }
+        return new Response("", { status: 404 });
+      });
+
+      ipcMain.handle("get-icon-path", async () => getIconPath() ?? null);
+      ipcMain.on("renderer:ready", (event) => {
+        if (!mainWindow || event.sender !== mainWindow.webContents) {
+          return;
+        }
+        rendererReportedReady = true;
+        void revealMainWindowWhenReady();
+      });
+      ipcMain.on("app-theme:get-sync", (event) => {
+        event.returnValue = getCurrentAppThemeState();
+      });
+      ipcMain.handle("app-theme:get", async (): Promise<AppThemeState> => getCurrentAppThemeState());
+      ipcMain.handle("app-theme:set", async (_event, source: string): Promise<AppThemeState> => {
+        const nextSource = isAppThemeMode(source) ? source : "auto";
+        const nextState = applyAppThemeMode(nextSource, true);
+        broadcastAppThemeState(nextState);
+        return nextState;
+      });
+
+      registerUpdaterIpc(() => mainWindow, gracefulShutdownIfOwned);
+
+      ipcMain.handle("edition:get-branding", async () => desktopEditionBranding);
+
+      // Firewall management (Windows only; validated options)
+      const FIREWALL_BASE_RULE_NAME = "ORC TORRENT BitTorrent Peer";
+      const VALID_PROTOCOLS = ["tcp", "udp", "both"] as const;
+      const VALID_PROFILES = ["private", "public", "domain", "all"] as const;
+      const MIN_PORT = 1;
+      const MAX_PORT = 65535;
+      const MAX_PORTS_BATCH = 50;
+
+      ipcMain.handle(
+        "firewall:check",
+        async (): Promise<{ exists: boolean; managed?: boolean; error?: string; checkAccessDenied?: boolean }> => {
+          if (process.platform !== "win32") {
+            return { exists: false, managed: false };
+          }
+          try {
+            const inbound = await checkWindowsFirewallRule(FIREWALL_BASE_RULE_NAME);
+            const outbound = await checkWindowsFirewallOutboundRules();
+            return {
+              exists: inbound.exists || outbound.exists,
+              managed: inbound.managed,
+              error: inbound.error,
+              checkAccessDenied: inbound.checkAccessDenied ?? outbound.checkAccessDenied,
+            };
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            return { exists: false, error: msg };
+          }
+        }
+      );
+
+      ipcMain.handle("firewall:check-managed", async (): Promise<boolean> => {
+        if (process.platform !== "win32") return false;
+        return checkIfFirewallManaged();
+      });
+
+      ipcMain.handle(
+        "firewall:add-rule",
+        async (
+          _event,
+          options?: {
+            port?: number;
+            protocol?: "tcp" | "udp" | "both";
+            profile?: "private" | "public" | "domain" | "all";
+          }
+        ): Promise<{
+          success: boolean;
+          error?: string;
+          needsElevation?: boolean;
+          added?: number;
+          skipped?: number;
+        }> => {
+          if (process.platform !== "win32") {
+            return { success: false, error: "Firewall management is only available on Windows" };
+          }
+          if (options != null && (typeof options !== "object" || Array.isArray(options))) {
+            return { success: false, error: "Invalid firewall options" };
+          }
+          const port = options?.port ?? 6881;
+          if (typeof port !== "number" || !Number.isInteger(port) || port < MIN_PORT || port > MAX_PORT) {
+            return { success: false, error: `Port must be an integer between ${MIN_PORT} and ${MAX_PORT}` };
+          }
+          const protocol = options?.protocol ?? "both";
+          if (!VALID_PROTOCOLS.includes(protocol)) {
+            return { success: false, error: `Protocol must be one of: ${VALID_PROTOCOLS.join(", ")}` };
+          }
+          const profile = options?.profile ?? "all";
+          if (!VALID_PROFILES.includes(profile)) {
+            return { success: false, error: `Profile must be one of: ${VALID_PROFILES.join(", ")}` };
+          }
+          const exePath = app.getPath("exe");
+          return addWindowsFirewallRulesBatch([{ port, protocol, profile }], exePath, FIREWALL_BASE_RULE_NAME);
+        }
+      );
+
+      ipcMain.handle(
+        "firewall:add-rules-batch",
+        async (
+          _event,
+          options?: {
+            ports: number[];
+            protocol?: "tcp" | "udp" | "both";
+            profile?: "private" | "public" | "domain" | "all";
+          }
+        ): Promise<{
+          success: boolean;
+          error?: string;
+          needsElevation?: boolean;
+          added?: number;
+          skipped?: number;
+        }> => {
+          if (process.platform !== "win32") {
+            return { success: false, error: "Firewall management is only available on Windows" };
+          }
+          if (options != null && (typeof options !== "object" || Array.isArray(options))) {
+            return { success: false, error: "Invalid firewall options" };
+          }
+          const ports = Array.isArray(options?.ports) ? options.ports : [];
+          if (ports.length === 0) {
+            return { success: false, error: "At least one port is required" };
+          }
+          if (ports.length > MAX_PORTS_BATCH) {
+            return { success: false, error: `Maximum ${MAX_PORTS_BATCH} ports per batch` };
+          }
+          const validPorts = ports.filter(
+            (p): p is number => typeof p === "number" && Number.isInteger(p) && p >= MIN_PORT && p <= MAX_PORT
+          );
+          if (validPorts.length !== ports.length) {
+            return { success: false, error: `All ports must be integers between ${MIN_PORT} and ${MAX_PORT}` };
+          }
+          const uniquePorts = [...new Set(validPorts)];
+          const protocol = options?.protocol ?? "both";
+          if (!VALID_PROTOCOLS.includes(protocol)) {
+            return { success: false, error: `Protocol must be one of: ${VALID_PROTOCOLS.join(", ")}` };
+          }
+          const profile = options?.profile ?? "all";
+          if (!VALID_PROFILES.includes(profile)) {
+            return { success: false, error: `Profile must be one of: ${VALID_PROFILES.join(", ")}` };
+          }
+          const rules = uniquePorts.map((port) => ({ port, protocol, profile }));
+          const exePath = app.getPath("exe");
+          return addWindowsFirewallRulesBatch(rules, exePath, FIREWALL_BASE_RULE_NAME);
+        }
+      );
+
+      ipcMain.handle("firewall:remove-rule", async (): Promise<{ success: boolean; error?: string }> => {
+        if (process.platform !== "win32") {
+          return { success: true };
+        }
+        return removeWindowsFirewallRule(FIREWALL_BASE_RULE_NAME);
+      });
+
+      ipcMain.handle("dialog:choose-save-folder", async (): Promise<string | null> => {
+        const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        if (!win || win.isDestroyed()) return null;
+        const result = await dialog.showOpenDialog(win, {
+          properties: ["openDirectory"],
+          title: "Choose folder for torrent (save / seed from existing files)",
+        });
+        if (result.canceled || result.filePaths.length === 0) return null;
+        return result.filePaths[0] ?? null;
+      });
+
+      ipcMain.handle("shell:open-external", async (_event, targetUrl: string): Promise<boolean> => {
+        if (typeof targetUrl !== "string" || targetUrl.trim().length === 0) {
+          return false;
+        }
+        try {
+          const url = new URL(targetUrl);
+          if (!["http:", "https:"].includes(url.protocol)) {
+            return false;
+          }
+          if (url.username || url.password) {
+            return false;
+          }
+          await shell.openExternal(url.toString());
+          return true;
+        } catch {
+          return false;
+        }
+      });
+
+      // Notification sound: choose file (copied to userData), get URL for renderer, or clear
+      ipcMain.handle("notification-sound:choose", async (): Promise<boolean> => {
+        const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        if (!win || win.isDestroyed()) return false;
+        const result = await dialog.showOpenDialog(win, {
+          properties: ["openFile"],
+          title: "Choose notification sound",
+          filters: [
+            { name: "Audio", extensions: ["wav", "mp3", "ogg", "m4a", "aac"] },
+            { name: "All", extensions: ["*"] },
+          ],
+        });
+        if (result.canceled || result.filePaths.length === 0) return false;
+        const src = result.filePaths[0];
+        const ext = path.extname(src).toLowerCase() || ".wav";
+        const userData = app.getPath("userData");
+        const dest = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
+        const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
+        try {
+          copyFileSync(src, dest);
+          writeFileSync(metaPath, JSON.stringify({ type: "custom", ext }));
+          return true;
+        } catch (err) {
+          console.error("Failed to save notification sound:", err);
+          return false;
+        }
+      });
+
+      ipcMain.handle("notification-sound:set-default", async (_event, filename: string): Promise<boolean> => {
+        if (typeof filename !== "string" || !filename.trim()) return false;
+        const base = path.basename(filename);
+        if (!isSafeNotificationSoundFilename(base)) return false;
+        const dir = getDefaultNotificationSoundsDir();
+        const soundPath = path.join(dir, base);
+        if (!existsSync(soundPath)) return false;
+        const userData = app.getPath("userData");
+        const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
+        try {
+          writeFileSync(metaPath, JSON.stringify({ type: "default", filename: base }));
+          return true;
+        } catch (err) {
+          console.error("Failed to set default notification sound:", err);
+          return false;
+        }
+      });
+
+      ipcMain.handle("notification-sound:get-defaults", async (): Promise<string[]> => {
+        try {
+          const dir = getDefaultNotificationSoundsDir();
+          if (!existsSync(dir)) return [];
+          const files = readdirSync(dir, { withFileTypes: true });
+          const mp3Names = files
+            .filter((f) => f.isFile() && path.extname(f.name).toLowerCase() === ".mp3")
+            .map((f) => f.name);
+          return sortNotificationSoundFilenames(mp3Names);
+        } catch {
+          return [];
+        }
+      });
+
+      ipcMain.handle("notification-sound:get-preference", async (): Promise<StoredNotificationSoundPreference> => {
+        const userData = app.getPath("userData");
+        const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
+        if (!existsSync(metaPath)) return { type: "builtin" };
+        try {
+          const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { type?: string; filename?: string };
+          return notificationSoundMetaToPreference(meta);
+        } catch {
+          return { type: "builtin" };
+        }
+      });
+
+      ipcMain.handle("notification-sound:get-url", async (): Promise<string | null> => {
+        const userData = app.getPath("userData");
+        const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
+        if (!existsSync(metaPath)) return null;
+        try {
+          const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { type?: string; ext?: string; filename?: string };
+          if (meta.type === "default" && meta.filename) {
+            const dir = getDefaultNotificationSoundsDir();
+            const soundPath = path.join(dir, path.basename(meta.filename));
+            return existsSync(soundPath) ? buildDefaultNotificationSoundUrl(meta.filename) : null;
+          }
           const ext = meta.ext ?? ".wav";
           const soundPath = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
-          if (!existsSync(soundPath)) return null;
-          const buf = readFileSync(soundPath);
-          const mime =
-            ext === ".mp3" ? "audio/mpeg" : ext === ".ogg" ? "audio/ogg" : ext === ".m4a" ? "audio/mp4" : "audio/wav";
-          return { buffer: buf, mime };
+          return existsSync(soundPath) ? NOTIFICATION_SOUND_CUSTOM_URL : null;
         } catch {
           return null;
         }
-      }
-    );
+      });
 
-    ipcMain.handle("netifs", async () => {
-      const ifs = os.networkInterfaces();
-      return Object.keys(ifs).filter((k) => (ifs[k] ?? []).length > 0);
-    });
-
-    ipcMain.handle("vpn-status", async (): Promise<VpnStatus> => {
-      return detectVpn();
-    });
-
-    // Daemon log file access
-    ipcMain.handle("daemon:log-path", async (): Promise<string | null> => {
-      return currentDaemonLogPath;
-    });
-
-    ipcMain.handle("daemon:open-log", async (): Promise<{ success: boolean; error?: string }> => {
-      if (!currentDaemonLogPath) {
-        return { success: false, error: "Log file path not available" };
-      }
-      try {
-        // Open the folder containing the log file and select the file
-        shell.showItemInFolder(currentDaemonLogPath);
-        return { success: true };
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        return { success: false, error };
-      }
-    });
-
-    // Port hygiene - manual cleanup trigger
-    ipcMain.handle("daemon:cleanup-port", async (): Promise<{ success: boolean; cleaned: boolean; pid?: number; error?: string }> => {
-      try {
-        console.log("[IPC] Manual port cleanup requested");
-        const result = await cleanupStaleProcessesOnPort();
-        return { success: true, ...result };
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        return { success: false, cleaned: false, error };
-      }
-    });
-
-    // Daemon control handlers
-    ipcMain.handle("daemon:start", async (): Promise<{ success: boolean; error?: string }> => {
-      try {
-        if (isRestarting) {
-          return { success: false, error: "Daemon is already starting or restarting" };
+      ipcMain.handle("notification-sound:clear", async (): Promise<void> => {
+        const userData = app.getPath("userData");
+        const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
+        const exts = [".wav", ".mp3", ".ogg", ".m4a", ".aac"];
+        try {
+          for (const ext of exts) {
+            const p = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
+            if (existsSync(p)) unlinkSync(p);
+          }
+          if (existsSync(metaPath)) unlinkSync(metaPath);
+        } catch (err) {
+          console.error("Failed to clear notification sound:", err);
         }
-        if (daemonProc && daemonSpawnedByApp) {
-          // Check if process is actually running
-          const isHealthy = await isDaemonHealthy();
-          if (isHealthy) {
-            return { success: true };
+      });
+
+      /** Return raw audio bytes for preview (avoids app:// protocol loading issues in renderer). */
+      ipcMain.handle(
+        "notification-sound:get-audio",
+        async (
+          _event,
+          payload: { type: "builtin" } | { type: "default"; filename: string } | { type: "custom" }
+        ): Promise<{ buffer: Buffer; mime: string } | null> => {
+          if (payload.type === "builtin") return null;
+          try {
+            if (payload.type === "default") {
+              const { filename } = payload;
+              if (!isSafeNotificationSoundFilename(filename)) return null;
+              const dir = getDefaultNotificationSoundsDir();
+              const soundPath = path.join(dir, path.basename(filename));
+              if (!existsSync(soundPath) || path.extname(soundPath).toLowerCase() !== ".mp3") return null;
+              const buf = readFileSync(soundPath);
+              return { buffer: buf, mime: "audio/mpeg" };
+            }
+            const userData = app.getPath("userData");
+            const metaPath = path.join(userData, NOTIFICATION_SOUND_META);
+            if (!existsSync(metaPath)) return null;
+            const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { type?: string; ext?: string };
+            if (meta.type === "default") return null;
+            const ext = meta.ext ?? ".wav";
+            const soundPath = path.join(userData, NOTIFICATION_SOUND_BASENAME + ext);
+            if (!existsSync(soundPath)) return null;
+            const buf = readFileSync(soundPath);
+            const mime =
+              ext === ".mp3" ? "audio/mpeg" : ext === ".ogg" ? "audio/ogg" : ext === ".m4a" ? "audio/mp4" : "audio/wav";
+            return { buffer: buf, mime };
+          } catch {
+            return null;
           }
         }
-        const started = await startDaemonIfNeeded();
-        if (started) {
-          return { success: true };
-        } else {
-          return { success: false, error: "Failed to start daemon" };
-        }
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        return { success: false, error };
-      }
-    });
+      );
 
-    ipcMain.handle("daemon:stop", async (): Promise<{ success: boolean; error?: string }> => {
-      try {
-        if (!daemonSpawnedByApp) {
-          return { success: false, error: "Daemon was not started by this application" };
-        }
-        await gracefulShutdownIfOwned();
-        return { success: true };
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        return { success: false, error };
-      }
-    });
+      ipcMain.handle("netifs", async () => {
+        const ifs = os.networkInterfaces();
+        return Object.keys(ifs).filter((k) => (ifs[k] ?? []).length > 0);
+      });
 
-    ipcMain.handle("daemon:restart", async (): Promise<{ success: boolean; error?: string }> => {
-      try {
-        if (isRestarting) {
-          return { success: false, error: "Daemon is already restarting" };
-        }
-        if (daemonSpawnedByApp && daemonProc) {
-          await gracefulShutdownIfOwned();
-          // Wait a bit for shutdown to complete
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-        const started = await startDaemonIfNeeded();
-        if (started) {
-          return { success: true };
-        } else {
-          return { success: false, error: "Failed to restart daemon" };
-        }
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        return { success: false, error };
-      }
-    });
+      ipcMain.handle("vpn-status", async (): Promise<VpnStatus> => {
+        return detectVpn();
+      });
 
-    ipcMain.handle("daemon:status", async (): Promise<{ status: string; pid?: number }> => {
-      try {
-        if (isRestarting) {
-          return { status: "starting" };
-        }
-        if (daemonProc && daemonSpawnedByApp) {
-          const exitCode = (daemonProc as any).exitCode;
-          if (exitCode !== null) {
-            return { status: "stopped" };
-          }
-          const isHealthy = await isDaemonHealthy();
-          if (isHealthy) {
-            return { status: "running", pid: daemonProc.pid || undefined };
-          } else {
-            return { status: "starting" };
-          }
-        } else {
-          // Check if daemon is running externally
-          const isHealthy = await isDaemonHealthy();
-          if (isHealthy) {
-            return { status: "running" };
-          } else {
-            return { status: "stopped" };
-          }
-        }
-      } catch (err) {
-        return { status: "unknown" };
-      }
-    });
+      // Daemon log file access
+      ipcMain.handle("daemon:log-path", async (): Promise<string | null> => {
+        return currentDaemonLogPath;
+      });
 
-    // Log file reading and watching (uses module-scope Maps for cleanup)
-    ipcMain.handle("daemon:read-logs", async (_event, lines: number = 100): Promise<string[]> => {
-      try {
-        // Clamp and validate lines to prevent abuse (1-2000, integer)
-        const requested = typeof lines === "number" && Number.isFinite(lines) ? Math.floor(lines) : 100;
-        const cappedLines = Math.max(1, Math.min(2000, requested));
-
-        if (!currentDaemonLogPath || !existsSync(currentDaemonLogPath)) {
-          return [];
-        }
-        const content = readFileSync(currentDaemonLogPath, "utf-8");
-        const allLines = content.split("\n").filter((line) => line.trim().length > 0);
-        // Return last N lines
-        return allLines.slice(-cappedLines);
-      } catch (err) {
-        console.error("Failed to read logs:", err);
-        return [];
-      }
-    });
-
-    // Watch log file and send updates via IPC events
-    ipcMain.handle("daemon:watch-logs", (event): { success: boolean; error?: string } => {
-      try {
+      ipcMain.handle("daemon:open-log", async (): Promise<{ success: boolean; error?: string }> => {
         if (!currentDaemonLogPath) {
           return { success: false, error: "Log file path not available" };
         }
-
-        const callbackId = event.sender.id.toString();
-        
-        const MAX_LOG_LINE_CHARS = 8192;
-        const callback = (line: string) => {
-          if (!event.sender.isDestroyed()) {
-            const safe =
-              line.length > MAX_LOG_LINE_CHARS ? `${line.slice(0, MAX_LOG_LINE_CHARS)}…` : line;
-            event.sender.send("daemon:log-line", safe);
-          }
-        };
-
-        // Add to callbacks set
-        if (!logWatchCallbacks.has(callbackId)) {
-          logWatchCallbacks.set(callbackId, new Set());
+        try {
+          // Open the folder containing the log file and select the file
+          shell.showItemInFolder(currentDaemonLogPath);
+          return { success: true };
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          return { success: false, error };
         }
-        logWatchCallbacks.get(callbackId)!.add(callback);
+      });
 
-        // Set up file watcher if not already watching this path
-        if (!logWatchers.has(currentDaemonLogPath)) {
-          let lastSize = 0;
+      // Port hygiene - manual cleanup trigger
+      ipcMain.handle(
+        "daemon:cleanup-port",
+        async (): Promise<{ success: boolean; cleaned: boolean; pid?: number; error?: string }> => {
           try {
-            if (existsSync(currentDaemonLogPath)) {
-              const stats = statSync(currentDaemonLogPath);
-              lastSize = stats.size;
+            console.log("[IPC] Manual port cleanup requested");
+            const result = await cleanupStaleProcessesOnPort();
+            return { success: true, ...result };
+          } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            return { success: false, cleaned: false, error };
+          }
+        }
+      );
+
+      // Daemon control handlers
+      ipcMain.handle("daemon:start", async (): Promise<{ success: boolean; error?: string }> => {
+        try {
+          if (isRestarting) {
+            return { success: false, error: "Daemon is already starting or restarting" };
+          }
+          if (daemonProc && daemonSpawnedByApp) {
+            // Check if process is actually running
+            const isHealthy = await isDaemonHealthy();
+            if (isHealthy) {
+              return { success: true };
             }
-          } catch {}
+          }
+          const started = await startDaemonIfNeeded();
+          if (started) {
+            return { success: true };
+          } else {
+            return { success: false, error: "Failed to start daemon" };
+          }
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          return { success: false, error };
+        }
+      });
 
-          const watchedPath = currentDaemonLogPath; // Capture for closure
-          logWatchers.set(watchedPath, { lastSize });
+      ipcMain.handle("daemon:stop", async (): Promise<{ success: boolean; error?: string }> => {
+        try {
+          if (!daemonSpawnedByApp) {
+            return { success: false, error: "Daemon was not started by this application" };
+          }
+          await gracefulShutdownIfOwned();
+          return { success: true };
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          return { success: false, error };
+        }
+      });
 
-          watchFile(watchedPath, { interval: 500 }, (curr, prev) => {
-            // Check if file still exists
-            if (!existsSync(watchedPath)) {
-              return;
+      ipcMain.handle("daemon:restart", async (): Promise<{ success: boolean; error?: string }> => {
+        try {
+          if (isRestarting) {
+            return { success: false, error: "Daemon is already restarting" };
+          }
+          if (daemonSpawnedByApp && daemonProc) {
+            await gracefulShutdownIfOwned();
+            // Wait a bit for shutdown to complete
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          const started = await startDaemonIfNeeded();
+          if (started) {
+            return { success: true };
+          } else {
+            return { success: false, error: "Failed to restart daemon" };
+          }
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          return { success: false, error };
+        }
+      });
+
+      ipcMain.handle("daemon:status", async (): Promise<{ status: string; pid?: number }> => {
+        try {
+          if (isRestarting) {
+            return { status: "starting" };
+          }
+          if (daemonProc && daemonSpawnedByApp) {
+            const exitCode = (daemonProc as any).exitCode;
+            if (exitCode !== null) {
+              return { status: "stopped" };
             }
+            const isHealthy = await isDaemonHealthy();
+            if (isHealthy) {
+              return { status: "running", pid: daemonProc.pid || undefined };
+            } else {
+              return { status: "starting" };
+            }
+          } else {
+            // Check if daemon is running externally
+            const isHealthy = await isDaemonHealthy();
+            if (isHealthy) {
+              return { status: "running" };
+            } else {
+              return { status: "stopped" };
+            }
+          }
+        } catch (err) {
+          return { status: "unknown" };
+        }
+      });
 
-            const watcherState = logWatchers.get(watchedPath);
-            if (!watcherState) return;
+      // Log file reading and watching (uses module-scope Maps for cleanup)
+      ipcMain.handle("daemon:read-logs", async (_event, lines: number = 100): Promise<string[]> => {
+        try {
+          // Clamp and validate lines to prevent abuse (1-2000, integer)
+          const requested = typeof lines === "number" && Number.isFinite(lines) ? Math.floor(lines) : 100;
+          const cappedLines = Math.max(1, Math.min(2000, requested));
 
-            if (curr.size > prev.size) {
-              // File grew: read only new bytes (tail by offset) to avoid loading large log files
-              try {
-                const start = watcherState.lastSize;
-                const length = curr.size - start;
-                if (length <= 0) return;
-                // Cap single read to avoid OOM if log grows by hundreds of MB
-                const MAX_LOG_READ_BYTES = 2 * 1024 * 1024;
-                const toRead = Math.min(length, MAX_LOG_READ_BYTES);
-                const fd = openSync(watchedPath, "r");
+          if (!currentDaemonLogPath || !existsSync(currentDaemonLogPath)) {
+            return [];
+          }
+          const content = readFileSync(currentDaemonLogPath, "utf-8");
+          const allLines = content.split("\n").filter((line) => line.trim().length > 0);
+          // Return last N lines
+          return allLines.slice(-cappedLines);
+        } catch (err) {
+          console.error("Failed to read logs:", err);
+          return [];
+        }
+      });
+
+      // Watch log file and send updates via IPC events
+      ipcMain.handle("daemon:watch-logs", (event): { success: boolean; error?: string } => {
+        try {
+          if (!currentDaemonLogPath) {
+            return { success: false, error: "Log file path not available" };
+          }
+
+          const callbackId = event.sender.id.toString();
+
+          const MAX_LOG_LINE_CHARS = 8192;
+          const callback = (line: string) => {
+            if (!event.sender.isDestroyed()) {
+              const safe = line.length > MAX_LOG_LINE_CHARS ? `${line.slice(0, MAX_LOG_LINE_CHARS)}…` : line;
+              event.sender.send("daemon:log-line", safe);
+            }
+          };
+
+          // Add to callbacks set
+          if (!logWatchCallbacks.has(callbackId)) {
+            logWatchCallbacks.set(callbackId, new Set());
+          }
+          logWatchCallbacks.get(callbackId)!.add(callback);
+
+          // Set up file watcher if not already watching this path
+          if (!logWatchers.has(currentDaemonLogPath)) {
+            let lastSize = 0;
+            try {
+              if (existsSync(currentDaemonLogPath)) {
+                const stats = statSync(currentDaemonLogPath);
+                lastSize = stats.size;
+              }
+            } catch {}
+
+            const watchedPath = currentDaemonLogPath; // Capture for closure
+            logWatchers.set(watchedPath, { lastSize });
+
+            watchFile(watchedPath, { interval: 500 }, (curr, prev) => {
+              // Check if file still exists
+              if (!existsSync(watchedPath)) {
+                return;
+              }
+
+              const watcherState = logWatchers.get(watchedPath);
+              if (!watcherState) return;
+
+              if (curr.size > prev.size) {
+                // File grew: read only new bytes (tail by offset) to avoid loading large log files
                 try {
-                  const buf = Buffer.alloc(toRead);
-                  readSync(fd, buf, 0, toRead, start);
-                  watcherState.lastSize = start + toRead;
-                  const newContent = buf.toString("utf-8");
-                  const newLines = newContent.split("\n").filter((line) => line.trim().length > 0);
-                  newLines.forEach((line) => {
-                    logWatchCallbacks.forEach((callbacks) => {
-                      callbacks.forEach((cb) => {
-                        try {
-                          cb(line);
-                        } catch (err) {
-                          console.error("Error in log callback:", err);
-                        }
+                  const start = watcherState.lastSize;
+                  const length = curr.size - start;
+                  if (length <= 0) return;
+                  // Cap single read to avoid OOM if log grows by hundreds of MB
+                  const MAX_LOG_READ_BYTES = 2 * 1024 * 1024;
+                  const toRead = Math.min(length, MAX_LOG_READ_BYTES);
+                  const fd = openSync(watchedPath, "r");
+                  try {
+                    const buf = Buffer.alloc(toRead);
+                    readSync(fd, buf, 0, toRead, start);
+                    watcherState.lastSize = start + toRead;
+                    const newContent = buf.toString("utf-8");
+                    const newLines = newContent.split("\n").filter((line) => line.trim().length > 0);
+                    newLines.forEach((line) => {
+                      logWatchCallbacks.forEach((callbacks) => {
+                        callbacks.forEach((cb) => {
+                          try {
+                            cb(line);
+                          } catch (err) {
+                            console.error("Error in log callback:", err);
+                          }
+                        });
                       });
                     });
-                  });
-                } finally {
-                  closeSync(fd);
+                  } finally {
+                    closeSync(fd);
+                  }
+                } catch (err) {
+                  console.error("Error reading new log content:", err);
                 }
-              } catch (err) {
-                console.error("Error reading new log content:", err);
+              } else if (curr.size < prev.size) {
+                // File was truncated or recreated
+                watcherState.lastSize = 0;
               }
-            } else if (curr.size < prev.size) {
-              // File was truncated or recreated
-              watcherState.lastSize = 0;
+            });
+          }
+
+          // Clean up when renderer is destroyed
+          event.sender.once("destroyed", () => {
+            const callbacks = logWatchCallbacks.get(callbackId);
+            if (callbacks) {
+              callbacks.delete(callback);
+              if (callbacks.size === 0) {
+                logWatchCallbacks.delete(callbackId);
+              }
             }
           });
-        }
 
-        // Clean up when renderer is destroyed
-        event.sender.once("destroyed", () => {
-          const callbacks = logWatchCallbacks.get(callbackId);
-          if (callbacks) {
-            callbacks.delete(callback);
-            if (callbacks.size === 0) {
-              logWatchCallbacks.delete(callbackId);
+          return { success: true };
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          return { success: false, error };
+        }
+      });
+
+      // Register protocol handler for Windows/Linux (must be done after app is ready)
+      if (process.platform !== "darwin") {
+        try {
+          const isDefault = app.isDefaultProtocolClient("magnet");
+          if (!isDefault) {
+            const registered = app.setAsDefaultProtocolClient("magnet");
+            if (registered) {
+              console.log("[Protocol] Successfully registered as default magnet protocol handler");
+            } else {
+              console.warn(
+                "[Protocol] Failed to register as default magnet protocol handler - magnet links may not open from OS"
+              );
             }
+          } else {
+            console.log("[Protocol] Already registered as default magnet protocol handler");
           }
+        } catch (err) {
+          console.error("[Protocol] Error during magnet protocol registration:", err);
+          // Continue - app can still work without OS-level protocol handler
+        }
+      }
+
+      // Check torrent file association status on Windows (for debugging and user feedback)
+      if (process.platform === "win32") {
+        const associationStatus = checkTorrentFileAssociation();
+        console.log(`[File Association] Status: ${associationStatus.isRegistered ? "Registered" : "Not Registered"}`);
+        console.log(`[File Association] Details: ${associationStatus.details}`);
+
+        // In development mode, warn that file associations won't work
+        if (!app.isPackaged) {
+          console.warn(
+            "[File Association] Running in development mode - file associations only work in packaged/installed builds"
+          );
+        }
+      }
+
+      // Show splash screen first
+      console.log(`[Startup] Showing splash screen...`);
+      createSplashWindow();
+
+      // Start daemon and create window in parallel for faster startup
+      console.log(`[Startup] Starting daemon (isDev: ${isDev}, isPackaged: ${app.isPackaged})...`);
+      console.log(`[Startup] process.resourcesPath: ${process.resourcesPath || "undefined"}`);
+      console.log(`[Startup] process.execPath: ${process.execPath}`);
+
+      // Create window immediately (hidden) so it can load in background
+      createWindow();
+
+      if (app.isPackaged) {
+        initUpdater(() => mainWindow, gracefulShutdownIfOwned);
+      }
+
+      // Start daemon in background (don't block window creation)
+      startDaemonIfNeeded()
+        .then(() => {
+          console.log(`[Startup] Daemon startup completed`);
+        })
+        .catch((err) => {
+          console.error(`[Startup] Daemon startup failed:`, err);
         });
 
-        return { success: true };
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        return { success: false, error };
+      // This is a safety check - daemon should already be started above
+      if (!(await isDaemonHealthy())) {
+        console.warn("Daemon not healthy when window ready, attempting to start...");
+        await startDaemonIfNeeded();
       }
-    });
 
-    // Register protocol handler for Windows/Linux (must be done after app is ready)
-    if (process.platform !== "darwin") {
-      try {
-        const isDefault = app.isDefaultProtocolClient("magnet");
-        if (!isDefault) {
-          const registered = app.setAsDefaultProtocolClient("magnet");
-          if (registered) {
-            console.log("[Protocol] Successfully registered as default magnet protocol handler");
+      // Start periodic health check to ensure daemon stays running while GUI is open
+      // Start continuous health monitoring with self-healing
+      let consecutiveHealthFailures = 0;
+      const MAX_CONSECUTIVE_FAILURES = 3; // Restart after 3 consecutive failures
+
+      daemonHealthCheckInterval = setInterval(async () => {
+        if (isShuttingDown) {
+          if (daemonHealthCheckInterval) {
+            clearInterval(daemonHealthCheckInterval);
+            daemonHealthCheckInterval = null;
+          }
+          return;
+        }
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const isHealthy = await isDaemonHealthy();
+
+          if (isHealthy) {
+            // Reset failure counter on success
+            if (consecutiveHealthFailures > 0) {
+              console.log(`[HEALTH CHECK] Daemon recovered after ${consecutiveHealthFailures} failures`);
+              consecutiveHealthFailures = 0;
+            }
           } else {
-            console.warn("[Protocol] Failed to register as default magnet protocol handler - magnet links may not open from OS");
-          }
-        } else {
-          console.log("[Protocol] Already registered as default magnet protocol handler");
-        }
-      } catch (err) {
-        console.error("[Protocol] Error during magnet protocol registration:", err);
-        // Continue - app can still work without OS-level protocol handler
-      }
-    }
+            consecutiveHealthFailures++;
+            console.warn(
+              `[HEALTH CHECK] Daemon health check failed (${consecutiveHealthFailures}/${MAX_CONSECUTIVE_FAILURES})`
+            );
 
-    // Check torrent file association status on Windows (for debugging and user feedback)
-    if (process.platform === "win32") {
-      const associationStatus = checkTorrentFileAssociation();
-      console.log(`[File Association] Status: ${associationStatus.isRegistered ? "Registered" : "Not Registered"}`);
-      console.log(`[File Association] Details: ${associationStatus.details}`);
-      
-      // In development mode, warn that file associations won't work
-      if (!app.isPackaged) {
-        console.warn("[File Association] Running in development mode - file associations only work in packaged/installed builds");
-      }
-    }
-
-    // Show splash screen first
-    console.log(`[Startup] Showing splash screen...`);
-    createSplashWindow();
-    
-    // Start daemon and create window in parallel for faster startup
-    console.log(`[Startup] Starting daemon (isDev: ${isDev}, isPackaged: ${app.isPackaged})...`);
-    console.log(`[Startup] process.resourcesPath: ${process.resourcesPath || "undefined"}`);
-    console.log(`[Startup] process.execPath: ${process.execPath}`);
-    
-    // Create window immediately (hidden) so it can load in background
-    createWindow();
-    
-    // Start daemon in background (don't block window creation)
-    startDaemonIfNeeded().then(() => {
-      console.log(`[Startup] Daemon startup completed`);
-    }).catch((err) => {
-      console.error(`[Startup] Daemon startup failed:`, err);
-    });
-
-
-    // This is a safety check - daemon should already be started above
-    if (!await isDaemonHealthy()) {
-      console.warn("Daemon not healthy when window ready, attempting to start...");
-      await startDaemonIfNeeded();
-    }
-
-    // Start periodic health check to ensure daemon stays running while GUI is open
-    // Start continuous health monitoring with self-healing
-    let consecutiveHealthFailures = 0;
-    const MAX_CONSECUTIVE_FAILURES = 3; // Restart after 3 consecutive failures
-    
-    daemonHealthCheckInterval = setInterval(async () => {
-      if (isShuttingDown) {
-        if (daemonHealthCheckInterval) {
-          clearInterval(daemonHealthCheckInterval);
-          daemonHealthCheckInterval = null;
-        }
-        return;
-      }
-      
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const isHealthy = await isDaemonHealthy();
-        
-        if (isHealthy) {
-          // Reset failure counter on success
-          if (consecutiveHealthFailures > 0) {
-            console.log(`[HEALTH CHECK] Daemon recovered after ${consecutiveHealthFailures} failures`);
-            consecutiveHealthFailures = 0;
-          }
-        } else {
-          consecutiveHealthFailures++;
-          console.warn(`[HEALTH CHECK] Daemon health check failed (${consecutiveHealthFailures}/${MAX_CONSECUTIVE_FAILURES})`);
-          
-          // Check if process is still alive (if we spawned it)
-          let processDead = false;
-          if (daemonSpawnedByApp && daemonProc) {
-            try {
-              if (process.platform === "win32") {
-                // On Windows, check exit code and also verify process still exists
-                const exitCode = (daemonProc as any).exitCode;
-                if (exitCode !== null && exitCode !== undefined) {
-                  console.warn(`[HEALTH CHECK] Daemon process has exited (code: ${exitCode})`);
-                  processDead = true;
-                } else {
-                  // Exit code is null, but verify process actually exists using tasklist
-                  // This handles zombie processes that haven't reported exit yet
-                  if (daemonProc.pid) {
-                    try {
-                      const result = execSync(`tasklist /FI "PID eq ${daemonProc.pid}" /NH`, { 
-                        encoding: 'utf8', 
-                        timeout: 2000,
-                        maxBuffer: 1024 * 1024 // 1MB buffer
-                      });
-                      const resultLower = result.toLowerCase();
-                      const pidStr = daemonProc.pid.toString();
-                      // Check if process exists and is orc-daemon
-                      if (!resultLower.includes("orc-daemon") && !resultLower.includes(pidStr)) {
-                        console.warn(`[HEALTH CHECK] Process ${daemonProc.pid} not found in tasklist, treating as dead`);
-                        processDead = true;
-                      }
-                    } catch (tasklistErr) {
-                      // If tasklist fails (command not found, timeout, etc.), log but don't assume dead
-                      // This could be a transient issue, so let consecutive failures handle it
-                      const errMsg = tasklistErr instanceof Error ? tasklistErr.message : String(tasklistErr);
-                      if (!errMsg.includes("not found") && !errMsg.includes("ENOENT")) {
-                        console.warn(`[HEALTH CHECK] Could not verify process existence via tasklist: ${errMsg}`);
+            // Check if process is still alive (if we spawned it)
+            let processDead = false;
+            if (daemonSpawnedByApp && daemonProc) {
+              try {
+                if (process.platform === "win32") {
+                  // On Windows, check exit code and also verify process still exists
+                  const exitCode = (daemonProc as any).exitCode;
+                  if (exitCode !== null && exitCode !== undefined) {
+                    console.warn(`[HEALTH CHECK] Daemon process has exited (code: ${exitCode})`);
+                    processDead = true;
+                  } else {
+                    // Exit code is null, but verify process actually exists using tasklist
+                    // This handles zombie processes that haven't reported exit yet
+                    if (daemonProc.pid) {
+                      try {
+                        const result = execSync(`tasklist /FI "PID eq ${daemonProc.pid}" /NH`, {
+                          encoding: "utf8",
+                          timeout: 2000,
+                          maxBuffer: 1024 * 1024, // 1MB buffer
+                        });
+                        const resultLower = result.toLowerCase();
+                        const pidStr = daemonProc.pid.toString();
+                        // Check if process exists and is orc-daemon
+                        if (!resultLower.includes("orc-daemon") && !resultLower.includes(pidStr)) {
+                          console.warn(
+                            `[HEALTH CHECK] Process ${daemonProc.pid} not found in tasklist, treating as dead`
+                          );
+                          processDead = true;
+                        }
+                      } catch (tasklistErr) {
+                        // If tasklist fails (command not found, timeout, etc.), log but don't assume dead
+                        // This could be a transient issue, so let consecutive failures handle it
+                        const errMsg = tasklistErr instanceof Error ? tasklistErr.message : String(tasklistErr);
+                        if (!errMsg.includes("not found") && !errMsg.includes("ENOENT")) {
+                          console.warn(`[HEALTH CHECK] Could not verify process existence via tasklist: ${errMsg}`);
+                        }
                       }
                     }
                   }
-                }
-              } else {
-                // On Unix, try to send signal 0 to check if process exists
-                try {
-                  if (daemonProc.pid) {
-                    process.kill(daemonProc.pid, 0);
-                  } else {
-                    console.warn(`[HEALTH CHECK] Process PID is null, treating as dead`);
+                } else {
+                  // On Unix, try to send signal 0 to check if process exists
+                  try {
+                    if (daemonProc.pid) {
+                      process.kill(daemonProc.pid, 0);
+                    } else {
+                      console.warn(`[HEALTH CHECK] Process PID is null, treating as dead`);
+                      processDead = true;
+                    }
+                  } catch (killErr) {
+                    console.warn(`[HEALTH CHECK] Daemon process appears to be dead: ${killErr}`);
                     processDead = true;
                   }
-                } catch (killErr) {
-                  console.warn(`[HEALTH CHECK] Daemon process appears to be dead: ${killErr}`);
-                  processDead = true;
                 }
+              } catch (err) {
+                // If we can't determine process state, be conservative and assume it might be dead
+                console.warn(`[HEALTH CHECK] Error checking process state: ${err}`);
+                // Don't set processDead = true here - let consecutive failures handle it
               }
-            } catch (err) {
-              // If we can't determine process state, be conservative and assume it might be dead
-              console.warn(`[HEALTH CHECK] Error checking process state: ${err}`);
-              // Don't set processDead = true here - let consecutive failures handle it
+            } else if (daemonSpawnedByApp && !daemonProc) {
+              // Process reference is null but we spawned it - process is definitely dead
+              console.warn(`[HEALTH CHECK] Process reference is null but we spawned it - process is dead`);
+              processDead = true;
             }
-          } else if (daemonSpawnedByApp && !daemonProc) {
-            // Process reference is null but we spawned it - process is definitely dead
-            console.warn(`[HEALTH CHECK] Process reference is null but we spawned it - process is dead`);
-            processDead = true;
-          }
-          
-          // If process is dead or we've had too many failures, restart
-          if (processDead || consecutiveHealthFailures >= MAX_CONSECUTIVE_FAILURES) {
-            if (processDead) {
-              console.warn(`[HEALTH CHECK] Daemon process is dead, forcing restart...`);
-              // Clear process reference to allow restart
-              daemonProc = null;
-              daemonSpawnedByApp = false;
-            } else {
-              console.warn(`[HEALTH CHECK] Daemon unresponsive after ${consecutiveHealthFailures} failures, restarting...`);
-            }
-            
-            // Only restart if we're not already in a restart attempt and cooldown has passed
-            const timeSinceLastRestart = Date.now() - lastRestartTime;
-            if (!isRestarting && !daemonRestartTimeout && daemonSpawnedByApp === false) {
-              if (timeSinceLastRestart < MIN_RESTART_COOLDOWN_MS) {
-                const remainingCooldown = MIN_RESTART_COOLDOWN_MS - timeSinceLastRestart;
-                console.warn(`[HEALTH CHECK] Restart cooldown active (${timeSinceLastRestart}ms < ${MIN_RESTART_COOLDOWN_MS}ms). Waiting ${remainingCooldown}ms more before restart...`);
-                return; // Skip restart this cycle, will retry on next health check
-              }
-              
-              // Clear any pending restart timeout since health check is triggering restart
-              if (daemonRestartTimeout) {
-                clearTimeout(daemonRestartTimeout);
-                daemonRestartTimeout = null;
-              }
-              
-              // Force cleanup of stale process if needed
-              try {
-                await cleanupStaleProcessesOnPort();
-                // Reset failure counter before restart attempt
-                consecutiveHealthFailures = 0;
-                lastRestartTime = Date.now();
-                const restarted = await startDaemonIfNeeded();
-                
-                if (restarted) {
-                  // Wait a bit and check if restart was successful
-                  setTimeout(async () => {
-                    const healthy = await isDaemonHealthy();
-                    if (healthy) {
-                      console.log(`[HEALTH CHECK] Daemon restarted successfully`);
-                    } else {
-                      console.warn(`[HEALTH CHECK] Daemon restart may have failed`);
-                    }
-                  }, 2000);
-                }
-              } catch (restartErr) {
-                console.error(`[HEALTH CHECK] Error during restart attempt:`, restartErr);
-                // Reset isRestarting flag on error - startDaemonIfNeeded should have reset it, but be safe
-                isRestarting = false;
-              }
-            } else if (isRestarting || daemonRestartTimeout) {
-              // Already restarting or has pending restart, skip
-              console.log(`[HEALTH CHECK] Restart already in progress, skipping duplicate restart`);
-            }
-          }
-        }
-      } else {
-        // Window closed, stop health checking
-        if (daemonHealthCheckInterval) {
-          clearInterval(daemonHealthCheckInterval);
-          daemonHealthCheckInterval = null;
-        }
-      }
-    }, DAEMON_HEALTH_CHECK_INTERVAL_MS);
 
-    // Handle magnet link or torrent file from command line when app first starts
-    if (process.platform !== "darwin") {
-      const magnet = extractMagnetFromArgv(process.argv);
-      if (magnet) {
-        // Small delay to ensure window is ready
-        setTimeout(() => handleMagnetLink(magnet), 500);
-      }
-      // Check for .torrent file in command line arguments
-      console.log(`[Startup] Checking command line arguments for torrent files...`);
-      console.log(`[Startup] process.argv:`, process.argv);
-      for (const arg of process.argv) {
-        if (arg && arg.toLowerCase().endsWith(".torrent")) {
-          console.log(`[Startup] Found torrent file in argv: ${arg}`);
-          // Normalize the path using the enhanced normalization function
-          const normalizedPath = normalizeTorrentFilePath(arg);
-          console.log(`[Startup] Normalized path: ${normalizedPath}`);
-          if (existsSync(normalizedPath)) {
-            console.log(`[Startup] Torrent file exists, will open after window is ready`);
-            // Wait for window to be ready before handling the file
-            const tryOpenFile = () => {
-              if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-                const url = mainWindow.webContents.getURL();
-                if (url && url !== "about:blank") {
-                  handleTorrentFile(normalizedPath);
+            // If process is dead or we've had too many failures, restart
+            if (processDead || consecutiveHealthFailures >= MAX_CONSECUTIVE_FAILURES) {
+              if (processDead) {
+                console.warn(`[HEALTH CHECK] Daemon process is dead, forcing restart...`);
+                // Clear process reference to allow restart
+                daemonProc = null;
+                daemonSpawnedByApp = false;
+              } else {
+                console.warn(
+                  `[HEALTH CHECK] Daemon unresponsive after ${consecutiveHealthFailures} failures, restarting...`
+                );
+              }
+
+              // Only restart if we're not already in a restart attempt and cooldown has passed
+              const timeSinceLastRestart = Date.now() - lastRestartTime;
+              if (!isRestarting && !daemonRestartTimeout && daemonSpawnedByApp === false) {
+                if (timeSinceLastRestart < MIN_RESTART_COOLDOWN_MS) {
+                  const remainingCooldown = MIN_RESTART_COOLDOWN_MS - timeSinceLastRestart;
+                  console.warn(
+                    `[HEALTH CHECK] Restart cooldown active (${timeSinceLastRestart}ms < ${MIN_RESTART_COOLDOWN_MS}ms). Waiting ${remainingCooldown}ms more before restart...`
+                  );
+                  return; // Skip restart this cycle, will retry on next health check
+                }
+
+                // Clear any pending restart timeout since health check is triggering restart
+                if (daemonRestartTimeout) {
+                  clearTimeout(daemonRestartTimeout);
+                  daemonRestartTimeout = null;
+                }
+
+                // Force cleanup of stale process if needed
+                try {
+                  await cleanupStaleProcessesOnPort();
+                  // Reset failure counter before restart attempt
+                  consecutiveHealthFailures = 0;
+                  lastRestartTime = Date.now();
+                  const restarted = await startDaemonIfNeeded();
+
+                  if (restarted) {
+                    // Wait a bit and check if restart was successful
+                    setTimeout(async () => {
+                      const healthy = await isDaemonHealthy();
+                      if (healthy) {
+                        console.log(`[HEALTH CHECK] Daemon restarted successfully`);
+                      } else {
+                        console.warn(`[HEALTH CHECK] Daemon restart may have failed`);
+                      }
+                    }, 2000);
+                  }
+                } catch (restartErr) {
+                  console.error(`[HEALTH CHECK] Error during restart attempt:`, restartErr);
+                  // Reset isRestarting flag on error - startDaemonIfNeeded should have reset it, but be safe
+                  isRestarting = false;
+                }
+              } else if (isRestarting || daemonRestartTimeout) {
+                // Already restarting or has pending restart, skip
+                console.log(`[HEALTH CHECK] Restart already in progress, skipping duplicate restart`);
+              }
+            }
+          }
+        } else {
+          // Window closed, stop health checking
+          if (daemonHealthCheckInterval) {
+            clearInterval(daemonHealthCheckInterval);
+            daemonHealthCheckInterval = null;
+          }
+        }
+      }, DAEMON_HEALTH_CHECK_INTERVAL_MS);
+
+      // Handle magnet link or torrent file from command line when app first starts
+      if (process.platform !== "darwin") {
+        const magnet = extractMagnetFromArgv(process.argv);
+        if (magnet) {
+          // Small delay to ensure window is ready
+          setTimeout(() => handleMagnetLink(magnet), 500);
+        }
+        // Check for .torrent file in command line arguments
+        console.log(`[Startup] Checking command line arguments for torrent files...`);
+        console.log(`[Startup] process.argv:`, process.argv);
+        for (const arg of process.argv) {
+          if (arg && arg.toLowerCase().endsWith(".torrent")) {
+            console.log(`[Startup] Found torrent file in argv: ${arg}`);
+            // Normalize the path using the enhanced normalization function
+            const normalizedPath = normalizeTorrentFilePath(arg);
+            console.log(`[Startup] Normalized path: ${normalizedPath}`);
+            if (existsSync(normalizedPath)) {
+              console.log(`[Startup] Torrent file exists, will open after window is ready`);
+              // Wait for window to be ready before handling the file
+              const tryOpenFile = () => {
+                if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+                  const url = mainWindow.webContents.getURL();
+                  if (url && url !== "about:blank") {
+                    handleTorrentFile(normalizedPath);
+                  } else {
+                    // Window not ready yet, try again in 200ms
+                    setTimeout(tryOpenFile, 200);
+                  }
                 } else {
-                  // Window not ready yet, try again in 200ms
+                  // Window not created yet, try again in 200ms
                   setTimeout(tryOpenFile, 200);
                 }
-              } else {
-                // Window not created yet, try again in 200ms
-                setTimeout(tryOpenFile, 200);
-              }
-            };
-            setTimeout(tryOpenFile, 500);
-            break;
-          } else {
-            console.warn(`[Startup] Torrent file not found: ${normalizedPath}`);
-            // The error will be shown by handleTorrentFile if it's called
+              };
+              setTimeout(tryOpenFile, 500);
+              break;
+            } else {
+              console.warn(`[Startup] Torrent file not found: ${normalizedPath}`);
+              // The error will be shown by handleTorrentFile if it's called
+            }
           }
         }
       }
+    } catch (error) {
+      console.error("Error during app initialization:", error);
+      const errorMessage = error instanceof Error ? error.stack || error.message : String(error);
+      dialog.showErrorBox("Initialization Error", `Failed to initialize the application:\n\n${errorMessage}`);
+      app.exit(1);
     }
-  } catch (error) {
-    console.error("Error during app initialization:", error);
+  })
+  .catch((error) => {
+    console.error("Failed to ready app:", error);
     const errorMessage = error instanceof Error ? error.stack || error.message : String(error);
-    dialog.showErrorBox(
-      "Initialization Error",
-      `Failed to initialize the application:\n\n${errorMessage}`
-    );
+    dialog.showErrorBox("Startup Error", `Failed to start the application:\n\n${errorMessage}`);
     app.exit(1);
-  }
-}).catch((error) => {
-  console.error("Failed to ready app:", error);
-  const errorMessage = error instanceof Error ? error.stack || error.message : String(error);
-  dialog.showErrorBox(
-    "Startup Error",
-    `Failed to start the application:\n\n${errorMessage}`
-  );
-  app.exit(1);
-});
+  });

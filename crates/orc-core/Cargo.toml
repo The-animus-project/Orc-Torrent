@@ -1,10 +1,19 @@
 [package]
 name = "orc-core"
-version = "2.2.17"
+version = "2.3.0"
 edition.workspace = true
 license.workspace = true
 
 authors = ["ORC Torrent / The ANIMUS PROJECT"]
+
+[features]
+default = ["native-tls"]
+# Native stack TLS (platform Schannel / Security.framework / OpenSSL as provided by reqwest).
+native-tls = ["librqbit/default-tls"]
+# Rustls for librqbit — useful for some cross-compiles; build daemon with:
+#   cargo build -p orc-daemon --no-default-features --features tls-rustls
+# Do not combine with native-tls.
+tls-rustls = ["librqbit/rust-tls"]
 
 [dependencies]
 serde.workspace = true
@@ -17,8 +26,8 @@ sha1 = "0.10"
 hex = "0.4"
 regex = "1.10"
 
-# Embedded BitTorrent runtime
-librqbit.workspace = true
+# Embedded BitTorrent runtime (TLS via workspace feature flags).
+librqbit = { workspace = true, default-features = false, features = ["http-api-client"] }
 
 # We already use tokio in the daemon; core now uses it for time sampling.
 tokio.workspace = true
@@ -28,3 +37,5 @@ network-interface = "1.0"
 
 # GeoIP lookup for peer country detection
 maxminddb = "0.27"
+url.workspace = true
+chrono = { version = "0.4", features = ["serde"] }

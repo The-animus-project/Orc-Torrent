@@ -83,14 +83,14 @@ npm run dist     # electron-builder: .app / DMG as configured
 
 **Output:**
 
-- Application: `ui/desktop/dist/mac/ORC TORRENT.app` (or similar path per electron-builder config)
-- DMG: if enabled, in `ui/desktop/dist/`.
+- Application: `ui/desktop/release/mac-arm64/ORC TORRENT.app`
+- Installers and portable archives: `ui/desktop/release/ORC-TORRENT-<version>-mac-arm64.{dmg,zip,pkg}`
 
 ---
 
 ## Step 5: Run
 
-- **From build directory:** `open "ui/desktop/dist/mac/ORC TORRENT.app"` (path may vary; check `dist/`).
+- **From build directory:** `open "ui/desktop/release/mac-arm64/ORC TORRENT.app"`
 - **First run:** You may need to allow the app in **System Settings → Privacy & Security** if macOS blocks it (unverified developer).
 
 ---
@@ -107,9 +107,13 @@ npm run dev
 
 This starts the daemon (if needed), Vite dev server, and Electron with hot-reload.
 
+If this is your first run on a fresh checkout, the dev script now auto-builds the Rust daemon and copies it into `ui/desktop/assets/bin/` when missing.
+
 ---
 
 ## Notes
 
+- **Cross-target daemon:** Set `ORC_DAEMON_CARGO_TARGET` or `CARGO_BUILD_TARGET` to a Rust triple when running `npm run build` / `npm run dist` so `cargo` uses `--target` and the script copies from `target/<triple>/release/`. Same variables apply to `npm run dev` when it auto-builds the daemon.
+- **Rustls (optional):** For advanced cross-compiles you can build the daemon with `cargo build --release -p orc-daemon --no-default-features --features tls-rustls` from `crates/`, then copy `orc-daemon` into `ui/desktop/assets/bin/` (or set `ORC_USE_EXISTING_DAEMON=1` if the binary is already in place). Default builds use native TLS via `with-native-tls`.
 - **Apple Silicon:** Build on an arm64 Mac for native performance; the daemon and Electron will both be arm64. To build for Intel on Apple Silicon (or vice versa), use `cargo build --release --target <triple>` and copy the binary for the desired arch; ensure Electron is also targeting that arch in electron-builder if you need a universal or cross-arch build.
 - **Code signing / notarization:** For distribution outside your machine, you will need to configure code signing and notarization in electron-builder (see [Electron docs](https://www.electronjs.org/docs/latest/tutorial/code-signing)).

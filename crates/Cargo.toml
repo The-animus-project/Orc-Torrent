@@ -7,7 +7,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-license = "MIT"
+license = "AGPL-3.0"
 
 [workspace.dependencies]
 axum = { version = "0.7", features = ["macros"] }
@@ -20,9 +20,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 anyhow = "1.0"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 base64 = "0.22"
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "charset", "http2", "macos-system-configuration", "native-tls"] }
+url = "2.5"
+quick-xml = "0.37"
+regex = "1.11"
 
-# Embedded BitTorrent runtime used by the daemon.
-librqbit = "8.1.1"
+# Embedded BitTorrent runtime (default features off; orc-core / orc-daemon pick TLS via features).
+librqbit = { version = "8.1.1", default-features = false }
 
 # Security dependencies
 subtle = "2.5"
@@ -31,3 +36,5 @@ tower = { version = "0.5", features = ["limit"] }
 [patch.crates-io]
 # Use patched librqbit that re-exports PeerStatsFilter so we can show real connected peers.
 librqbit = { path = "librqbit-patched" }
+# Bind UDP tracker announces to bind_ipv4 when interface-bound.
+librqbit-tracker-comms = { path = "librqbit-tracker-comms-patched" }

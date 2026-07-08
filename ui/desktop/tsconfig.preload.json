@@ -5,15 +5,8 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "noEmit": false,
-    "lib": [
-      "ES2020",
-      "DOM"
-    ],
-    "types": [
-      "node"
-    ]
+    "lib": ["ES2020", "DOM"],
+    "types": ["node"]
   },
-  "include": [
-    "src/preload"
-  ]
+  "include": ["src/preload"]
 }

@@ -1,6 +1,6 @@
 # ORC Torrent
 
-![ORC Torrent](docs/orc-github.png)
+![ORC Torrent](Screenshot%202026-01-30%20191541.png)
 
 **Repository:** [github.com/The-animus-project/Orc-Torrent](https://github.com/The-animus-project/Orc-Torrent)
 
@@ -50,6 +50,11 @@ Screenshots of the ORC Torrent desktop client:
 | **Torrent management** | Add via magnet links or `.torrent` files; list, start, stop, remove, recheck, and announce torrents. |
 | **File control** | Per-file priority and content view; resume from existing downloads. |
 | **Peers and trackers** | Inspect connected peers and tracker status. |
+| **Premium search** | Premium ad-free builds can enable a compliant torrent search page with approved providers only. ORC Torrent does not ship piracy indexers or auto-download search results. |
+| **Watch folders** | Auto-import `.torrent` files dropped into configured folders (debounced, duplicate-safe). |
+| **Seeding controls** | Global ratio and seed-time limits; completed torrents stop automatically when targets are met. |
+| **Bandwidth scheduling** | Normal and limited speed profiles with quiet-hours schedule. |
+| **Privacy dashboard** | Consolidated VPN/kill-switch risk card with one-click VPN Safety Mode. |
 | **VPN and kill switch** | VPN interface detection (e.g. tun/wg); optional kill switch to pause all torrents when the VPN disconnects. |
 | **Network posture** | Policy, bind interface, and threat presets. |
 | **Security** | Request validation, error sanitization, optional admin token for remote or network use. |
@@ -63,12 +68,12 @@ Beyond standard BitTorrent behaviour, we’ve added:
 
 | Feature | Description |
 |---------|-------------|
-| **VPN-aware kill switch** | Detects VPN interfaces (tun/wg and common provider names) and can pause all torrents when the VPN drops so traffic doesn’t leak to the clearnet. |
+| **VPN-aware kill switch** | Detects VPN interfaces (tun/wg and common provider names) and can pause all torrents when the VPN drops to reduce accidental clearnet exposure. |
 | **GeoIP integration** | Peer and tracker data can be enriched with country info (GeoLite2) for visibility and policy. |
 | **Network posture and policy** | Central policy for when network is allowed, bind-interface control, and threat presets so behaviour fits your setup. |
 | **Hardened daemon API** | Request validation, torrent ID checks, body size and concurrency limits, sanitized errors, constant-time admin token check, and security headers. |
 | **Daemon and desktop split** | The Rust daemon runs the BitTorrent session and REST API; the Electron app manages the daemon and provides the UI. That separation keeps the engine stable and lets us update pieces independently. |
-| **Torrent profiles** | Per-torrent mode and hop settings, with an eye toward future ecosystem and onion-style workflows. |
+| **Torrent profiles** | Per-torrent mode settings in the UI. Overlay or anonymous routing is **not** implemented today. |
 | **Custom notification sounds** | Multiple built-in sounds for download-complete and kill-switch events; pick one in settings or supply your own file. Enable/disable per event in the desktop app. |
 
 ---
@@ -79,11 +84,11 @@ We keep a roadmap here and update it as we progress. A more detailed, living roa
 
 | Phase | Description |
 |-------|-------------|
-| **Stabilization** (current) | We’re focusing on reliability, performance, and polish: edge cases, error handling, and a solid experience on Windows, macOS, and Linux. |
-| **Ecosystem** (next) | After stabilization we’ll move on to ecosystem-oriented features, integrations, and patches—tooling, protocols, and community-driven improvements. |
-| **Security** (planned) | **Major security updates are planned:** hardening of the daemon API, auth, and network posture; we’ll detail these in the roadmap as we lock them in. |
+| **Stabilization** (current) | Trust, reliability, tests, docs/UI honesty, and cross-platform polish. |
+| **Daily driver** (next) | Watch folders, privacy dashboard, VPN Safety Mode, seeding/bandwidth automation for credible day-to-day use. |
+| **Ecosystem** (future) | Integrations and community-driven improvements; generic search provider interface only (no piracy indexers). |
 
-If you want to help shape the roadmap or contribute, open an issue or get in touch.
+Documentation: [Install](docs/INSTALL.md) · [Development](docs/DEVELOPMENT.md) · [Codebase overview](docs/CODEBASE_OVERVIEW.md) · [Privacy/VPN](docs/PRIVACY_VPN.md) · [Known limitations](docs/KNOWN_LIMITATIONS.md) · [Configuration](docs/CONFIGURATION.md) · [Testing checklist](docs/TESTING_CHECKLIST.md)
 
 ---
 
@@ -155,7 +160,7 @@ npm run dist
 ```
 
 - `npm run build` — release-builds `orc-daemon`, copies it to `assets/bin/`, then Vite renderer and TypeScript for main and preload. Output is under `ui/desktop/dist/` (main, preload, renderer); this is not the final `.exe` / installer until you package.
-- `npm run dist` — runs `build`, then full Electron build (e.g. Windows NSIS + zip; Linux AppImage + `.deb`; macOS `.app` if configured).
+- `npm run dist` — runs `build`, then full Electron build. Installers and portable archives are written to `ui/desktop/release/` (e.g. Windows NSIS + zip; Linux AppImage + `.deb`; macOS `.dmg` + `.zip` + `.pkg`).
 
 To run in development without packaging:
 
@@ -179,6 +184,14 @@ npm run dev
 **Non-loopback (LAN / remote) behavior:** Send the same token as the `x-admin-token` HTTP header on **every** `POST`, `PATCH`, and `DELETE` request (including adding torrents, policy changes, and `/admin/shutdown`). Cross-origin browser access uses a restrictive CORS policy in this mode; native clients and same-machine tools are unaffected. The bundled desktop app binds the daemon to loopback and does not send this header on normal UI traffic—use remote bind only with custom clients that supply the header.
 
 **Manual checks (optional):** With `DAEMON_BIND=127.0.0.1:8733`, `POST /torrents` without `x-admin-token` should succeed (empty token). With a non-loopback bind and token set, the same request without the header should return `401`; with a matching `x-admin-token`, it should succeed.
+
+### Search
+
+- ORC Torrent ships a development `Mock Provider` and a strict `Open Content Feed` provider for legal/public-domain/open-license catalogs.
+- Built-in movie search providers (`YTS`, `The Pirate Bay`, `1337x`) are available but **disabled by default**; enable them in Search Settings if you want movie index results alongside Internet Archive.
+- Custom providers can now be added with either the built-in open-content JSON format or standard RSS/Atom torrent feeds for compliant catalogs.
+- Search results are display-only until the user manually clicks `Add`; the client never auto-downloads from search.
+- The UI reminder is: `Only use torrents you have the legal right to download.`
 
 **Config file** (e.g. listen port):
 
@@ -224,11 +237,11 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
-| **2.2.14** | Install instructions for Windows, macOS, and Linux; cross-platform compatibility in docs. |
-| **2.2.13** | License switched to AGPL-3.0; full LICENSE file and project copyright. |
-| **2.2.12** | Custom notification sounds (multiple built-in sounds, settings UI); roadmap in README. |
-| **2.2.11** | Daemon security: request validation, limits, sanitized errors, constant-time admin token, security headers. |
-| **2.2.10** | Multi-platform support (Windows/Linux/macOS); authors and contributors in README. |
+| **2.3.0** | Watch folders, privacy dashboard, VPN Safety Mode, GitHub auto-update, network introspection, seeding/bandwidth limits, kill-switch fixes, and honest trust copy. |
+| **2.2.17** | Security dependency patches and CodeQL build-script fixes. |
+| **2.2.16** | Animated notification themes, notification sound playback fixes, upgrade uninstall flow, and enforced app icon in installers. |
+| **2.2.15** | XSS hardening, firewall IPC, log watcher OOM fix, and torrent-table performance improvements. |
+| **2.2.14** | Install instructions for Windows, macOS, and Linux; notification sound preview and settings UI refresh. |
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**.
 

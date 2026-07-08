@@ -8,6 +8,105 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.3.0] — 2026-07-08
+
+### Added
+
+**Daemon / API**
+
+- **Watch folders** — Auto-import `.torrent` files with debounce, duplicate info-hash detection, delete/archive after import, and recent import log (`GET/PATCH /watch-folders`, `POST /watch-folders/test`, `GET /watch-folders/events`).
+- **Privacy status dashboard** — `GET /net/privacy-status` with Protected / Warning / Blocked / Unknown risk states and plain-English reasons.
+- **VPN Safety Mode preset** — One-click `POST /net/privacy/preset/vpn-safety` enables kill switch, leak protection, and VPN bind interface when detected; returns what changed and the updated status.
+- **Network introspection** — `GET /net/adapters`, `GET /net/route`, `GET /net/dns`, `POST /net/vpn-status/refresh`, and `GET /tor/status` for the Network page.
+- **Policy persistence** — Full `DesiredPolicy` saved to `config.json` on `PATCH /v1/policy` and restored at daemon startup.
+- **Socket-level bind interface** — When `net_posture.bind_interface` resolves to an IPv4 address, rqbit binds incoming TCP, outbound IPv4 peers, DHT UDP, and UDP tracker announces to that address.
+- **Hot-rebind on posture change** — `PATCH /net/posture` and VPN Safety Mode recreate the rqbit session when `bind_interface` changes, re-attaching torrents by info hash without a daemon restart.
+- **Seeding limits** — `GET/PATCH /seeding` for global ratio and seed-time limits; completed torrents auto-stop when targets are met.
+- **Bandwidth scheduling** — Normal and limited speed profiles with quiet-hours schedule (`PATCH /bandwidth/schedule`, `GET/POST /torrents/limits`).
+- **Expanded config persistence** — `config.json` now round-trips kill switch, net posture, policy, search, watch folders, seeding, and bandwidth settings at startup.
+- **Watch-folder path validation** — Rejects empty paths and `..` traversal in daemon config.
+
+**Desktop UI**
+
+- **Privacy status card** — Dashboard card with VPN Safety Mode action and honest anonymity disclaimer.
+- **Network page** — Adapter table, default route, DNS, VPN signal details, kill-switch enforcement state, and refresh/re-check actions.
+- **Seeding settings** — Settings → Seeding for ratio and seed-time limits.
+- **Bandwidth settings** — Settings → Bandwidth for normal/limited caps and schedule window.
+- **Watch folder settings** — Settings → Watch with folder browse, test access, delete/archive options, and recent imports log.
+- **Compliant torrent search** — Search page and Settings → Search with Internet Archive, open-content JSON, and user-defined RSS/Atom/JSON custom feeds (no piracy indexers).
+- **GitHub auto-update** — `electron-updater` with Settings → Updates: auto-check toggle, manual check, download progress, and restart-to-install; daemon shuts down gracefully before install.
+- **Folder browse dialog** — `showSaveFolderDialog` IPC for watch-folder paths and add-torrent save path.
+- **Kawaii Pink notification theme** — Fourth animated banner and toast theme with pastel pink styling, shimmer sweep, and heart ring; selectable in Notification settings.
+- **Notification registries** — Shared banner/toast theme registry (`notificationVisualThemeRegistry.ts`) and bundled sound registry (`notificationSoundRegistry.ts`) as the single source of truth for Settings, IPC, and playback.
+- **Adaptive polling** — Tiered refresh intervals (focused / blurred / background) based on window focus, visibility, and minimize state.
+- **Torrent table virtualization** — `@tanstack/react-virtual` for large torrent lists.
+- **Renderer hooks** — `usePrivacyStatus`, `useTorrentData`, `useDaemonHealth`, and `usePollingController` extract polling and VPN/kill-switch logic from `App.tsx`.
+
+**Build / CI / docs**
+
+- **Documentation** — [`docs/CODEBASE_OVERVIEW.md`](docs/CODEBASE_OVERVIEW.md), [`docs/PRIVACY_VPN.md`](docs/PRIVACY_VPN.md), [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md), [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md), expanded [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md), [`ui/desktop/README.md`](ui/desktop/README.md).
+- **Prettier** — `.prettierrc` and `npm run format` for TypeScript/TSX sources.
+- **Package size audit** — `npm run audit:size` (`scripts/audit-size.ts`).
+- **CI auto-update metadata** — `build-release.yml` uploads `latest*.yml` and `*.blockmap` for electron-updater.
+
+### Changed
+
+- **Roadmap** — Honest phases: Stabilization (current) → Daily driver (next) → Ecosystem (future).
+- **Trust copy** — README, privacy settings, leak-proof UI, and Security settings no longer claim anonymity or "CONFIRMED SAFE" protection; anonymous/overlay routing labeled as not implemented.
+- **Leak-proof indicator** — Shows **Configured** / **Not configured** instead of "CONFIRMED SAFE".
+- **Network posture center** — Shows Configured / Leak risk / Unconfigured and embeds the privacy status card.
+- **Status bar DHT/PEX/LSD** — Driven by `privacy-status` API instead of hardcoded values.
+- **Watch folder UI** — Browse buttons for folder paths; removed stale "future update" placeholder.
+- **Kill switch triggers** — Toggle changes auto-save immediately via `PATCH /net/kill-switch` using the real daemon schema (`pause_all_torrents`, `stop_seeding`, `disable_dht_pex_lpd`, `block_outbound`).
+- **Kill switch / leak-proof sync** — `leak_proof_enabled` (`/net/posture`) and `kill_switch.enabled` (`/net/kill-switch`) stay in sync and persist to `config.json`.
+- **Privacy kill switch drawer** — Fetches fresh config when opened; trigger toggles auto-save instead of being overwritten by polling.
+- **Faster startup** — Splash minimum display time set to 0 ms (dismiss when daemon and renderer are ready).
+- **Polling intervals** — Adaptive tiers reduce background CPU and network use; offline daemon ping no longer polls at 500 ms.
+- **Dependency updates** — lru, vite, axios, openssl, postcss, and `@xmldom/xmldom` bumped since v2.2.17.
+
+### Fixed
+
+- **Network page empty adapters** — Daemon now implements the endpoints the Network page calls; adapters, route, and DNS populate correctly.
+- **Kill switch split state** — Enabling kill switch in one UI surface no longer leaves the other disarmed.
+- **Kill switch triggers not saved** — Trigger panel now uses the daemon schema and persists correctly.
+- **Torrent stopped event** — `useTorrentEvents` now emits `torrent_stopped` instead of `torrent_started` when a torrent stops.
+- **Kill switch auto-resume** — Uses `POST /torrents/:id/start` instead of an incorrect GET.
+- **DHT session initialization** — Falls back to a non-persistent or DHT-disabled rqbit session when persistent DHT socket init fails.
+- **Network adapter VPN flag** — VPN detection on adapters uses interface name heuristics consistently.
+
+### Security
+
+- **Watch-folder path hardening** — Folder paths validated against `..` traversal before save and import.
+- **Config file permissions** — Documented `0600` on Unix for `config.json` in [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
+
+### Tests
+
+- Config persistence round-trip (watch folders, net posture, policy, kill switch)
+- Watch-folder path validation (empty paths, `..`, delete/archive mutual exclusion)
+- Duplicate info-hash detection and privacy risk-state calculation
+- VPN Safety Mode preset idempotency and bind-interface behavior
+- Seeding limit triggers (ratio, seed-time, zero-download edge case)
+- Bandwidth schedule validation and network route parsing
+- Search provider tests (magnet parsing, provider-specific parsers)
+- Expanded `cargo test` coverage across `orc-core` and `orc-daemon`
+
+### Removed
+
+- Stale watch-folder "coming in a future update" placeholder copy.
+- Misleading auto-update placeholder in Settings (replaced by functional Update settings).
+- Redundant inline VPN/kill-switch polling blocks from `App.tsx` (moved to hooks).
+
+---
+
+## [2.2.17] — 2026-04-04
+
+### Security
+
+- **Dependency patches** — npm and Rust dependency updates addressing reported vulnerabilities.
+- **CodeQL** — Resolved security alerts in build scripts.
+
+---
+
 ## [2.2.16] — 2026-04-04
 
 ### Added
@@ -132,6 +231,8 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+[2.3.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.17...v2.3.0
+[2.2.17]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.16...v2.2.17
 [2.2.16]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.15...v2.2.16
 [2.2.15]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.14...v2.2.15
 [2.2.14]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.13...v2.2.14

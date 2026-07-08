@@ -22,19 +22,17 @@ export interface UseAsyncOperationReturn<T> {
 
 /**
  * Hook for managing async operations with loading and error states
- * 
+ *
  * @example
  * const { execute, loading, error } = useAsyncOperation({
  *   onSuccess: (result) => pushToast("info", "Operation succeeded"),
  *   onError: (error) => pushToast("error", error.message),
  *   logPrefix: "TorrentOperation"
  * });
- * 
+ *
  * await execute(() => postJson(`/torrents/${id}/start`, {}));
  */
-export function useAsyncOperation<T>(
-  options: UseAsyncOperationOptions<T> = {}
-): UseAsyncOperationReturn<T> {
+export function useAsyncOperation<T>(options: UseAsyncOperationOptions<T> = {}): UseAsyncOperationReturn<T> {
   const { onSuccess, onError, logPrefix } = options;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -80,9 +78,7 @@ export function useAsyncOperation<T>(
  * Hook for managing multiple async operations with a single loading state
  * Useful for bulk operations
  */
-export function useBulkAsyncOperation<T>(
-  options: UseAsyncOperationOptions<T[]> = {}
-): {
+export function useBulkAsyncOperation<T>(options: UseAsyncOperationOptions<T[]> = {}): {
   execute: (operations: Array<() => Promise<T>>) => Promise<T[]>;
   loading: boolean;
   error: Error | null;

@@ -5,14 +5,8 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "noEmit": false,
-    "lib": [
-      "ES2020"
-    ],
-    "types": [
-      "node"
-    ]
+    "lib": ["ES2020"],
+    "types": ["node"]
   },
-  "include": [
-    "src/main"
-  ]
+  "include": ["src/main", "src/shared/**/*"]
 }

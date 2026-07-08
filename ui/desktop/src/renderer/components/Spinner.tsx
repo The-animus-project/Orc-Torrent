@@ -13,20 +13,16 @@ interface SpinnerProps {
  * Animated orca spinner for loading states.
  * Uses the orca yin-yang GIF animation.
  */
-export const Spinner: React.FC<SpinnerProps> = ({ 
-  size = 64, 
-  className = "",
-  alt = "Loading..."
-}) => (
-  <img 
+export const Spinner: React.FC<SpinnerProps> = ({ size = 64, className = "", alt = "Loading..." }) => (
+  <img
     src={new URL("../../../assets/images/spinner.gif", import.meta.url).href}
     alt={alt}
-    width={size} 
+    width={size}
     height={size}
     className={`spinner ${className}`}
-    style={{ 
+    style={{
       display: "block",
-      objectFit: "contain"
+      objectFit: "contain",
     }}
   />
 );
@@ -34,6 +30,4 @@ export const Spinner: React.FC<SpinnerProps> = ({
 /**
  * Inline spinner for use in buttons and small spaces.
  */
-export const SpinnerInline: React.FC<Omit<SpinnerProps, "size">> = (props) => (
-  <Spinner size={20} {...props} />
-);
+export const SpinnerInline: React.FC<Omit<SpinnerProps, "size">> = (props) => <Spinner size={20} {...props} />;

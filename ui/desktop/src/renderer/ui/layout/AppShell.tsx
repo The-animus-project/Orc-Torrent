@@ -1,7 +1,8 @@
-import React, { memo, useCallback, useState } from "react";
-import type { Health, VpnStatus, KillSwitchState } from "../../types";
+import React, { memo } from "react";
+import type { Health, SearchFeatureSettings, VpnStatus, KillSwitchState } from "../../types";
 import { VpnStatusLed } from "../../components/VpnStatusLed";
 import { DaemonHealthLed, type DaemonHealthState } from "../../components/DaemonHealthLed";
+import { ToolbarSearch } from "../../components/ToolbarSearch";
 
 interface AppShellProps {
   online: boolean;
@@ -23,204 +24,135 @@ interface AppShellProps {
   onForceRecheck: () => void;
   onForceAnnounce: () => void;
   onSettings: () => void;
+  settingsButtonLabel?: string;
+  settingsButtonTitle?: string;
+  settingsButtonAriaLabel?: string;
+  searchSettings: SearchFeatureSettings | null;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  onTorrentAdded: (id: string, showFileDialog?: boolean, torrentName?: string) => void | Promise<void>;
+  onSearchError: (message: string) => void;
+  onSearchSuccess: (message: string) => void;
   loadingOperations?: Set<string>;
+  editionBadge?: string;
+  tagline?: string;
+  accentColor?: string;
+  logoUrl?: string;
+  isAnimusEdition?: boolean;
 }
 
-export const AppShell = memo<AppShellProps>(({
-  online,
-  version,
-  health,
-  daemonHealthState,
-  daemonHealthDetails,
-  vpnStatus,
-  killSwitchState,
-  onVpnLedClick,
-  onHealthClick,
-  onRefresh,
-  onAddMagnet,
-  onAddTorrent,
-  onStart,
-  onPause,
-  onStop,
-  onRemove,
-  onForceRecheck,
-  onForceAnnounce,
-  onSettings,
-  searchQuery,
-  onSearchChange,
-  loadingOperations = new Set(),
+export const AppShell = memo<AppShellProps>(
+  ({
+    online,
+    version,
+    health,
+    daemonHealthState,
+    daemonHealthDetails,
+    vpnStatus,
+    killSwitchState,
+    onVpnLedClick,
+    onHealthClick,
+    onRefresh,
+    onAddMagnet,
+    onAddTorrent,
+    onStart,
+    onPause,
+    onStop,
+    onRemove,
+    onForceRecheck,
+    onForceAnnounce,
+    onSettings,
+    settingsButtonLabel = "Settings",
+    settingsButtonTitle = "Open Settings (Ctrl+,)",
+    settingsButtonAriaLabel = "Open Settings",
+    searchSettings,
+    searchQuery,
+    onSearchChange,
+    onTorrentAdded,
+    onSearchError,
+    onSearchSuccess,
+    loadingOperations = new Set(),
+  editionBadge = "",
+  tagline = "Private torrent client",
+  accentColor = "",
+  logoUrl = "./images/orctorrent-logo.png",
+  isAnimusEdition = false,
 }) => {
-  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+    const accentStyle = accentColor
+      ? ({ ["--edition-accent" as string]: accentColor } as React.CSSProperties)
+      : undefined;
 
-  const handleMenuClick = useCallback((menu: string) => {
-    setMenuOpen(menuOpen === menu ? null : menu);
-  }, [menuOpen]);
-
-  return (
-    <div className="appShell">
-      {/* Menu Bar */}
-      <div className="menuBar">
+    return (
+      <div className="appShell" style={accentStyle}>
+        <div className="menuBar">
         <div className="menuBarLeft">
-          <div className="brand">
-            <div className="logo" aria-hidden>
-              <img src="./images/orctorrent-logo.png" alt="" />
+          <div className={`brand${isAnimusEdition ? " brandAnimus" : ""}`}>
+            <div className={`logo${isAnimusEdition ? "" : " brandLogo"}`}>
+              <img src={logoUrl} alt={isAnimusEdition ? "" : "ORC TORRENT"} />
             </div>
-            <div className="titles">
-              <div className="name">ORC TORRENT</div>
-              <div className="tag">The Apex Downloader</div>
-            </div>
+            {!isAnimusEdition ? (
+              <div className="titles">
+                <div className="tag">{tagline}</div>
+              </div>
+            ) : (
+              <div className="titles">
+                <div className="tag animusTagOnly">{tagline}</div>
+              </div>
+            )}
+          </div>
+            {editionBadge ? (
+              <div className="editionBrandBadge" aria-label={editionBadge}>
+                {editionBadge}
+              </div>
+            ) : null}
+          </div>
+          <div className="menuBarRight">
+            <VpnStatusLed vpnStatus={vpnStatus} killSwitchState={killSwitchState} onClick={onVpnLedClick} />
+            <DaemonHealthLed state={daemonHealthState} onClick={onHealthClick} details={daemonHealthDetails} />
+            <button
+              className="btn topActionBtn"
+              type="button"
+              onClick={onAddMagnet}
+              disabled={!online}
+              title="Add Magnet Link (Ctrl+M)"
+              aria-label="Add Magnet Link"
+            >
+              + Magnet
+            </button>
+            <button
+              className="btn topActionBtn"
+              type="button"
+              onClick={onAddTorrent}
+              disabled={!online}
+              title="Add Torrent File (Ctrl+T)"
+              aria-label="Add Torrent File"
+            >
+              + Torrent
+            </button>
+            <button
+              className="btn topActionBtn"
+              type="button"
+              onClick={onSettings}
+              title={settingsButtonTitle}
+              aria-label={settingsButtonAriaLabel}
+            >
+              {settingsButtonLabel}
+            </button>
+            <ToolbarSearch
+              online={online}
+              settings={searchSettings}
+              query={searchQuery}
+              onQueryChange={onSearchChange}
+              onTorrentAdded={onTorrentAdded}
+              onError={onSearchError}
+              onSuccess={onSearchSuccess}
+            />
+            <div className="topVersionChip">v{version}</div>
           </div>
         </div>
-        <div className="menuBarRight">
-          <VpnStatusLed
-            vpnStatus={vpnStatus}
-            killSwitchState={killSwitchState}
-            onClick={onVpnLedClick}
-          />
-          <DaemonHealthLed
-            state={daemonHealthState}
-            onClick={onHealthClick}
-            details={daemonHealthDetails}
-          />
-          <div className="chip neutral">
-            <span style={{ opacity: 0.7 }}>v</span>{version}
-          </div>
-        </div>
       </div>
-
-      {/* Primary Toolbar */}
-      <div className="toolbar">
-        <div className="toolbarLeft">
-          <button 
-            className="btn primary" 
-            onClick={onAddMagnet}
-            disabled={!online}
-            title="Add Magnet Link (Ctrl+M)"
-            aria-label="Add Magnet Link"
-            aria-disabled={!online}
-          >
-            ADD MAGNET
-          </button>
-          <button 
-            className="btn" 
-            onClick={onAddTorrent}
-            disabled={!online}
-            title="Add Torrent File (Ctrl+T)"
-            aria-label="Add Torrent File"
-            aria-disabled={!online}
-          >
-            ADD TORRENT
-          </button>
-          <div className="divider" role="separator" aria-orientation="vertical" />
-          <button 
-            className="btn" 
-            onClick={onStart}
-            disabled={!online || loadingOperations.has("start")}
-            title="Start Selected Torrents"
-            aria-label="Start Selected Torrents"
-            aria-busy={loadingOperations.has("start")}
-            aria-disabled={!online || loadingOperations.has("start")}
-          >
-            {loadingOperations.has("start") ? "STARTING..." : "START"}
-          </button>
-          <button 
-            className="btn" 
-            onClick={onPause}
-            disabled={!online || loadingOperations.has("stop")}
-            title="Pause Selected Torrents"
-            aria-label="Pause Selected Torrents"
-            aria-busy={loadingOperations.has("stop")}
-            aria-disabled={!online || loadingOperations.has("stop")}
-          >
-            {loadingOperations.has("stop") ? "PAUSING..." : "PAUSE"}
-          </button>
-          <button 
-            className="btn" 
-            onClick={onStop}
-            disabled={!online || loadingOperations.has("stop")}
-            title="Stop Selected Torrents"
-            aria-label="Stop Selected Torrents"
-            aria-busy={loadingOperations.has("stop")}
-            aria-disabled={!online || loadingOperations.has("stop")}
-          >
-            {loadingOperations.has("stop") ? "STOPPING..." : "STOP"}
-          </button>
-          <button 
-            className="btn" 
-            onClick={onRemove}
-            disabled={!online || loadingOperations.has("remove")}
-            title="Remove Selected Torrents"
-            aria-label="Remove Selected Torrents"
-            aria-busy={loadingOperations.has("remove")}
-            aria-disabled={!online || loadingOperations.has("remove")}
-          >
-            {loadingOperations.has("remove") ? "REMOVING..." : "REMOVE"}
-          </button>
-          <div className="divider" role="separator" aria-orientation="vertical" />
-          <button 
-            className="btn ghost" 
-            onClick={onForceRecheck}
-            disabled={!online || loadingOperations.has("recheck")}
-            title="Force Recheck Selected Torrents"
-            aria-label="Force Recheck Selected Torrents"
-            aria-busy={loadingOperations.has("recheck")}
-            aria-disabled={!online || loadingOperations.has("recheck")}
-          >
-            {loadingOperations.has("recheck") ? "RECHECKING..." : "FORCE RECHECK"}
-          </button>
-          <button 
-            className="btn ghost" 
-            onClick={onForceAnnounce}
-            disabled={!online || loadingOperations.has("announce")}
-            title="Force Announce to Trackers"
-            aria-label="Force Announce to Trackers"
-            aria-busy={loadingOperations.has("announce")}
-            aria-disabled={!online || loadingOperations.has("announce")}
-          >
-            {loadingOperations.has("announce") ? "ANNOUNCING..." : "FORCE ANNOUNCE"}
-          </button>
-        </div>
-        <div className="toolbarRight">
-          <button 
-            className="btn ghost" 
-            onClick={onSettings}
-            title="Open Settings (Ctrl+,)"
-            aria-label="Open Settings"
-          >
-            SETTINGS
-          </button>
-          <button 
-            className="btn ghost" 
-            onClick={onRefresh}
-            title="Refresh Data (F5)"
-            aria-label="Refresh Data"
-          >
-            REFRESH
-          </button>
-        </div>
-      </div>
-
-      {/* Global Search */}
-      <div className="searchBar">
-        <input
-          className="input searchInput"
-          type="text"
-          placeholder="Search torrents, files, trackers, peers..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          spellCheck={false}
-          aria-label="Search torrents"
-          aria-describedby="search-description"
-          role="searchbox"
-        />
-        <span id="search-description" className="sr-only">
-          Search through torrents by name, ID, files, trackers, or peers
-        </span>
-      </div>
-    </div>
-  );
-});
+    );
+  }
+);
 
 AppShell.displayName = "AppShell";

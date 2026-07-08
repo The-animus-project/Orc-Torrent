@@ -1,10 +1,15 @@
 [package]
 name = "orc-daemon"
-version = "2.2.17"
+version = "2.3.0"
 edition.workspace = true
 license.workspace = true
 
 authors = ["ORC Torrent / The ANIMUS PROJECT"]
+
+[features]
+default = ["with-native-tls"]
+with-native-tls = ["librqbit/default-tls", "orc-core/native-tls"]
+tls-rustls = ["librqbit/rust-tls", "orc-core/tls-rustls"]
 
 [dependencies]
 axum.workspace = true
@@ -17,7 +22,13 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 uuid.workspace = true
 base64.workspace = true
-librqbit.workspace = true
-orc-core = { path = "../orc-core" }
+async-trait.workspace = true
+reqwest.workspace = true
+url.workspace = true
+quick-xml.workspace = true
+regex.workspace = true
+librqbit = { workspace = true, default-features = false, features = ["http-api-client"] }
+orc-core = { path = "../orc-core", default-features = false }
 subtle.workspace = true
 tower.workspace = true
+notify = "8.0"

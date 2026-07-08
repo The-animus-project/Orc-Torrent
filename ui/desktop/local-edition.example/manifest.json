@@ -1,0 +1,14 @@
+{
+  "edition": "animus",
+  "productName": "ORC TORRENT AnimUS",
+  "windowTitle": "ORC TORRENT — AnimUS Edition",
+  "appName": "ORC TORRENT AnimUS",
+  "tagline": "AnimUS Edition · graffiti build",
+  "badgeLabel": "AnimUS Edition",
+  "accentColor": "#7cff00",
+  "autoUpdate": false,
+  "artifactSuffix": "AnimUS",
+  "configFolderName": "OrcTorrent-AnimUS",
+  "logoUrl": "./images/animus-edition.png",
+  "themeId": "animus-graffiti"
+}

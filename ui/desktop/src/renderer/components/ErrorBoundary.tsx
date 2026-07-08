@@ -46,12 +46,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="errorBoundary">
-          <h2 className="errorBoundaryTitle">
-            Something went wrong
-          </h2>
-          <p className="errorBoundaryMessage">
-            {this.state.error?.message || "An unexpected error occurred"}
-          </p>
+          <h2 className="errorBoundaryTitle">Something went wrong</h2>
+          <p className="errorBoundaryMessage">{this.state.error?.message || "An unexpected error occurred"}</p>
           {this.state.error?.stack && (
             <details className="errorBoundaryDetails">
               <summary className="errorBoundarySummary">Technical details</summary>
@@ -59,16 +55,10 @@ export class ErrorBoundary extends Component<Props, State> {
             </details>
           )}
           <div className="errorBoundaryActions">
-            <button
-              onClick={this.handleReset}
-              className="btn primary"
-            >
+            <button onClick={this.handleReset} className="btn primary">
               Try again
             </button>
-            <button
-              onClick={() => window.location.reload()}
-              className="btn"
-            >
+            <button onClick={() => window.location.reload()} className="btn">
               Reload application
             </button>
           </div>

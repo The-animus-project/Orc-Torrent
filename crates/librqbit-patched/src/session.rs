@@ -402,6 +402,8 @@ pub struct SessionOptions {
     pub peer_opts: Option<PeerConnectionOptions>,
 
     pub listen_port_range: Option<std::ops::Range<u16>>,
+    /// When set, bind incoming TCP listener and outbound peer connections to this IPv4 address.
+    pub bind_ipv4: Option<std::net::Ipv4Addr>,
     pub enable_upnp_port_forwarding: bool,
 
     // If you set this to something, all writes to disk will happen in background and be
@@ -434,9 +436,11 @@ pub struct SessionOptions {
 
 async fn create_tcp_listener(
     port_range: std::ops::Range<u16>,
+    bind_ipv4: Option<std::net::Ipv4Addr>,
 ) -> anyhow::Result<(TcpListener, u16)> {
+    let bind_ip = bind_ipv4.unwrap_or(std::net::Ipv4Addr::UNSPECIFIED);
     for port in port_range.clone() {
-        match TcpListener::bind(("0.0.0.0", port)).await {
+        match TcpListener::bind((bind_ip, port)).await {
             Ok(l) => return Ok((l, port)),
             Err(e) => {
                 debug!("error listening on port {port}: {e:#}")
@@ -511,33 +515,53 @@ impl Session {
 
             let (tcp_listener, tcp_listen_port) =
                 if let Some(port_range) = opts.listen_port_range.clone() {
-                    let (l, p) = create_tcp_listener(port_range)
+                    let bind_ipv4 = opts.bind_ipv4;
+                    let (l, p) = create_tcp_listener(port_range, bind_ipv4)
                         .await
                         .context("error listening on TCP")?;
-                    info!("Listening on 0.0.0.0:{p} for incoming peer connections");
+                    if let Some(ip) = bind_ipv4 {
+                        info!("Listening on {ip}:{p} for incoming peer connections");
+                    } else {
+                        info!("Listening on 0.0.0.0:{p} for incoming peer connections");
+                    }
                     (Some(l), Some(p))
                 } else {
                     (None, None)
                 };
 
+            let dht_listen = opts
+                .bind_ipv4
+                .zip(tcp_listen_port)
+                .map(|(ip, port)| SocketAddr::from((ip, port)));
+
             let dht = if opts.disable_dht {
                 None
-            } else {
-                let dht = if opts.disable_dht_persistence {
+            } else if opts.bind_ipv4.is_some() {
+                Some(
+                    DhtBuilder::with_config(DhtConfig {
+                        listen_addr: dht_listen,
+                        cancellation_token: Some(token.child_token()),
+                        ..Default::default()
+                    })
+                    .await
+                    .context("error initializing DHT")?,
+                )
+            } else if opts.disable_dht_persistence {
+                Some(
                     DhtBuilder::with_config(DhtConfig {
                         cancellation_token: Some(token.child_token()),
                         ..Default::default()
                     })
                     .await
-                    .context("error initializing DHT")?
-                } else {
-                    let pdht_config = opts.dht_config.take().unwrap_or_default();
+                    .context("error initializing DHT")?,
+                )
+            } else {
+                let pdht_config = opts.dht_config.take().unwrap_or_default();
+                Some(
                     PersistentDht::create(Some(pdht_config), Some(token.clone()))
                         .await
-                        .context("error initializing persistent DHT")?
-                };
-
-                Some(dht)
+                        .context("error initializing persistent DHT")?,
+                )
             };
             let peer_opts = opts.peer_opts.unwrap_or_default();
 
@@ -618,7 +642,7 @@ impl Session {
                 builder.build().context("error building HTTP(S) client")?
             };
 
-            let stream_connector = Arc::new(StreamConnector::from(proxy_config));
+            let stream_connector = Arc::new(StreamConnector::new(proxy_config, opts.bind_ipv4));
 
             let blocklist: blocklist::Blocklist = if let Some(blocklist_url) = opts.blocklist_url {
                 blocklist::Blocklist::load_from_url(&blocklist_url)
@@ -629,7 +653,7 @@ impl Session {
                 blocklist::Blocklist::empty()
             };
 
-            let udp_tracker_client = UdpTrackerClient::new(token.clone())
+            let udp_tracker_client = UdpTrackerClient::new(token.clone(), opts.bind_ipv4)
                 .await
                 .context("error creating UDP tracker client")?;
 

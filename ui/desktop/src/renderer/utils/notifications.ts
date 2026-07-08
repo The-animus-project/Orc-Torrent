@@ -3,12 +3,28 @@
  */
 
 import { logger } from "./logger";
+import {
+  readStoredNotificationSoundPreference,
+  storedNotificationSoundPreferenceToUrl,
+  urlToNotificationSoundAudioPayload,
+  urlToStoredNotificationSoundPreference,
+  writeStoredNotificationSoundPreference,
+  type NotificationSoundAudioPayload,
+} from "../../shared/notificationSoundRegistry";
 
 let permissionChecked = false;
 let permissionGranted = false;
 
 /** Custom notification sound URL (e.g. app://notification-sound). When set, played instead of built-in tone. */
 let cachedNotificationSoundUrl: string | null = null;
+
+function hydrateNotificationSoundFromLocalStorage(): void {
+  const stored = readStoredNotificationSoundPreference();
+  if (!stored) return;
+  cachedNotificationSoundUrl = storedNotificationSoundPreferenceToUrl(stored);
+}
+
+hydrateNotificationSoundFromLocalStorage();
 
 /** Cached file URL for app icon (from main process path). */
 let cachedAppIconUrl: string | null | undefined = undefined;
@@ -87,6 +103,28 @@ function completionTag(torrentId: string | undefined, torrentName: string): stri
  */
 export function setNotificationSoundUrl(url: string | null): void {
   cachedNotificationSoundUrl = url;
+  writeStoredNotificationSoundPreference(urlToStoredNotificationSoundPreference(url));
+}
+
+/**
+ * Load the saved notification sound from the main process (userData meta) and mirror to localStorage.
+ * Call once on app startup so desktop notifications use the user's last choice.
+ */
+export async function loadPersistedNotificationSound(): Promise<string | null> {
+  if (typeof window.orc?.notificationSound?.getPreference !== "function") {
+    return cachedNotificationSoundUrl;
+  }
+  try {
+    const preference = await window.orc.notificationSound.getPreference();
+    const url =
+      typeof window.orc.notificationSound.getUrl === "function" ? await window.orc.notificationSound.getUrl() : null;
+    const effectiveUrl = url ?? storedNotificationSoundPreferenceToUrl(preference);
+    setNotificationSoundUrl(effectiveUrl);
+    return effectiveUrl;
+  } catch (error) {
+    logger.warn("Failed to load persisted notification sound:", error);
+    return cachedNotificationSoundUrl;
+  }
 }
 
 /**
@@ -140,7 +178,8 @@ export function previewNotificationSound(): void {
 
 function playBuiltInTone(): void {
   try {
-    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const AC =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     const ctx = new AC();
     ctx.resume?.().catch(() => {});
@@ -166,23 +205,6 @@ function playBuiltInTone(): void {
   } catch (error) {
     logger.warn("Failed to play built-in tone:", error);
   }
-}
-
-type NotificationSoundAudioPayload =
-  | { type: "builtin" }
-  | { type: "default"; filename: string }
-  | { type: "custom" };
-
-function urlToAudioPayload(url: string | null): NotificationSoundAudioPayload {
-  if (!url) return { type: "builtin" };
-  if (url === "app://notification-sound" || url.startsWith("app://notification-sound?")) {
-    return { type: "custom" };
-  }
-  if (url.startsWith("app://default-notification-sounds/")) {
-    const filename = decodeURIComponent(url.replace("app://default-notification-sounds/", "").replace(/\?.*$/, ""));
-    if (filename) return { type: "default", filename };
-  }
-  return { type: "builtin" };
 }
 
 function normalizeAudioBytes(raw: unknown): Uint8Array | null {
@@ -239,7 +261,7 @@ async function tryPlayNotificationSoundFromIpc(payload: NotificationSoundAudioPa
 }
 
 async function playNotificationSoundWithFallbacks(): Promise<void> {
-  const payload = urlToAudioPayload(cachedNotificationSoundUrl);
+  const payload = urlToNotificationSoundAudioPayload(cachedNotificationSoundUrl);
   if (await tryPlayNotificationSoundFromIpc(payload)) return;
 
   if (cachedNotificationSoundUrl) {
