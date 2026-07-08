@@ -867,9 +867,33 @@
     <script>
       const splashParams = new URLSearchParams(window.location.search);
       const splashEdition = splashParams.get("edition") === "animus" ? "animus" : "standard";
-      const splashBackground = splashParams.get("splashBackground") || "";
-      const splashLogo = splashParams.get("splashLogo") || "";
-      const splashEmblem = splashParams.get("splashEmblem") || "";
+
+      /** Allow only bundled relative asset paths; blocks XSS and open redirects from query params. */
+      function sanitizeSplashAssetUrl(raw) {
+        if (!raw || typeof raw !== "string") return "";
+        const trimmed = raw.trim();
+        if (!trimmed.startsWith("./") || trimmed.includes("..")) return "";
+        if (/[\s"'<>]|javascript:|data:|vbscript:/i.test(trimmed)) return "";
+        return trimmed;
+      }
+
+      const splashBackground = sanitizeSplashAssetUrl(splashParams.get("splashBackground") || "");
+      const splashLogo = sanitizeSplashAssetUrl(splashParams.get("splashLogo") || "");
+      const splashEmblem = sanitizeSplashAssetUrl(splashParams.get("splashEmblem") || "");
+
+      function setImageSrc(element, url) {
+        if (!element || !url) return;
+        element.setAttribute("src", url);
+      }
+
+      function setContainerImage(container, url) {
+        if (!container || !url) return;
+        container.replaceChildren();
+        const img = document.createElement("img");
+        img.setAttribute("src", url);
+        img.setAttribute("alt", "");
+        container.appendChild(img);
+      }
 
       if (document.body) {
         document.body.dataset.edition = splashEdition;
@@ -905,12 +929,8 @@
       const START_DELAY_MS = 650;
 
       if (splashEdition === "animus") {
-        if (animusLogo && splashLogo) {
-          animusLogo.setAttribute("src", splashLogo);
-        }
-        if (animusEmblem && splashEmblem) {
-          animusEmblem.innerHTML = `<img src="${splashEmblem}" alt="" />`;
-        }
+        setImageSrc(animusLogo, splashLogo);
+        setContainerImage(animusEmblem, splashEmblem);
       }
 
       const stages =

@@ -1,6 +1,6 @@
 // ui/desktop/scripts/dist.ts
 
-import { spawnSync, execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   rmSync,
@@ -90,55 +90,6 @@ function printToolVersions(): void {
 function run(cmd: string, args: string[], cwd = projectRoot): void {
   const finalCmd = resolveCmd(cmd);
 
-  // On Windows, npm needs shell to find its dependencies properly
-  // Use execSync with a command string to avoid deprecation warning
-  // (spawnSync with shell: true and args array is deprecated)
-  if (isWin && cmd === "npm") {
-    // Escape args properly for Windows shell
-    const escapedArgs = args.map((arg) => {
-      if (/["\s&|><^%!()]/.test(arg)) {
-        return `"${arg.replace(/%/g, "%%").replace(/"/g, '""')}"`;
-      }
-      return arg;
-    });
-    const command = `npm ${escapedArgs.join(" ")}`;
-
-    try {
-      execSync(command, {
-        stdio: "inherit",
-        cwd,
-        env: process.env,
-      });
-      return; // Success
-    } catch (err: any) {
-      const status = err.status ?? 1;
-      console.error(`\nCommand failed: ${cmd} ${args.join(" ")}`);
-      process.exit(status);
-    }
-  }
-
-  // On Windows, .cmd files from node_modules must be executed via execSync for proper path handling
-  const isCmdFile = isWin && (finalCmd.endsWith(".cmd") || finalCmd.endsWith(".bat"));
-
-  if (isCmdFile) {
-    const quotedPath = `"${finalCmd}"`;
-    const command = args.length > 0 ? `${quotedPath} ${args.join(" ")}` : quotedPath;
-
-    try {
-      execSync(command, {
-        stdio: "inherit",
-        cwd,
-        env: process.env,
-      });
-      return; // Success
-    } catch (err: any) {
-      const status = err.status ?? 1;
-      console.error(`\nCommand failed: ${cmd} ${args.join(" ")}`);
-      process.exit(status);
-    }
-  }
-
-  // Normal spawnSync handling for non-.cmd files
   const r = spawnSync(finalCmd, args, {
     stdio: "inherit",
     shell: false,

@@ -1,7 +1,7 @@
 {
   "name": "orc-desktop",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "ORC Torrent Client - A decentralized BitTorrent client with privacy features",
   "author": "ORC Torrent / The ANIMUS PROJECT",
   "type": "module",

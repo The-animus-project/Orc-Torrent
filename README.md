@@ -8,7 +8,7 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. We 
 
 **ORC Torrent is compatible with Windows, macOS, and Linux.** You can build and run it on any of these platforms.
 
-**Latest release: [v2.3.0](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.0)** — portable installers for all three platforms, with in-app GitHub auto-update.
+**Latest release: [v2.3.1](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.1)** — security hardening plus portable installers for all three platforms, with in-app GitHub auto-update.
 
 **ORC Torrent is actively developed.** We update the roadmap and documentation as we go. If you’re interested in where we’re headed or how to contribute, read on.
 
@@ -263,6 +263,7 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
+| **2.3.1** | CodeQL security fixes (splash XSS/redirect sanitization, build-script shell hardening), `shell-quote` dependency bump. |
 | **2.3.0** | Watch folders, privacy dashboard, VPN Safety Mode, GitHub auto-update, network introspection, seeding/bandwidth limits, kill-switch fixes, and honest trust copy. |
 | **2.2.17** | Security dependency patches and CodeQL build-script fixes. |
 | **2.2.16** | Animated notification themes, notification sound playback fixes, upgrade uninstall flow, and enforced app icon in installers. |

@@ -8,6 +8,16 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.3.1] — 2026-07-08
+
+### Security
+
+- **Splash screen XSS / open redirect** — Sanitize `splashLogo`, `splashEmblem`, and `splashBackground` query params to bundled relative paths only; replace `innerHTML` image injection with safe DOM APIs (`splash.html`).
+- **Build script command injection** — Replace shell-string `execSync` with argument-array `spawnSync` for Windows npm and `.cmd` tooling (`scripts/dist.ts`).
+- **Dependency** — Bump transitive `shell-quote` from 1.8.3 to 1.9.0 (`ui/desktop`).
+
+---
+
 ## [2.3.0] — 2026-07-08
 
 ### Added
@@ -231,6 +241,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+[2.3.1]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.17...v2.3.0
 [2.2.17]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.16...v2.2.17
 [2.2.16]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.15...v2.2.16
