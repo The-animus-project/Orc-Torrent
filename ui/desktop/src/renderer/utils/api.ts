@@ -32,23 +32,23 @@ function isRetryableError(error: unknown): boolean {
   if (error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"))) {
     return false;
   }
-  
+
   // Retry network errors
   if (error instanceof TypeError && error.message.includes("fetch")) {
     return true;
   }
-  
+
   // Retry on 5xx errors and network issues
   if (error instanceof Error && "status" in error) {
     const apiError = error as ApiError;
     return apiError.status === undefined || (apiError.status >= 500 && apiError.status < 600);
   }
-  
+
   return false;
 }
 
 async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Connection state tracking for self-healing
@@ -71,37 +71,37 @@ async function fetchWithRetry(
   const TIMEOUT_MS = customTimeout ?? defaultTimeout;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let wasAborted = false;
-  
+
   // Set up timeout
   timeoutId = setTimeout(() => {
     wasAborted = true;
     controller.abort();
   }, TIMEOUT_MS);
-  
+
   try {
     // Update connection state
     if (connectionState === "disconnected") {
       connectionState = "reconnecting";
       lastConnectionAttempt = Date.now();
     }
-    
+
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
     });
-    
+
     // Clear timeout if request succeeded
     if (timeoutId) {
       clearTimeout(timeoutId);
       timeoutId = null;
     }
-    
+
     // Update connection state on success
     if (connectionState !== "connected") {
       connectionState = "connected";
       logger.logWithPrefix("API", "Connection restored to daemon");
     }
-    
+
     return response;
   } catch (error) {
     // Clear timeout on error
@@ -109,12 +109,12 @@ async function fetchWithRetry(
       clearTimeout(timeoutId);
       timeoutId = null;
     }
-    
+
     // Check if this was an abort error (timeout or manual abort)
-    const isAbortError = 
-      error instanceof DOMException && error.name === "AbortError" ||
-      error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"));
-    
+    const isAbortError =
+      (error instanceof DOMException && error.name === "AbortError") ||
+      (error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted")));
+
     if (isAbortError) {
       // If it was our timeout, provide a clear message
       if (wasAborted) {
@@ -125,27 +125,22 @@ async function fetchWithRetry(
           undefined,
           true
         );
-        
+
         // Retry if we have retries left
         if (retries > 0) {
           await sleep(RETRY_DELAY_MS);
           return fetchWithRetry(url, options, retries - 1, customTimeout);
         }
-        
+
         // Mark as disconnected after all retries exhausted
         connectionState = "disconnected";
         throw timeoutError;
       } else {
         // Manual abort (not our timeout)
-        throw createApiError(
-          "Request was cancelled",
-          undefined,
-          undefined,
-          true
-        );
+        throw createApiError("Request was cancelled", undefined, undefined, true);
       }
     }
-    
+
     // Check if it's a network error (retryable)
     if (retries > 0 && isRetryableError(error)) {
       // Update connection state
@@ -153,28 +148,23 @@ async function fetchWithRetry(
         connectionState = "reconnecting";
         logger.warn("[API] Connection lost, attempting to reconnect...");
       }
-      
+
       await sleep(RETRY_DELAY_MS);
       return fetchWithRetry(url, options, retries - 1, customTimeout);
     }
-    
+
     // For other network errors, provide helpful message
     if (error instanceof TypeError && error.message.includes("fetch")) {
       // Mark as disconnected
       connectionState = "disconnected";
-      throw createApiError(
-        "Connection failed. Is the daemon running?",
-        undefined,
-        undefined,
-        true
-      );
+      throw createApiError("Connection failed. Is the daemon running?", undefined, undefined, true);
     }
-    
+
     // Mark as disconnected on other errors
     if (retries === 0) {
       connectionState = "disconnected";
     }
-    
+
     // Re-throw other errors as-is
     throw error;
   }
@@ -189,24 +179,20 @@ async function fetchWithRetry(
  */
 export async function getJson<T>(path: string): Promise<T> {
   const requestKey = getRequestKey("GET", path);
-  
+
   // Check if an identical request is already in flight
   const existingRequest = inflightRequests.get(requestKey);
   if (existingRequest) {
     return existingRequest as Promise<T>;
   }
-  
+
   // Create new request with deduplication tracking
   const request = (async (): Promise<T> => {
     try {
       const r = await fetchWithRetry(`${DAEMON_BASE}${path}`);
       if (!r.ok) {
         const errorText = await r.text().catch(() => r.statusText);
-        throw createApiError(
-          `Request failed: ${errorText || r.statusText}`,
-          r.status,
-          r.statusText
-        );
+        throw createApiError(`Request failed: ${errorText || r.statusText}`, r.status, r.statusText);
       }
       return await r.json();
     } catch (error) {
@@ -224,7 +210,7 @@ export async function getJson<T>(path: string): Promise<T> {
       inflightRequests.delete(requestKey);
     }
   })();
-  
+
   // Track this request to prevent duplicates
   inflightRequests.set(requestKey, request);
   return request;
@@ -243,32 +229,28 @@ export async function postJson<T>(path: string, body?: unknown, timeoutMs?: numb
     // For add_torrent endpoint, use longer timeout for large file uploads
     const isAddTorrent = path === "/torrents";
     const uploadTimeout = timeoutMs ?? (isAddTorrent ? 60000 : 30000); // 60s for add_torrent, 30s for other POST
-    
-    const r = await fetchWithRetry(`${DAEMON_BASE}${path}`, {
-      method: "POST",
-      headers: body ? { "content-type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    }, MAX_RETRIES, uploadTimeout);
+
+    const r = await fetchWithRetry(
+      `${DAEMON_BASE}${path}`,
+      {
+        method: "POST",
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      },
+      MAX_RETRIES,
+      uploadTimeout
+    );
     if (!r.ok) {
       const errorText = await r.text().catch(() => r.statusText);
-      throw createApiError(
-        `Request failed: ${errorText || r.statusText}`,
-        r.status,
-        r.statusText
-      );
+      throw createApiError(`Request failed: ${errorText || r.statusText}`, r.status, r.statusText);
     }
     const txt = await r.text();
-    return txt ? JSON.parse(txt) : {} as T;
+    return txt ? JSON.parse(txt) : ({} as T);
   } catch (error) {
     if (error instanceof Error && "status" in error) {
       throw error;
     }
-    throw createApiError(
-      error instanceof Error ? error.message : "Unknown error occurred",
-      undefined,
-      undefined,
-      true
-    );
+    throw createApiError(error instanceof Error ? error.message : "Unknown error occurred", undefined, undefined, true);
   }
 }
 
@@ -288,25 +270,16 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
     });
     if (!r.ok) {
       const errorText = await r.text().catch(() => r.statusText);
-      throw createApiError(
-        `Request failed: ${errorText || r.statusText}`,
-        r.status,
-        r.statusText
-      );
+      throw createApiError(`Request failed: ${errorText || r.statusText}`, r.status, r.statusText);
     }
     // Handle responses with no body (e.g., file-priority returns StatusCode::OK with no JSON)
     const txt = await r.text();
-    return txt ? JSON.parse(txt) : {} as T;
+    return txt ? JSON.parse(txt) : ({} as T);
   } catch (error) {
     if (error instanceof Error && "status" in error) {
       throw error;
     }
-    throw createApiError(
-      error instanceof Error ? error.message : "Unknown error occurred",
-      undefined,
-      undefined,
-      true
-    );
+    throw createApiError(error instanceof Error ? error.message : "Unknown error occurred", undefined, undefined, true);
   }
 }
 
@@ -323,23 +296,14 @@ export async function deleteJson<T>(path: string): Promise<T> {
     });
     if (!r.ok) {
       const errorText = await r.text().catch(() => r.statusText);
-      throw createApiError(
-        `Request failed: ${errorText || r.statusText}`,
-        r.status,
-        r.statusText
-      );
+      throw createApiError(`Request failed: ${errorText || r.statusText}`, r.status, r.statusText);
     }
     const txt = await r.text();
-    return txt ? JSON.parse(txt) : {} as T;
+    return txt ? JSON.parse(txt) : ({} as T);
   } catch (error) {
     if (error instanceof Error && "status" in error) {
       throw error;
     }
-    throw createApiError(
-      error instanceof Error ? error.message : "Unknown error occurred",
-      undefined,
-      undefined,
-      true
-    );
+    throw createApiError(error instanceof Error ? error.message : "Unknown error occurred", undefined, undefined, true);
   }
 }

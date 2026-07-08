@@ -44,8 +44,7 @@ export function countryCodeToName(code: string, locale = "en"): string {
 }
 
 /** Match private/local IPv4: 10.x, 172.16-31.x, 192.168.x, 127.x */
-const PRIVATE_IPV4 =
-  /^(10\.|192\.168\.|127\.)|^172\.(1[6-9]|2[0-9]|3[0-1])\./;
+const PRIVATE_IPV4 = /^(10\.|192\.168\.|127\.)|^172\.(1[6-9]|2[0-9]|3[0-1])\./;
 
 /**
  * Get flag emoji for special cases (private/local IPs)
@@ -54,12 +53,7 @@ const PRIVATE_IPV4 =
  */
 export function getSpecialFlag(ip: string): string | null {
   if (PRIVATE_IPV4.test(ip)) return "🏠";
-  if (
-    ip === "::1" ||
-    ip.startsWith("fe80:") ||
-    ip.startsWith("fc00:") ||
-    ip.startsWith("fd00:")
-  ) {
+  if (ip === "::1" || ip.startsWith("fe80:") || ip.startsWith("fc00:") || ip.startsWith("fd00:")) {
     return "🏠";
   }
   return null;

@@ -7,11 +7,7 @@ interface VpnStatusLedProps {
   onClick: () => void;
 }
 
-export const VpnStatusLed = memo<VpnStatusLedProps>(({
-  vpnStatus,
-  killSwitchState,
-  onClick,
-}) => {
+export const VpnStatusLed = memo<VpnStatusLedProps>(({ vpnStatus, killSwitchState, onClick }) => {
   const posture = vpnStatus?.posture ?? "unknown";
   const connectionType = vpnStatus?.connection_type ?? "non_vpn";
   const prevPostureRef = useRef<string>(posture);
@@ -30,14 +26,19 @@ export const VpnStatusLed = memo<VpnStatusLedProps>(({
   // Get connection type display string
   const getConnectionTypeLabel = (type: ConnectionType): string => {
     switch (type) {
-      case "vpn": return "VPN";
-      case "tor": return "Tor";
-      case "i2p": return "I2P";
-      case "non_vpn": return "Direct";
-      default: return "Unknown";
+      case "vpn":
+        return "VPN";
+      case "tor":
+        return "Tor";
+      case "i2p":
+        return "I2P";
+      case "non_vpn":
+        return "Direct";
+      default:
+        return "Unknown";
     }
   };
-  
+
   // Determine LED state
   let ledClass = "vpnLed";
   let ledState: "connected" | "disconnected" | "unknown" | "checking" | "disabled" = "disabled";
@@ -87,7 +88,7 @@ export const VpnStatusLed = memo<VpnStatusLedProps>(({
         tooltip = "Detecting VPN status...";
         break;
     }
-    
+
     if (vpnStatus.last_check_ms) {
       const lastCheck = new Date(vpnStatus.last_check_ms);
       tooltip += `\nLast check: ${lastCheck.toLocaleTimeString()}`;

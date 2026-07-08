@@ -61,11 +61,11 @@ After **`npm run build`** (or a build without `-Dist`):
 
 There is **no** standalone “ORC TORRENT.exe” in `dist\` until you package. **`dist\`** holds compiled JS/HTML/CSS plus, **after `npm run dist`**, the **installer and zip** next to those folders.
 
-After **`npm run dist`** (or **`build.cmd -Dist`**), typical artifacts under **`ui\desktop\dist\`** include:
+After **`npm run dist`** (or **`build.cmd -Dist`**), typical artifacts under **`ui\desktop\release\`** include:
 
-- **NSIS installer:** `ORC TORRENT Setup <version>.exe` (exact name may vary slightly with electron-builder).
-- **Portable zip:** `ORC TORRENT-<version>-win-x64.zip`
-- **Unpacked app (for testing):** `win-unpacked\` → run **`ORC TORRENT.exe`** inside that folder.
+- **NSIS installer:** `ORC-TORRENT-Setup-<version>.exe`
+- **Portable zip:** `ORC-TORRENT-<version>-win-x64.zip`
+- **Unpacked app (for testing):** `release\win-unpacked\` → run **`ORC TORRENT.exe`** inside that folder.
 
 Exact filenames depend on **`version`** in `ui\desktop\package.json` and your electron-builder version.
 

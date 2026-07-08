@@ -14,11 +14,7 @@ interface PieceMapProps {
   height?: number;
 }
 
-export const PieceMap = memo<PieceMapProps>(({
-  pieces,
-  width = 800,
-  height = 200,
-}) => {
+export const PieceMap = memo<PieceMapProps>(({ pieces, width = 800, height = 200 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -43,11 +39,11 @@ export const PieceMap = memo<PieceMapProps>(({
     // Target: fill the available area with roughly square cells
     const totalPieces = pieces.length;
     const aspectRatio = width / (height - 30); // Reserve space for legend
-    
+
     // Calculate columns and rows to maintain roughly square cells
     const cols = Math.max(1, Math.ceil(Math.sqrt(totalPieces * aspectRatio)));
     const rows = Math.max(1, Math.ceil(totalPieces / cols));
-    
+
     // Calculate cell size to fit the grid
     const cellWidth = Math.floor(width / cols);
     const cellHeight = Math.floor((height - 30) / rows);
@@ -55,17 +51,17 @@ export const PieceMap = memo<PieceMapProps>(({
 
     // Color scheme inspired by superseedr
     const colors = {
-      completed: "#4ade80",      // Green for completed pieces
-      downloading: "#fbbf24",    // Yellow for downloading pieces
-      missing: "#ef4444",        // Red for missing pieces
-      background: "#1a1a1a",     // Dark background
+      completed: "#4ade80", // Green for completed pieces
+      downloading: "#fbbf24", // Yellow for downloading pieces
+      missing: "#ef4444", // Red for missing pieces
+      background: "#1a1a1a", // Dark background
     };
 
     let pieceIndex = 0;
     for (let row = 0; row < rows && pieceIndex < pieces.length; row++) {
       for (let col = 0; col < cols && pieceIndex < pieces.length; col++) {
         const piece = pieces[pieceIndex];
-        
+
         // Determine color based on piece state
         let color = colors.missing;
         if (piece.completed) {
@@ -82,7 +78,7 @@ export const PieceMap = memo<PieceMapProps>(({
           const r = parseInt(baseColor.slice(1, 3), 16);
           const g = parseInt(baseColor.slice(3, 5), 16);
           const b = parseInt(baseColor.slice(5, 7), 16);
-          const darken = 1 - (availability * 0.5); // Darken by up to 50%
+          const darken = 1 - availability * 0.5; // Darken by up to 50%
           color = `rgb(${Math.floor(r * darken)}, ${Math.floor(g * darken)}, ${Math.floor(b * darken)})`;
         }
 
@@ -125,7 +121,6 @@ export const PieceMap = memo<PieceMapProps>(({
     ctx.fillRect(legendX + legendItemWidth * 2, legendY, legendItemHeight, legendItemHeight);
     ctx.fillStyle = "#fff";
     ctx.fillText("Missing", legendX + legendItemWidth * 2 + legendItemHeight + 5, legendY + legendItemHeight / 2);
-
   }, [pieces, width, height]);
 
   return (

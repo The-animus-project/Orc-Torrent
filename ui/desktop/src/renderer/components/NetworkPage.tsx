@@ -8,19 +8,13 @@ interface NetworkPageProps {
   online: boolean;
   vpnStatus: VpnStatus | null;
   killSwitch: KillSwitchConfig | null;
+  netifs?: string[];
   onError: (msg: string) => void;
   onSuccess?: (msg: string) => void;
   onBack?: () => void;
 }
 
-export const NetworkPage = memo<NetworkPageProps>(({
-  online,
-  vpnStatus,
-  killSwitch,
-  onError,
-  onSuccess,
-  onBack,
-}) => {
+export const NetworkPage = memo<NetworkPageProps>(({ online, vpnStatus, killSwitch, netifs = [], onError, onSuccess, onBack }) => {
   const [adapters, setAdapters] = useState<NetworkAdapter[]>([]);
   const [route, setRoute] = useState<DefaultRoute | null>(null);
   const [dns, setDns] = useState<DnsConfig | null>(null);
@@ -33,30 +27,70 @@ export const NetworkPage = memo<NetworkPageProps>(({
     if (!online) return;
     try {
       setLoading(true);
-      const [adaptersData, routeData, dnsData, torData] = await Promise.all([
+      const [adaptersResult, routeResult, dnsResult, torResult] = await Promise.allSettled([
         getJson<{ adapters: NetworkAdapter[] }>("/net/adapters"),
         getJson<DefaultRoute>("/net/route"),
         getJson<DnsConfig>("/net/dns"),
-        getJson<TorState>("/tor/status").catch(() => null),
+        getJson<TorState>("/tor/status"),
       ]);
-      setAdapters(adaptersData.adapters || []);
-      setRoute(routeData);
-      setDns(dnsData);
-      setTorStatus(torData);
+
+      if (adaptersResult.status === "fulfilled") {
+        setAdapters(adaptersResult.value.adapters || []);
+      } else if (netifs.length > 0) {
+        setAdapters(
+          netifs.map((name) => ({
+            name,
+            interface_type: "other",
+            status: "up",
+            gateway: null,
+            is_default_route: vpnStatus?.default_route_interface === name,
+            is_vpn: vpnStatus?.interface === name || vpnStatus?.interfaceName === name,
+          }))
+        );
+      } else {
+        setAdapters([]);
+      }
+
+      if (routeResult.status === "fulfilled") {
+        setRoute(routeResult.value);
+      } else {
+        setRoute(null);
+      }
+
+      if (dnsResult.status === "fulfilled") {
+        setDns(dnsResult.value);
+      } else {
+        setDns(null);
+      }
+
+      if (torResult.status === "fulfilled") {
+        setTorStatus(torResult.value);
+      } else {
+        setTorStatus(null);
+      }
+
+      const failures = [adaptersResult, routeResult, dnsResult].filter((result) => result.status === "rejected");
+      if (failures.length > 0 && adaptersResult.status === "rejected" && netifs.length === 0) {
+        const firstError = failures[0];
+        const message =
+          firstError.status === "rejected" && firstError.reason instanceof Error
+            ? firstError.reason.message
+            : "Failed to fetch network data";
+        onError(message);
+      }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Failed to fetch network data";
       onError(message);
     } finally {
       setLoading(false);
     }
-  }, [online, onError]);
+  }, [online, onError, netifs, vpnStatus?.default_route_interface, vpnStatus?.interface, vpnStatus?.interfaceName]);
 
   const handleRefreshVpn = useCallback(async () => {
     if (!online) return;
     try {
       setLoading(true);
-      await postJson("/net/vpn-status/refresh", {});
-      // Refresh all data after VPN status update
+      await postJson("/net/vpn-status/refresh", {}).catch(() => null);
       await refreshData();
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Failed to refresh VPN status";
@@ -89,11 +123,16 @@ export const NetworkPage = memo<NetworkPageProps>(({
   // Use CSS variable-compatible colors for enforcement state
   const getEnforcementStateStyle = (state: string): { color: string; className: string } => {
     switch (state) {
-      case "disarmed": return { color: "var(--text-muted)", className: "neutral" };
-      case "armed": return { color: "var(--success)", className: "ok" };
-      case "engaged": return { color: "var(--error)", className: "error" };
-      case "releasing": return { color: "var(--warning)", className: "warning" };
-      default: return { color: "var(--text-muted)", className: "neutral" };
+      case "disarmed":
+        return { color: "var(--text-muted)", className: "neutral" };
+      case "armed":
+        return { color: "var(--success)", className: "ok" };
+      case "engaged":
+        return { color: "var(--error)", className: "error" };
+      case "releasing":
+        return { color: "var(--warning)", className: "warning" };
+      default:
+        return { color: "var(--text-muted)", className: "neutral" };
     }
   };
 
@@ -101,36 +140,19 @@ export const NetworkPage = memo<NetworkPageProps>(({
     <div className="networkPage">
       <div className="networkPageHeader">
         {onBack && (
-          <button
-            className="btn ghost"
-            onClick={onBack}
-            title="Back to Main Menu"
-            style={{ marginRight: "16px" }}
-          >
+          <button className="btn ghost" onClick={onBack} title="Back to Main Menu" style={{ marginRight: "16px" }}>
             ← Back to Main Menu
           </button>
         )}
         <h1>Network</h1>
         <div className="networkPageActions">
-          <button
-            className="btn"
-            onClick={refreshData}
-            disabled={!online || loading}
-          >
+          <button className="btn" onClick={refreshData} disabled={!online || loading}>
             Refresh Adapters
           </button>
-          <button
-            className="btn"
-            onClick={handleRefreshVpn}
-            disabled={!online || loading}
-          >
+          <button className="btn" onClick={handleRefreshVpn} disabled={!online || loading}>
             Re-check VPN Now
           </button>
-          <button
-            className="btn"
-            onClick={handleTestEnforcement}
-            disabled={!online || loading}
-          >
+          <button className="btn" onClick={handleTestEnforcement} disabled={!online || loading}>
             Test Enforcement
           </button>
         </div>
@@ -159,9 +181,7 @@ export const NetworkPage = memo<NetworkPageProps>(({
                     <td>{adapter.name}</td>
                     <td>{adapter.interface_type}</td>
                     <td>
-                      <span className={`statusBadge ${adapter.status.toLowerCase()}`}>
-                        {adapter.status}
-                      </span>
+                      <span className={`statusBadge ${adapter.status.toLowerCase()}`}>{adapter.status}</span>
                     </td>
                     <td>{adapter.gateway || "—"}</td>
                     <td>
@@ -196,9 +216,7 @@ export const NetworkPage = memo<NetworkPageProps>(({
               )}
               <div className="networkInfoRow">
                 <span className="networkInfoLabel">Last Update:</span>
-                <span className="networkInfoValue">
-                  {new Date(route.last_update_ms).toLocaleString()}
-                </span>
+                <span className="networkInfoValue">{new Date(route.last_update_ms).toLocaleString()}</span>
               </div>
             </div>
           ) : (
@@ -249,16 +267,12 @@ export const NetworkPage = memo<NetworkPageProps>(({
               {killSwitch.last_enforcement_ms && (
                 <div className="networkInfoRow">
                   <span className="networkInfoLabel">Last Enforcement:</span>
-                  <span className="networkInfoValue">
-                    {new Date(killSwitch.last_enforcement_ms).toLocaleString()}
-                  </span>
+                  <span className="networkInfoValue">{new Date(killSwitch.last_enforcement_ms).toLocaleString()}</span>
                 </div>
               )}
               <div className="networkInfoRow">
                 <span className="networkInfoLabel">Kill Switch:</span>
-                <span className="networkInfoValue">
-                  {killSwitch.enabled ? "ENABLED" : "DISABLED"}
-                </span>
+                <span className="networkInfoValue">{killSwitch.enabled ? "ENABLED" : "DISABLED"}</span>
               </div>
               <div className="networkInfoRow">
                 <span className="networkInfoLabel">Scope:</span>
@@ -292,9 +306,7 @@ export const NetworkPage = memo<NetworkPageProps>(({
               <div className="networkInfoRow">
                 <span className="networkInfoLabel">DNS Servers:</span>
                 <span className="networkInfoValue">
-                  {vpnStatus.dns_servers.length > 0
-                    ? vpnStatus.dns_servers.join(", ")
-                    : "—"}
+                  {vpnStatus.dns_servers.length > 0 ? vpnStatus.dns_servers.join(", ") : "—"}
                 </span>
               </div>
               <div className="networkInfoRow">
@@ -313,9 +325,7 @@ export const NetworkPage = memo<NetworkPageProps>(({
               </div>
               <div className="networkInfoRow">
                 <span className="networkInfoLabel">Last Check:</span>
-                <span className="networkInfoValue">
-                  {new Date(vpnStatus.last_check_ms).toLocaleString()}
-                </span>
+                <span className="networkInfoValue">{new Date(vpnStatus.last_check_ms).toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -343,9 +353,7 @@ export const NetworkPage = memo<NetworkPageProps>(({
                 <div className="networkInfoRow">
                   <span className="networkInfoLabel">Source:</span>
                   <span className="networkInfoValue">
-                    {typeof torStatus.source === "string" 
-                      ? torStatus.source 
-                      : "external"}
+                    {typeof torStatus.source === "string" ? torStatus.source : "external"}
                   </span>
                 </div>
                 {torStatus.error && (
@@ -358,15 +366,22 @@ export const NetworkPage = memo<NetworkPageProps>(({
                 )}
                 <div className="networkInfoRow">
                   <span className="networkInfoLabel">Last Check:</span>
-                  <span className="networkInfoValue">
-                    {new Date(torStatus.last_check_ms).toLocaleString()}
-                  </span>
+                  <span className="networkInfoValue">{new Date(torStatus.last_check_ms).toLocaleString()}</span>
                 </div>
                 {torStatus.status === "connected" && (
-                  <div className="networkInfoRow" style={{ marginTop: "12px", padding: "8px", backgroundColor: "var(--bg-secondary)", borderRadius: "4px", border: "1px solid var(--border)" }}>
+                  <div
+                    className="networkInfoRow"
+                    style={{
+                      marginTop: "12px",
+                      padding: "8px",
+                      backgroundColor: "var(--bg-secondary)",
+                      borderRadius: "4px",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
                     <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                      <strong>Note:</strong> Tor Assist mode routes HTTP trackers and metadata through Tor.
-                      Peer data connections remain direct. DHT and UDP trackers are disabled.
+                      <strong>Note:</strong> Tor Assist mode routes HTTP trackers and metadata through Tor. Peer data
+                      connections remain direct. DHT and UDP trackers are disabled.
                     </span>
                   </div>
                 )}
@@ -377,25 +392,23 @@ export const NetworkPage = memo<NetworkPageProps>(({
       </div>
 
       {/* Test Enforcement Result Modal */}
-      <Modal
-        isOpen={showTestModal}
-        onClose={() => setShowTestModal(false)}
-        title="Kill Switch Test Result"
-      >
+      <Modal isOpen={showTestModal} onClose={() => setShowTestModal(false)} title="Kill Switch Test Result">
         <div style={{ padding: "16px" }}>
-          <pre style={{
-            background: "var(--bg-secondary)",
-            border: "1px solid var(--border)",
-            borderRadius: "6px",
-            padding: "16px",
-            fontSize: "12px",
-            fontFamily: "monospace",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            maxHeight: "400px",
-            overflowY: "auto",
-            color: "var(--text)"
-          }}>
+          <pre
+            style={{
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border)",
+              borderRadius: "6px",
+              padding: "16px",
+              fontSize: "12px",
+              fontFamily: "monospace",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              maxHeight: "400px",
+              overflowY: "auto",
+              color: "var(--text)",
+            }}
+          >
             {testResult || "No result"}
           </pre>
         </div>

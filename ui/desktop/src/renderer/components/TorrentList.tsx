@@ -10,9 +10,12 @@ interface TorrentListProps {
 }
 
 export const TorrentList = memo<TorrentListProps>(({ torrents, selectedId, onSelect, statuses }) => {
-  const handleClick = useCallback((id: string) => {
-    onSelect(id);
-  }, [onSelect]);
+  const handleClick = useCallback(
+    (id: string) => {
+      onSelect(id);
+    },
+    [onSelect]
+  );
 
   return (
     <section className="panel">
@@ -22,9 +25,7 @@ export const TorrentList = memo<TorrentListProps>(({ torrents, selectedId, onSel
       </div>
 
       <div className="list">
-        {torrents.length === 0 && (
-          <div className="empty">No torrents yet. Add one to get started.</div>
-        )}
+        {torrents.length === 0 && <div className="empty">No torrents yet. Add one to get started.</div>}
         {torrents.map((t) => {
           const status = statuses?.get(t.id);
           const sizeInfo = status ? fmtSizeProgress(status.downloaded_bytes, status.total_bytes) : null;
@@ -48,14 +49,16 @@ export const TorrentList = memo<TorrentListProps>(({ torrents, selectedId, onSel
               aria-label={`Select torrent ${t.name}`}
             >
               <div className="rowMain">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ 
-                    width: '4px', 
-                    height: '4px', 
-                    borderRadius: '50%', 
-                    background: t.running ? 'var(--success)' : 'var(--text-muted)',
-                    flexShrink: 0
-                  }} />
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div
+                    style={{
+                      width: "4px",
+                      height: "4px",
+                      borderRadius: "50%",
+                      background: t.running ? "var(--success)" : "var(--text-muted)",
+                      flexShrink: 0,
+                    }}
+                  />
                   <div className="rowTitle">{t.name}</div>
                 </div>
                 <div className="rowSub">
@@ -63,9 +66,7 @@ export const TorrentList = memo<TorrentListProps>(({ torrents, selectedId, onSel
                     {t.profile.mode.toUpperCase()}
                     {t.profile.mode === "anonymous" ? ` • ${t.profile.hops} HOPS` : ""}
                   </span>
-                  <span className={`pill ${t.running ? "ok" : ""}`}>
-                    {t.running ? "RUNNING" : "STOPPED"}
-                  </span>
+                  <span className={`pill ${t.running ? "ok" : ""}`}>{t.running ? "RUNNING" : "STOPPED"}</span>
                   {sizeInfo && (
                     <span className="pill" style={{ fontSize: "0.85em" }}>
                       {sizeInfo}

@@ -1,24 +1,13 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": [
-      "ES2020",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
     "moduleResolution": "bundler",
     "noEmit": true,
-    "types": [
-      "vite/client",
-      "react",
-      "react-dom"
-    ],
+    "types": ["vite/client", "react", "react-dom", "node"],
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": [
-    "src/renderer/**/*",
-    "src/renderer/vite-env.d.ts"
-  ]
+  "include": ["src/renderer/**/*", "src/renderer/vite-env.d.ts", "src/shared/**/*"]
 }

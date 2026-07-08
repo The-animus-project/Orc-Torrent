@@ -22,21 +22,45 @@ interface EventsPageProps {
 
 // Event type filter options grouped by category
 const EVENT_TYPE_GROUPS = {
-  "Torrent Activity": ["torrent_added", "torrent_started", "torrent_stopped", "torrent_completed", "torrent_error"] as EventType[],
+  "Torrent Activity": [
+    "torrent_added",
+    "torrent_started",
+    "torrent_stopped",
+    "torrent_completed",
+    "torrent_error",
+  ] as EventType[],
   "Data Integrity": ["piece_verified", "hash_failure", "disk_io"] as EventType[],
-  "Network": ["tracker_error", "vpn_kill_switch", "peer_connected", "peer_disconnected"] as EventType[],
+  Network: ["tracker_error", "vpn_kill_switch", "peer_connected", "peer_disconnected"] as EventType[],
 };
 
 // SVG Icons for empty states
 const OfflineIcon = () => (
-  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="48"
+    height="48"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
     <line x1="12" y1="2" x2="12" y2="12" />
   </svg>
 );
 
 const EmptyIcon = () => (
-  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="48"
+    height="48"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
     <line x1="12" y1="18" x2="12" y2="12" />
@@ -45,18 +69,22 @@ const EmptyIcon = () => (
 );
 
 const SearchIcon = () => (
-  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="48"
+    height="48"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="11" cy="11" r="8" />
     <line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
 );
 
-export const EventsPage = memo<EventsPageProps>(({
-  events,
-  online,
-  onBack,
-  onClearEvents,
-}) => {
+export const EventsPage = memo<EventsPageProps>(({ events, online, onBack, onClearEvents }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<Set<EventType>>(new Set());
   const [selectedSeverities, setSelectedSeverities] = useState<Set<EventSeverity>>(new Set());
@@ -68,19 +96,19 @@ export const EventsPage = memo<EventsPageProps>(({
   // Filter events based on current filters
   const filteredEvents = useMemo(() => {
     let result = events;
-    
+
     if (selectedTypes.size > 0) {
       result = filterEventsByType(result, Array.from(selectedTypes));
     }
-    
+
     if (selectedSeverities.size > 0) {
       result = filterEventsBySeverity(result, Array.from(selectedSeverities));
     }
-    
+
     if (searchQuery.trim()) {
       result = searchEvents(result, searchQuery);
     }
-    
+
     return result;
   }, [events, selectedTypes, selectedSeverities, searchQuery]);
 
@@ -130,12 +158,7 @@ export const EventsPage = memo<EventsPageProps>(({
   return (
     <div className="eventHistoryPage">
       <div className="eventHistoryHeader">
-        <button
-          className="btn ghost"
-          onClick={onBack}
-          title="Back to Main Menu"
-          aria-label="Back to Main Menu"
-        >
+        <button className="btn ghost" onClick={onBack} title="Back to Main Menu" aria-label="Back to Main Menu">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
@@ -144,11 +167,7 @@ export const EventsPage = memo<EventsPageProps>(({
         <h1 className="eventHistoryTitle">Event History</h1>
         <div className="eventHistoryHeaderActions">
           <label className="eventHistoryAutoScroll">
-            <input
-              type="checkbox"
-              checked={autoScroll}
-              onChange={(e) => setAutoScroll(e.target.checked)}
-            />
+            <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
             Auto-scroll
           </label>
           <button
@@ -162,11 +181,7 @@ export const EventsPage = memo<EventsPageProps>(({
             Filters
           </button>
           {events.length > 0 && (
-            <button
-              className="btn ghost small"
-              onClick={onClearEvents}
-              title="Clear all events"
-            >
+            <button className="btn ghost small" onClick={onClearEvents} title="Clear all events">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -179,7 +194,15 @@ export const EventsPage = memo<EventsPageProps>(({
 
       <div className="eventHistoryToolbar">
         <div className="eventHistorySearch">
-          <svg className="eventHistorySearchIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            className="eventHistorySearchIcon"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -191,11 +214,7 @@ export const EventsPage = memo<EventsPageProps>(({
             className="eventHistorySearchInput"
           />
           {searchQuery && (
-            <button
-              className="eventHistorySearchClear"
-              onClick={() => setSearchQuery("")}
-              aria-label="Clear search"
-            >
+            <button className="eventHistorySearchClear" onClick={() => setSearchQuery("")} aria-label="Clear search">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -222,11 +241,7 @@ export const EventsPage = memo<EventsPageProps>(({
         </div>
 
         {hasActiveFilters && (
-          <button
-            className="btn ghost small"
-            onClick={handleClearFilters}
-            title="Clear all filters"
-          >
+          <button className="btn ghost small" onClick={handleClearFilters} title="Clear all filters">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -267,29 +282,19 @@ export const EventsPage = memo<EventsPageProps>(({
               <OfflineIcon />
             </div>
             <div className="eventHistoryEmptyTitle">Daemon Offline</div>
-            <div className="eventHistoryEmptyText">
-              Connect to the daemon to start tracking torrent events.
-            </div>
+            <div className="eventHistoryEmptyText">Connect to the daemon to start tracking torrent events.</div>
           </div>
         ) : filteredEvents.length === 0 ? (
           <div className="eventHistoryEmpty">
-            <div className="eventHistoryEmptyIcon">
-              {events.length === 0 ? <EmptyIcon /> : <SearchIcon />}
-            </div>
-            <div className="eventHistoryEmptyTitle">
-              {events.length === 0 ? "No Events Yet" : "No Matching Events"}
-            </div>
+            <div className="eventHistoryEmptyIcon">{events.length === 0 ? <EmptyIcon /> : <SearchIcon />}</div>
+            <div className="eventHistoryEmptyTitle">{events.length === 0 ? "No Events Yet" : "No Matching Events"}</div>
             <div className="eventHistoryEmptyText">
               {events.length === 0
                 ? "Events will appear here as torrents are added, downloaded, and verified."
                 : "Try adjusting your filters or search query."}
             </div>
             {hasActiveFilters && (
-              <button
-                className="btn ghost"
-                onClick={handleClearFilters}
-                style={{ marginTop: "12px" }}
-              >
+              <button className="btn ghost" onClick={handleClearFilters} style={{ marginTop: "12px" }}>
                 Clear Filters
               </button>
             )}
@@ -318,14 +323,9 @@ export const EventsPage = memo<EventsPageProps>(({
                 }}
               >
                 <div className="eventHistoryRowMain">
-                  <span
-                    className="eventHistoryColTime"
-                    title={formatEventDateTime(event.timestamp)}
-                  >
+                  <span className="eventHistoryColTime" title={formatEventDateTime(event.timestamp)}>
                     <span className="eventHistoryTimeMain">{formatEventTime(event.timestamp)}</span>
-                    <span className="eventHistoryRelTime">
-                      {getRelativeTime(event.timestamp)}
-                    </span>
+                    <span className="eventHistoryRelTime">{getRelativeTime(event.timestamp)}</span>
                   </span>
                   <span className={`eventHistoryColSeverity ${getSeverityClass(event.severity)}`}>
                     <span className="eventHistorySeverityDot" />
@@ -344,7 +344,14 @@ export const EventsPage = memo<EventsPageProps>(({
                     )}
                     {event.details && (
                       <span className="eventHistoryExpandIcon">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
                           {expandedEventId === event.id ? (
                             <polyline points="18 15 12 9 6 15" />
                           ) : (
@@ -373,9 +380,7 @@ export const EventsPage = memo<EventsPageProps>(({
             : `${filteredEvents.length} of ${events.length} events`}
         </span>
         {events.length > 0 && (
-          <span className="eventHistoryLatest">
-            Latest: {getRelativeTime(events[0]?.timestamp || Date.now())}
-          </span>
+          <span className="eventHistoryLatest">Latest: {getRelativeTime(events[0]?.timestamp || Date.now())}</span>
         )}
       </div>
     </div>

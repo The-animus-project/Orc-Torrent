@@ -86,10 +86,12 @@ npm run dist     # AppImage + .deb (per package.json)
 
 - **`npm run build`** — Release-builds `orc-daemon`, copies it to `assets/bin/`, then Vite renderer and TypeScript (main + preload).
 - **`npm run dist`** — Runs `build`, then full Electron build for Linux. With the default `package.json` you get:
-  - **AppImage:** `ui/desktop/dist/ORC TORRENT-x.x.x-x86_64.AppImage` (or similar)
-  - **.deb:** `ui/desktop/dist/orc-torrent_x.x.x_amd64.deb` (or similar, depending on product name)
+  - **AppImage (portable):** `ui/desktop/release/ORC-TORRENT-<version>-linux-x86_64.AppImage`
+  - **.deb (installer):** `ui/desktop/release/ORC-TORRENT-<version>-linux-amd64.deb`
 
-**Output location:** `ui/desktop/dist/`. Exact filenames depend on `package.json` and electron-builder version.
+**Output location:** `ui/desktop/release/`.
+
+**Docker (from macOS/Windows host):** `./scripts/build-linux-docker.sh` from the repo root.
 
 ---
 
@@ -97,12 +99,12 @@ npm run dist     # AppImage + .deb (per package.json)
 
 - **AppImage:** Make it executable and run:
   ```bash
-  chmod +x "ui/desktop/dist/ORC TORRENT-"*".AppImage"
-  ./ui/desktop/dist/ORC\ TORRENT-*.AppImage
+  chmod +x ui/desktop/release/ORC-TORRENT-*-linux-x86_64.AppImage
+  ./ui/desktop/release/ORC-TORRENT-*-linux-x86_64.AppImage
   ```
 - **.deb:** Install with your package manager, then run the application from your app menu:
   ```bash
-  sudo dpkg -i ui/desktop/dist/*.deb
+  sudo dpkg -i ui/desktop/release/*.deb
   ```
 
 ---

@@ -1,22 +1,34 @@
 {
   "name": "orc-desktop",
   "private": true,
-  "version": "2.2.17",
+  "version": "2.3.0",
   "description": "ORC Torrent Client - A decentralized BitTorrent client with privacy features",
   "author": "ORC Torrent / The ANIMUS PROJECT",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-animus-project/Orc-Torrent.git"
+  },
   "type": "module",
-  "main": "dist/main/main.js",
+  "main": "dist/main/main/main.js",
   "scripts": {
     "dev": "npx tsx ./scripts/dev.ts",
     "build": "npx tsx ./scripts/build.ts",
     "build:daemon": "cd ../.. && cargo build --release -p orc-daemon && cd ui/desktop",
     "build:electron": "npx vite build && npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json",
     "pack": "electron-builder --dir",
+    "clean": "npx tsx ./scripts/clean.ts",
+    "clean:deep": "npx tsx ./scripts/clean.ts --deep",
+    "predist": "npx tsx ./scripts/clean.ts",
     "dist": "npx tsx ./scripts/dist.ts",
     "dist:quick": "npx tsx ./scripts/build.ts && electron-builder --dir",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"scripts/**/*.ts\" \"*.{json,ts}\" \"vite.config.ts\" \"splash.html\"",
+    "audit:size": "tsx ./scripts/audit-size.ts",
     "lint:types": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && tsc -p tsconfig.renderer.json"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.12",
+    "electron-updater": "^6.8.9",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
@@ -28,6 +40,7 @@
     "concurrently": "^8.2.2",
     "electron": "^39.8.4",
     "electron-builder": "^26.6.0",
+    "prettier": "^3.6.2",
     "tsx": "^4.7.0",
     "typescript": "^5.4.2",
     "vite": "^7.3.2",
@@ -38,7 +51,7 @@
     "tar": ">=7.5.11",
     "lodash": ">=4.18.0",
     "minimatch": ">=10.2.3",
-    "@xmldom/xmldom": ">=0.8.12",
+    "@xmldom/xmldom": "0.8.11",
     "picomatch": ">=4.0.4"
   },
   "build": {
@@ -49,31 +62,41 @@
       "dist/preload/**/*",
       "dist/renderer/**/*",
       "assets/icons/icon.ico",
-      "assets/images/orc-torrent.png",
-      "assets/images/orctorrent-logo.png",
+      "assets/icons/icon-512.png",
       "splash.html",
-      "images/orc.gif",
       "images/orctorrent-logo.png",
-      "!dist/win-unpacked/**/*",
-      "!dist/**/*.exe",
-      "!dist/**/*.blockmap",
-      "!dist/**/*.yaml",
-      "!dist/**/*.yml",
-      "!dist/_temp_*/**/*",
+      "!**/*.map",
+      "!**/*.{test,spec}.{ts,tsx}",
+      "!**/__tests__/**",
+      "!**/*.md",
+      "!release/win-unpacked/**/*",
+      "!release/linux-unpacked/**/*",
+      "!release/mac*/**/*",
+      "!release/**/*.exe",
+      "!release/**/*.blockmap",
+      "!release/**/*.yaml",
+      "!release/**/*.yml",
+      "!release/_temp_*/**/*",
+      "!**/.cache/**",
       "!assets/bin/**/*.md"
     ],
     "directories": {
-      "buildResources": "assets"
+      "buildResources": "assets",
+      "output": "release"
     },
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "executableName": "ORC TORRENT",
@@ -100,6 +123,7 @@
       ]
     },
     "linux": {
+      "artifactName": "ORC-TORRENT-${version}-${os}-${arch}.${ext}",
       "target": [
         {
           "target": "AppImage",
@@ -133,6 +157,13 @@
       ]
     },
     "mac": {
+      "icon": "assets/icons/icon-512.png",
+      "artifactName": "ORC-TORRENT-${version}-${os}-${arch}.${ext}",
+      "target": [
+        "dmg",
+        "zip",
+        "pkg"
+      ],
       "protocols": [
         {
           "name": "magnet",
@@ -150,6 +181,10 @@
         }
       ]
     },
+    "pkg": {
+      "installLocation": "/Applications",
+      "scripts": "installer/macos/pkg-scripts"
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": true,
@@ -164,7 +199,7 @@
       "deleteAppDataOnUninstall": false,
       "warningsAsErrors": false,
       "include": "installer/installer.nsh",
-      "artifactName": "${productName} Setup ${version}.${ext}",
+      "artifactName": "ORC-TORRENT-Setup-${version}.${ext}",
       "installerLanguages": [
         "en_US"
       ],
@@ -180,7 +215,7 @@
       "menuCategory": false,
       "differentialPackage": false
     },
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "ORC-TORRENT-${version}-${os}-${arch}.${ext}",
     "compression": "normal",
     "extraResources": [
       {
@@ -198,6 +233,13 @@
     ],
     "asarUnpack": [
       "assets/bin/**/*"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "The-animus-project",
+        "repo": "Orc-Torrent"
+      }
     ]
   }
 }

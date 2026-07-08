@@ -12,11 +12,7 @@ interface DaemonControlProps {
 
 type DaemonStatus = "stopped" | "starting" | "running" | "stopping" | "unknown";
 
-export const DaemonControl: React.FC<DaemonControlProps> = ({
-  online,
-  onError,
-  onSuccess,
-}) => {
+export const DaemonControl: React.FC<DaemonControlProps> = ({ online, onError, onSuccess }) => {
   const [status, setStatus] = useState<DaemonStatus>("unknown");
   const [pid, setPid] = useState<number | undefined>(undefined);
   const [isOperating, setIsOperating] = useState(false);
@@ -176,10 +172,7 @@ export const DaemonControl: React.FC<DaemonControlProps> = ({
       <div className="daemonControlHeader">
         <h2>Daemon Control</h2>
         <div className="daemonStatus">
-          <span
-            className="daemonStatusIndicator"
-            style={{ backgroundColor: getStatusColor() }}
-          />
+          <span className="daemonStatusIndicator" style={{ backgroundColor: getStatusColor() }} />
           <span className="daemonStatusText">{getStatusText()}</span>
         </div>
       </div>
@@ -201,12 +194,7 @@ export const DaemonControl: React.FC<DaemonControlProps> = ({
         >
           {isOperating && status === "stopping" ? "Stopping..." : "Stop"}
         </button>
-        <button
-          className="btn"
-          onClick={handleRestart}
-          disabled={isOperating}
-          title="Restart the daemon"
-        >
+        <button className="btn" onClick={handleRestart} disabled={isOperating} title="Restart the daemon">
           {isOperating ? "Restarting..." : "Restart"}
         </button>
         <button

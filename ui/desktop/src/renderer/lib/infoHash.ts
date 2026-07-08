@@ -3,6 +3,21 @@
  */
 
 /**
+ * Extract display name (dn=) from a magnet link.
+ */
+export function displayNameFromMagnet(magnet: string): string | null {
+  try {
+    const url = new URL(magnet);
+    const dn = url.searchParams.get("dn");
+    if (!dn) return null;
+    const trimmed = dn.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract info hash (hex) from a magnet link
  * @param magnet - Magnet link URI (e.g., "magnet:?xt=urn:btih:...")
  * @returns Hex-encoded info hash (40 chars) or null if not found
@@ -19,7 +34,7 @@ export function infoHashFromMagnet(magnet: string): string | null {
     if (!match) return null;
 
     const hash = match[1];
-    
+
     // If it's base32 (32 chars), we'd need to decode it, but for now
     // we'll assume hex (40 chars) which is the most common format
     if (hash.length === 40) {
@@ -39,7 +54,6 @@ export function infoHashFromMagnet(magnet: string): string | null {
   }
 }
 
-
 /**
  * Extract info hash from torrent file bytes
  * Computes SHA1 of the bencoded "info" dictionary
@@ -51,7 +65,7 @@ export async function infoHashFromTorrentBytes(bytes: Uint8Array): Promise<strin
     // Find "4:info" marker in the bencoded data
     const infoMarker = new TextEncoder().encode("4:info");
     let infoStart = -1;
-    
+
     for (let i = 0; i <= bytes.length - infoMarker.length; i++) {
       let match = true;
       for (let j = 0; j < infoMarker.length; j++) {
@@ -95,16 +109,18 @@ export async function infoHashFromTorrentBytes(bytes: Uint8Array): Promise<strin
       }
 
       const b = bytes[i];
-      
+
       // Check for string (format: <length>:<data>)
-      if (b >= 0x30 && b <= 0x39) { // '0'-'9'
+      if (b >= 0x30 && b <= 0x39) {
+        // '0'-'9'
         let lenStr = "";
         let j = i;
         while (j < bytes.length && bytes[j] >= 0x30 && bytes[j] <= 0x39) {
           lenStr += String.fromCharCode(bytes[j]);
           j++;
         }
-        if (j < bytes.length && bytes[j] === 0x3a) { // ':'
+        if (j < bytes.length && bytes[j] === 0x3a) {
+          // ':'
           stringLen = parseInt(lenStr, 10);
           stringPos = 0;
           inString = true;
@@ -116,7 +132,8 @@ export async function infoHashFromTorrentBytes(bytes: Uint8Array): Promise<strin
       // Track dict/list depth
       if (b === 0x64) depth++; // 'd' - start dict
       if (b === 0x6c) depth++; // 'l' - start list
-      if (b === 0x65) { // 'e' - end dict/list
+      if (b === 0x65) {
+        // 'e' - end dict/list
         depth--;
         if (depth === 0) {
           dictEnd = i + 1;
@@ -133,7 +150,10 @@ export async function infoHashFromTorrentBytes(bytes: Uint8Array): Promise<strin
     // Compute SHA1 of the info dict
     const hashBuffer = await crypto.subtle.digest("SHA-1", infoDictBytes);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, "0")).join("").toLowerCase();
+    return hashArray
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .toLowerCase();
   } catch (error) {
     console.error("Failed to extract info hash from torrent:", error);
     return null;

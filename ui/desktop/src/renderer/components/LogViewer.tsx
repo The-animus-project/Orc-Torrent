@@ -98,19 +98,11 @@ export const LogViewer: React.FC<LogViewerProps> = ({ maxLines = 500 }) => {
     <div className="logViewer">
       <div className="logViewerHeader">
         <div className="logViewerTitle">Daemon Logs</div>
-        <button
-          className="btn ghost small"
-          onClick={handleScrollToBottom}
-          title="Scroll to bottom"
-        >
+        <button className="btn ghost small" onClick={handleScrollToBottom} title="Scroll to bottom">
           ↓ Bottom
         </button>
       </div>
-      <div
-        className="logViewerContent"
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-      >
+      <div className="logViewerContent" ref={scrollContainerRef} onScroll={handleScroll}>
         {isLoading ? (
           <div className="logViewerLoading">Loading logs...</div>
         ) : logs.length === 0 ? (

@@ -7,8 +7,8 @@ export type PolicyProfile = "standard" | "hardened" | "anonymous";
 
 export type DesiredPolicy = {
   anonymous_mode: boolean;
-  peer_encryption: TriState;          // BEP 3/4
-  dht_hardening: boolean;             // BEP 42
+  peer_encryption: TriState; // BEP 3/4
+  dht_hardening: boolean; // BEP 42
   enforce_private_torrents: boolean;
   ip_blocklist: boolean;
   kill_switch: boolean;
@@ -24,7 +24,7 @@ export type DesiredPolicy = {
   circuit_rotation_enabled: boolean;
   deny_direct_exits: boolean;
   minimize_fingerprinting: boolean;
-  profile: PolicyProfile | null;     // null = custom, else applies preset
+  profile: PolicyProfile | null; // null = custom, else applies preset
 };
 
 export type EffectivePolicy = {
@@ -49,9 +49,9 @@ export type EffectivePolicy = {
   minimize_fingerprinting: boolean;
   profile: PolicyProfile | null;
   // Derived flags computed by daemon
-  network_allowed: boolean;           // false when kill switch trips
-  discovery_allowed: boolean;         // disabled under private torrents / anon mode rules
-  direct_peer_allowed: boolean;        // false when anonymous mode enabled
+  network_allowed: boolean; // false when kill switch trips
+  discovery_allowed: boolean; // disabled under private torrents / anon mode rules
+  direct_peer_allowed: boolean; // false when anonymous mode enabled
 };
 
 export type PolicyWarning = {

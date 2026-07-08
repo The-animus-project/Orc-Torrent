@@ -2,7 +2,7 @@
  * Keyboard shortcut utilities for the application
  */
 
-import React from 'react';
+import React from "react";
 
 export type KeyboardShortcut = {
   key: string;
@@ -24,13 +24,16 @@ export function parseShortcut(shortcut: string): {
   alt: boolean;
   meta: boolean;
 } {
-  const parts = shortcut.toLowerCase().split('+').map(s => s.trim());
+  const parts = shortcut
+    .toLowerCase()
+    .split("+")
+    .map((s) => s.trim());
   return {
     key: parts[parts.length - 1],
-    ctrl: parts.includes('ctrl') || parts.includes('control'),
-    shift: parts.includes('shift'),
-    alt: parts.includes('alt'),
-    meta: parts.includes('meta') || parts.includes('cmd'),
+    ctrl: parts.includes("ctrl") || parts.includes("control"),
+    shift: parts.includes("shift"),
+    alt: parts.includes("alt"),
+    meta: parts.includes("meta") || parts.includes("cmd"),
   };
 }
 
@@ -41,9 +44,9 @@ export function matchesShortcut(
   e: KeyboardEvent,
   shortcut: { key: string; ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean }
 ): boolean {
-  const keyMatches = e.key.toLowerCase() === shortcut.key.toLowerCase() ||
-                     e.code.toLowerCase() === `key${shortcut.key}`.toLowerCase();
-  
+  const keyMatches =
+    e.key.toLowerCase() === shortcut.key.toLowerCase() || e.code.toLowerCase() === `key${shortcut.key}`.toLowerCase();
+
   return (
     keyMatches &&
     (shortcut.ctrl === undefined || (e.ctrlKey || e.metaKey) === shortcut.ctrl) &&
@@ -64,13 +67,13 @@ export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[], enabled: boo
       // Don't trigger shortcuts when typing in inputs, textareas, or contenteditable elements
       const target = e.target as HTMLElement;
       if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
         target.isContentEditable ||
         target.closest('[contenteditable="true"]')
       ) {
         // Allow Escape to always work
-        if (e.key === 'Escape') {
+        if (e.key === "Escape") {
           // Let it bubble naturally
           return;
         }
@@ -81,13 +84,15 @@ export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[], enabled: boo
       }
 
       for (const shortcut of shortcuts) {
-        if (matchesShortcut(e, {
-          key: shortcut.key,
-          ctrl: shortcut.ctrl,
-          shift: shortcut.shift,
-          alt: shortcut.alt,
-          meta: shortcut.meta,
-        })) {
+        if (
+          matchesShortcut(e, {
+            key: shortcut.key,
+            ctrl: shortcut.ctrl,
+            shift: shortcut.shift,
+            alt: shortcut.alt,
+            meta: shortcut.meta,
+          })
+        ) {
           e.preventDefault();
           shortcut.handler(e);
           break;
@@ -95,9 +100,9 @@ export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[], enabled: boo
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [shortcuts, enabled]);
 }

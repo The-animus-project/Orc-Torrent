@@ -68,9 +68,7 @@ export const TorStatusLed: React.FC<TorStatusLedProps> = ({ torStatus, online })
         {getStatusText()}
       </span>
       {torStatus.socks_addr && (
-        <span style={{ fontSize: "11px", color: "#666", marginLeft: "4px" }}>
-          ({torStatus.socks_addr})
-        </span>
+        <span style={{ fontSize: "11px", color: "#666", marginLeft: "4px" }}>({torStatus.socks_addr})</span>
       )}
     </div>
   );

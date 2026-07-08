@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use anyhow::Context;
 
@@ -58,15 +58,17 @@ impl SocksProxyConfig {
 #[derive(Debug, Default)]
 pub(crate) struct StreamConnector {
     proxy_config: Option<SocksProxyConfig>,
-}
-
-impl From<Option<SocksProxyConfig>> for StreamConnector {
-    fn from(proxy_config: Option<SocksProxyConfig>) -> Self {
-        Self { proxy_config }
-    }
+    bind_ipv4: Option<Ipv4Addr>,
 }
 
 impl StreamConnector {
+    pub fn new(proxy_config: Option<SocksProxyConfig>, bind_ipv4: Option<Ipv4Addr>) -> Self {
+        Self {
+            proxy_config,
+            bind_ipv4,
+        }
+    }
+
     pub async fn connect(
         &self,
         addr: SocketAddr,
@@ -77,6 +79,16 @@ impl StreamConnector {
         if let Some(proxy) = self.proxy_config.as_ref() {
             let (r, w) = proxy.connect(addr).await?;
             return Ok((Box::new(r), Box::new(w)));
+        }
+
+        if let Some(bind_ip) = self.bind_ipv4 {
+            if addr.is_ipv4() {
+                let socket = tokio::net::TcpSocket::new_v4()?;
+                socket.bind((bind_ip, 0).into())?;
+                let stream = socket.connect(addr).await.context("error connecting")?;
+                let (r, w) = stream.into_split();
+                return Ok((Box::new(r), Box::new(w)));
+            }
         }
 
         let (r, w) = tokio::net::TcpStream::connect(addr)

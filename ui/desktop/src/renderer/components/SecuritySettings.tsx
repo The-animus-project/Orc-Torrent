@@ -8,43 +8,43 @@ interface SecuritySettingsProps {
   onSuccess?: (msg: string) => void;
 }
 
-export const SecuritySettings = memo<SecuritySettingsProps>(({
-  online,
-  onError,
-  onSuccess,
-}) => {
+export const SecuritySettings = memo<SecuritySettingsProps>(({ online, onError, onSuccess }) => {
   const { state, error, loading, update, applyProfile } = usePolicy(online);
   const [activePanel, setActivePanel] = useState<"network" | "privacy" | "resistance">("network");
 
-  const handleToggle = useCallback(async (key: keyof DesiredPolicy, value: any) => {
-    if (!state) return;
-    try {
-      const updated = await update({ [key]: value });
-      if (updated && onSuccess) {
-        onSuccess("Policy updated");
+  const handleToggle = useCallback(
+    async (key: keyof DesiredPolicy, value: any) => {
+      if (!state) return;
+      try {
+        const updated = await update({ [key]: value });
+        if (updated && onSuccess) {
+          onSuccess("Policy updated");
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Failed to update policy";
+        if (onError) onError(msg);
       }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to update policy";
-      if (onError) onError(msg);
-    }
-  }, [state, update, onError, onSuccess]);
+    },
+    [state, update, onError, onSuccess]
+  );
 
-  const handleProfileChange = useCallback(async (profile: "standard" | "hardened" | "anonymous") => {
-    try {
-      await applyProfile(profile);
-      if (onSuccess) onSuccess(`Applied ${profile} profile`);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to apply profile";
-      if (onError) onError(msg);
-    }
-  }, [applyProfile, onError, onSuccess]);
+  const handleProfileChange = useCallback(
+    async (profile: "standard" | "hardened" | "anonymous") => {
+      try {
+        await applyProfile(profile);
+        if (onSuccess) onSuccess(`Applied ${profile} profile`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Failed to apply profile";
+        if (onError) onError(msg);
+      }
+    },
+    [applyProfile, onError, onSuccess]
+  );
 
   if (!state) {
     return (
       <div className="securitySettings">
-        <div className="securitySettingsLoading">
-          {error ? `Error: ${error}` : "Loading policy..."}
-        </div>
+        <div className="securitySettingsLoading">{error ? `Error: ${error}` : "Loading policy..."}</div>
       </div>
     );
   }
@@ -80,9 +80,7 @@ export const SecuritySettings = memo<SecuritySettingsProps>(({
             title="Maximum Speed: Direct connections, no encryption overhead, best download performance"
           >
             Standard
-            {desired.profile === "standard" && (
-              <span style={{ marginLeft: "8px", fontSize: "11px", opacity: 0.8 }}>⚡ Best Speed</span>
-            )}
+            {desired.profile === "standard" && <span className="securityProfileBadge">Best Speed</span>}
           </button>
           <button
             className={`btn ${desired.profile === "hardened" ? "primary" : ""}`}
@@ -96,48 +94,25 @@ export const SecuritySettings = memo<SecuritySettingsProps>(({
             className={`btn ${desired.profile === "anonymous" ? "primary" : ""}`}
             onClick={() => handleProfileChange("anonymous")}
             disabled={!online || loading}
-            title="Maximum Privacy: All traffic through overlay network, slower speeds"
+            title="Planned: overlay routing is not implemented; sets policy flags only"
           >
-            Anonymous
+            Anonymous (planned)
           </button>
         </div>
         {desired.profile === "standard" && (
-          <div style={{ 
-            marginTop: "8px", 
-            padding: "10px 12px", 
-            backgroundColor: "rgba(76, 175, 80, 0.15)", 
-            borderRadius: "4px",
-            fontSize: "12px",
-            color: "var(--text-primary)",
-            border: "1px solid rgba(76, 175, 80, 0.3)"
-          }}>
-            <strong>✓ Optimized for Speed:</strong> Anonymous mode is OFF. Direct peer connections enabled for maximum download performance.
+          <div className="securityHint securityHintSuccess">
+            <strong>✓ Optimized for Speed:</strong> Anonymous mode is OFF. Direct peer connections enabled for maximum
+            download performance.
           </div>
         )}
         {desired.profile === "anonymous" && (
-          <div style={{ 
-            marginTop: "8px", 
-            padding: "10px 12px", 
-            backgroundColor: "rgba(255, 152, 0, 0.15)", 
-            borderRadius: "4px",
-            fontSize: "12px",
-            color: "var(--text-primary)",
-            border: "1px solid rgba(255, 152, 0, 0.3)"
-          }}>
-            <strong>⚠ Privacy Mode Active:</strong> Anonymous mode is ON. Download speeds may be reduced due to overlay network routing. 
-            <button 
+          <div className="securityHint securityHintWarning securityHintWithAction">
+            <strong>⚠ Anonymous profile:</strong> Overlay routing is not implemented. Policy flags may be set, but
+            traffic is not routed through an overlay network.
+            <button
               onClick={() => handleProfileChange("standard")}
               disabled={!online || loading}
-              style={{
-                marginLeft: "8px",
-                padding: "2px 8px",
-                fontSize: "11px",
-                backgroundColor: "rgba(33, 150, 243, 0.2)",
-                border: "1px solid rgba(33, 150, 243, 0.4)",
-                borderRadius: "3px",
-                cursor: (!online || loading) ? "not-allowed" : "pointer",
-                color: "var(--text-primary)"
-              }}
+              className="securityHintAction"
             >
               Switch to Standard for Speed
             </button>
@@ -209,12 +184,11 @@ export const SecuritySettings = memo<SecuritySettingsProps>(({
       {/* Panel B: Privacy & Encryption */}
       {activePanel === "privacy" && (
         <div className="securitySettingsPanel">
-          <div style={{ marginBottom: "16px", padding: "12px", backgroundColor: "rgba(33, 150, 243, 0.1)", borderRadius: "4px" }}>
-            <div style={{ fontWeight: "600", marginBottom: "4px", fontSize: "13px" }}>
-              💡 For Best Download Speeds:
-            </div>
-            <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-              Turn OFF Anonymous Mode and use Standard profile above. This enables direct peer connections with maximum performance.
+          <div className="securityHint securityHintInfo">
+            <div className="securityHintTitle">💡 For Best Download Speeds:</div>
+            <div className="securityHintBody">
+              Turn OFF Anonymous Mode and use Standard profile above. This enables direct peer connections with maximum
+              performance.
             </div>
           </div>
           <PolicyToggle
@@ -239,15 +213,8 @@ export const SecuritySettings = memo<SecuritySettingsProps>(({
             loading={loading}
           />
           {desired.anonymous_mode && (
-            <div style={{ 
-              marginTop: "8px", 
-              padding: "8px 12px", 
-              backgroundColor: "rgba(255, 152, 0, 0.1)", 
-              borderRadius: "4px",
-              fontSize: "12px",
-              color: "var(--text-secondary)"
-            }}>
-              ⚠ Anonymous mode is ON. This routes traffic through overlay network and may reduce download speeds.
+            <div className="securityHint securityHintWarning">
+              ⚠ Anonymous mode is ON in policy, but overlay routing is not implemented in this release.
             </div>
           )}
           <TriStateToggle
@@ -381,9 +348,7 @@ const PolicyToggle = memo<{
         <span className="slider" />
         <span className="tText">{value ? "On" : "Off"}</span>
       </label>
-      {disabled && disabledReason && (
-        <div className="policyToggleDisabledReason">{disabledReason}</div>
-      )}
+      {disabled && disabledReason && <div className="policyToggleDisabledReason">{disabledReason}</div>}
     </div>
   );
 });
@@ -418,9 +383,7 @@ const TriStateToggle = memo<{
         <option value="prefer">Prefer</option>
         <option value="require">Require</option>
       </select>
-      {disabled && disabledReason && (
-        <div className="policyToggleDisabledReason">{disabledReason}</div>
-      )}
+      {disabled && disabledReason && <div className="policyToggleDisabledReason">{disabledReason}</div>}
     </div>
   );
 });
@@ -455,9 +418,7 @@ const PaddingToggle = memo<{
         <option value="low">Low</option>
         <option value="high">High</option>
       </select>
-      {disabled && disabledReason && (
-        <div className="policyToggleDisabledReason">{disabledReason}</div>
-      )}
+      {disabled && disabledReason && <div className="policyToggleDisabledReason">{disabledReason}</div>}
     </div>
   );
 });

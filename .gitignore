@@ -8,6 +8,7 @@ out/
 
 # Rust
 target/
+crates/target/
 
 # Logs
 *.log
@@ -38,3 +39,14 @@ Desktop.ini
 
 # Electron packaged output
 release/
+
+# Generated at build time (see scripts/build.ts)
+ui/desktop/assets/icons/icon-512.png
+ui/desktop/assets/bin/
+
+# Private local edition — not for GitHub releases
+ui/desktop/local-edition/
+ui/desktop/images/animus/
+ui/desktop/public/images/animus/
+ui/desktop/images/animus-edition.png
+ui/desktop/public/images/animus-edition.png

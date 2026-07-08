@@ -1,68 +1,143 @@
 import React, { memo, useEffect, useState, useRef } from "react";
+import { AnarchyEmblemRing } from "./AnarchyEmblemRing";
+import { KawaiiHeartRing } from "./KawaiiHeartRing";
+import {
+  usesAnarchyEmblemRing,
+  usesKawaiiHeartRing,
+  type NotificationVisualTheme,
+} from "../../shared/notificationVisualThemeRegistry";
 import type { Toast as ToastType } from "../types";
 
 interface ToastProps {
   toast: ToastType | null;
   onClose: () => void;
-  theme?: "flames" | "electric" | "matrix";
+  theme?: NotificationVisualTheme;
 }
 
 export const Toast = memo<ToastProps>(({ toast, onClose, theme = "electric" }) => {
   const [isClosing, setIsClosing] = useState(false);
+  const [remainingMs, setRemainingMs] = useState(3200);
+  const [isPaused, setIsPaused] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deadlineRef = useRef<number>(0);
+
+  const clearTimers = () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
+    closeTimerRef.current = null;
+    progressTimerRef.current = null;
+    animationTimerRef.current = null;
+  };
+
+  const closeWithAnimation = () => {
+    clearTimers();
+    setIsClosing(true);
+    animationTimerRef.current = setTimeout(() => {
+      onClose();
+    }, 250);
+  };
 
   useEffect(() => {
-    // Clear any existing timers
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    if (animationTimerRef.current) {
-      clearTimeout(animationTimerRef.current);
-      animationTimerRef.current = null;
-    }
-    
-    if (!toast) {
-      setIsClosing(false);
+    if (!toast) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeWithAnimation();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [toast]);
+
+  const scheduleDismiss = (durationMs: number) => {
+    clearTimers();
+    setRemainingMs(durationMs);
+    if (durationMs <= 0) {
+      closeWithAnimation();
       return;
     }
-    
-    // Reset closing state when new toast appears
-    setIsClosing(false);
-    
-    // Start closing animation 250ms before timeout
+    deadlineRef.current = Date.now() + durationMs;
     closeTimerRef.current = setTimeout(() => {
-      setIsClosing(true);
-      // Wait for animation to complete before calling onClose
-      animationTimerRef.current = setTimeout(() => {
-        onClose();
-      }, 250);
-    }, 2950);
-    
+      closeWithAnimation();
+    }, durationMs);
+    progressTimerRef.current = setInterval(() => {
+      setRemainingMs(Math.max(0, deadlineRef.current - Date.now()));
+    }, 100);
+  };
+
+  useEffect(() => {
+    clearTimers();
+
+    if (!toast) {
+      setIsClosing(false);
+      setIsPaused(false);
+      setRemainingMs(3200);
+      return;
+    }
+
+    setIsClosing(false);
+    setIsPaused(false);
+    scheduleDismiss(3200);
+
     return () => {
-      if (closeTimerRef.current) {
-        clearTimeout(closeTimerRef.current);
-      }
-      if (animationTimerRef.current) {
-        clearTimeout(animationTimerRef.current);
-      }
+      clearTimers();
     };
   }, [toast, onClose]);
 
+  useEffect(() => {
+    if (!toast || isClosing) return;
+    if (isPaused) {
+      clearTimers();
+      setRemainingMs(Math.max(0, deadlineRef.current - Date.now()));
+    } else {
+      scheduleDismiss(remainingMs);
+    }
+  }, [isPaused]);
+
   if (!toast) return null;
+  const title = toast.kind === "error" ? "ERROR" : "INFO";
+  const icon =
+    theme === "anarchy" ? null : theme === "kawaii"
+      ? toast.kind === "error"
+        ? "\u{1F494}"
+        : "\u{1F380}"
+      : toast.kind === "error"
+        ? "\u26A0"
+        : "\u2139";
+  const progressRatio = Math.max(0, Math.min(1, remainingMs / 3200));
 
   return (
-    <div 
+    <div
       className={`toast ${toast.kind} toastTheme-${theme} ${isClosing ? "closing" : ""}`}
       role="alert"
       aria-live={toast.kind === "error" ? "assertive" : "polite"}
       aria-atomic="true"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocus={() => setIsPaused(true)}
+      onBlur={() => setIsPaused(false)}
     >
-      <div className="toastTitle">
-        {toast.kind === "error" ? "ERROR" : "INFO"}
+      {usesKawaiiHeartRing(theme) ? <KawaiiHeartRing /> : null}
+      {usesAnarchyEmblemRing(theme) ? <AnarchyEmblemRing /> : null}
+      <div className="toastHeader">
+        <div className="toastIcon" aria-hidden="true">
+          {theme === "anarchy" ? (
+            <img className="anarchyToastIcon" src="./images/animus/anarchy-emblem.png" alt="" draggable={false} />
+          ) : (
+            icon
+          )}
+        </div>
+        <div className="toastTitle">{title}</div>
+        <button type="button" className="toastDismiss" aria-label="Dismiss notification" onClick={closeWithAnimation}>
+          ×
+        </button>
       </div>
       <div className="toastBody">{toast.msg}</div>
+      <div className="toastProgressTrack" aria-hidden="true">
+        <div className="toastProgressFill" style={{ transform: `scaleX(${progressRatio})` }} />
+      </div>
     </div>
   );
 });

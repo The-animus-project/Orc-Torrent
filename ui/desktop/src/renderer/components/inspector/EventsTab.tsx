@@ -18,11 +18,7 @@ interface EventsTabProps {
   onSuccess: (msg: string) => void;
 }
 
-export const EventsTab = memo<EventsTabProps>(({
-  torrent,
-  events,
-  online,
-}) => {
+export const EventsTab = memo<EventsTabProps>(({ torrent, events, online }) => {
   // Filter events for this specific torrent
   const torrentEvents = useMemo(() => {
     return events.filter((e) => e.torrentId === torrent.id);
@@ -35,7 +31,7 @@ export const EventsTab = memo<EventsTabProps>(({
           <div className="inspectorSectionTitle">Event History</div>
           <span className="inspectorSectionBadge">{torrentEvents.length}</span>
         </div>
-        
+
         {!online ? (
           <div className="eventTabEmpty">
             <div className="eventTabEmptyIcon">
@@ -64,20 +60,12 @@ export const EventsTab = memo<EventsTabProps>(({
         ) : (
           <div className="eventTabList">
             {torrentEvents.map((event) => (
-              <div
-                key={event.id}
-                className={`eventTabRow ${getSeverityClass(event.severity)}`}
-              >
-                <div className="eventTabRowIcon">
-                  {getEventTypeIcon(event.type)}
-                </div>
+              <div key={event.id} className={`eventTabRow ${getSeverityClass(event.severity)}`}>
+                <div className="eventTabRowIcon">{getEventTypeIcon(event.type)}</div>
                 <div className="eventTabRowContent">
                   <div className="eventTabRowHeader">
                     <span className="eventTabRowType">{getEventTypeLabel(event.type)}</span>
-                    <span
-                      className="eventTabRowTime"
-                      title={formatEventDateTime(event.timestamp)}
-                    >
+                    <span className="eventTabRowTime" title={formatEventDateTime(event.timestamp)}>
                       {getRelativeTime(event.timestamp)}
                     </span>
                   </div>

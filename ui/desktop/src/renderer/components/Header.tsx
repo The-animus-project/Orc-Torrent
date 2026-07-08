@@ -13,9 +13,9 @@ export const Header = memo<HeaderProps>(({ online, version, health, onRefresh })
     <header className="topbar">
       <div className="brand">
         <div className="logo">
-          <img 
-            src="./icons/icon.ico" 
-            alt="ORC TORRENT logo" 
+          <img
+            src="./icons/icon.ico"
+            alt="ORC TORRENT logo"
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
             onError={(e) => {
               const target = e.target as HTMLImageElement;
@@ -33,7 +33,9 @@ export const Header = memo<HeaderProps>(({ online, version, health, onRefresh })
           />
         </div>
         <div className="titles">
-          <div className="name"><span className="name-orc">ORC</span> TORRENT</div>
+          <div className="name">
+            <span className="name-orc">ORC</span> TORRENT
+          </div>
           <div className="tag">The Apex Downloader</div>
         </div>
       </div>
@@ -44,7 +46,8 @@ export const Header = memo<HeaderProps>(({ online, version, health, onRefresh })
           {online ? "Connected" : "Offline"}
         </div>
         <div className="chip neutral">
-          <span style={{ opacity: 0.7 }}>v</span>{version}
+          <span style={{ opacity: 0.7 }}>v</span>
+          {version}
         </div>
         <button className="btn ghost" onClick={onRefresh} aria-label="Refresh">
           REFRESH

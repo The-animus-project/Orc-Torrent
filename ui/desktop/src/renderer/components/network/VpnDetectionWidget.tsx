@@ -7,11 +7,7 @@ interface VpnDetectionWidgetProps {
   onKillSwitchToggle?: () => void;
 }
 
-export const VpnDetectionWidget = memo<VpnDetectionWidgetProps>(({
-  vpnStatus,
-  netifs,
-  onKillSwitchToggle,
-}) => {
+export const VpnDetectionWidget = memo<VpnDetectionWidgetProps>(({ vpnStatus, netifs, onKillSwitchToggle }) => {
   // Use posture for more accurate detection, fallback to detected for legacy support
   const posture = vpnStatus?.posture || "unknown";
   const isConnected = posture === "connected" || vpnStatus?.detected === true;
@@ -38,11 +34,16 @@ export const VpnDetectionWidget = memo<VpnDetectionWidgetProps>(({
   // Get connection type display string
   const getConnectionTypeLabel = (type: ConnectionType): string => {
     switch (type) {
-      case "vpn": return "VPN";
-      case "tor": return "Tor";
-      case "i2p": return "I2P";
-      case "non_vpn": return "Direct";
-      default: return "Unknown";
+      case "vpn":
+        return "VPN";
+      case "tor":
+        return "Tor";
+      case "i2p":
+        return "I2P";
+      case "non_vpn":
+        return "Direct";
+      default:
+        return "Unknown";
     }
   };
 
@@ -65,7 +66,7 @@ export const VpnDetectionWidget = memo<VpnDetectionWidgetProps>(({
   };
 
   return (
-    <div 
+    <div
       className={`networkWidget ${onKillSwitchToggle ? "clickable" : ""}`}
       onClick={onKillSwitchToggle ? handleClick : undefined}
       title={onKillSwitchToggle ? "Click to configure kill switch" : undefined}
@@ -73,10 +74,10 @@ export const VpnDetectionWidget = memo<VpnDetectionWidgetProps>(({
       <div className="networkWidgetTitle">VPN Detection</div>
       <div className="networkWidgetContent">
         <div className="networkWidgetStatus">
-          <span className={`statusIndicator ${isConnected ? "vpnConnected" : "vpnDisconnected"} ${statusChanged ? "statusChanged" : ""}`} />
-          <span className="networkWidgetStatusText">
-            {getStatusText()}
-          </span>
+          <span
+            className={`statusIndicator ${isConnected ? "vpnConnected" : "vpnDisconnected"} ${statusChanged ? "statusChanged" : ""}`}
+          />
+          <span className="networkWidgetStatusText">{getStatusText()}</span>
         </div>
         {isConnected && (
           <>

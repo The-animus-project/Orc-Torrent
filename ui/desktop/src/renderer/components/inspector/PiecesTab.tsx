@@ -14,14 +14,7 @@ interface PiecesTabProps {
   onSuccess: (msg: string) => void;
 }
 
-export const PiecesTab = memo<PiecesTabProps>(({
-  torrent,
-  torrentStatus,
-  online,
-  onUpdate,
-  onError,
-  onSuccess,
-}) => {
+export const PiecesTab = memo<PiecesTabProps>(({ torrent, torrentStatus, online, onUpdate, onError, onSuccess }) => {
   const [pieceData, setPieceData] = useState<PieceData[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -36,7 +29,7 @@ export const PiecesTab = memo<PiecesTabProps>(({
       // TODO: Fetch from GET /torrents/{id}/pieces when endpoint is implemented
       // For now, estimate from progress
       const progress = torrentStatus.progress;
-      
+
       // Estimate piece count based on torrent size
       // Real BitTorrent piece sizes are typically:
       // - Small torrents (<50MB): 16KB - 64KB
@@ -51,14 +44,14 @@ export const PiecesTab = memo<PiecesTabProps>(({
       } else if (torrentStatus.total_bytes > 50 * 1024 * 1024) {
         pieceSize = 512 * 1024; // 512KB for medium torrents
       }
-      
+
       let estimatedPieces = Math.ceil(torrentStatus.total_bytes / pieceSize);
-      
+
       // Cap visualization to max 2000 pieces to prevent UI freeze
       // If there are more pieces, we'll aggregate them
       const MAX_VISUAL_PIECES = 2000;
       estimatedPieces = Math.min(Math.max(100, estimatedPieces), MAX_VISUAL_PIECES);
-      
+
       const pieces = estimatePiecesFromProgress(progress, estimatedPieces);
       setPieceData(pieces);
     } catch (err) {
@@ -73,15 +66,15 @@ export const PiecesTab = memo<PiecesTabProps>(({
   }, [fetchPieces]);
 
   const completedCount = useMemo(() => {
-    return pieceData.filter(p => p.completed).length;
+    return pieceData.filter((p) => p.completed).length;
   }, [pieceData]);
 
   const downloadingCount = useMemo(() => {
-    return pieceData.filter(p => p.downloading).length;
+    return pieceData.filter((p) => p.downloading).length;
   }, [pieceData]);
 
   const missingCount = useMemo(() => {
-    return pieceData.filter(p => p.missing).length;
+    return pieceData.filter((p) => p.missing).length;
   }, [pieceData]);
 
   return (
@@ -95,7 +88,7 @@ export const PiecesTab = memo<PiecesTabProps>(({
             </span>
           )}
         </div>
-        
+
         {!online ? (
           <div className="empty" style={{ marginTop: "24px" }}>
             <div style={{ marginBottom: "8px", fontWeight: 600 }}>Not connected</div>
@@ -119,7 +112,8 @@ export const PiecesTab = memo<PiecesTabProps>(({
                   Progress: {(torrentStatus.progress * 100).toFixed(1)}% ({completedCount} / {pieceData.length} pieces)
                   {torrentStatus.total_bytes > 0 && (
                     <span style={{ marginLeft: "12px" }}>
-                      Downloaded: {(torrentStatus.downloaded_bytes / (1024 * 1024)).toFixed(2)} MB / {(torrentStatus.total_bytes / (1024 * 1024)).toFixed(2)} MB
+                      Downloaded: {(torrentStatus.downloaded_bytes / (1024 * 1024)).toFixed(2)} MB /{" "}
+                      {(torrentStatus.total_bytes / (1024 * 1024)).toFixed(2)} MB
                     </span>
                   )}
                 </>

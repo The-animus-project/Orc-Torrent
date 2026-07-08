@@ -5,11 +5,7 @@ interface MainLayoutProps {
 }
 
 export const MainLayout = memo<MainLayoutProps>(({ children }) => {
-  return (
-    <div className="mainLayout">
-      {children}
-    </div>
-  );
+  return <div className="mainLayout">{children}</div>;
 });
 
 MainLayout.displayName = "MainLayout";

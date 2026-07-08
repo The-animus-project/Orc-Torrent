@@ -23,7 +23,9 @@ export interface TorrentStatus {
   eta_sec: number;
   total_bytes: number;
   downloaded_bytes: number;
-  peers_seen: number; // Number of peers seen (from JobStatus.peers_seen)
+  uploaded_bytes?: number;
+  ratio?: number | null;
+  peers_seen: number;
   error?: string; // Error message when state is "error"
   // TODO: Add seeds tracking when backend supports it
 }
@@ -37,9 +39,9 @@ export interface TorrentRowSnapshot {
 }
 
 export interface PieceBin {
-  have_ratio: number;      // 0.0-1.0, fraction of pieces in bin we have
-  min_avail: number;        // Minimum availability in bin (for missing pieces)
-  pieces_in_bin: number;    // Number of pieces this bin represents
+  have_ratio: number; // 0.0-1.0, fraction of pieces in bin we have
+  min_avail: number; // Minimum availability in bin (for missing pieces)
+  pieces_in_bin: number; // Number of pieces this bin represents
 }
 
 export interface WalletStatus {
@@ -163,9 +165,100 @@ export interface TorrentListResponse {
   items: Torrent[];
 }
 
+export interface SearchProviderInfo {
+  name: string;
+  label: string;
+  enabled: boolean;
+  configured: boolean;
+  is_custom: boolean;
+  supports_browse: boolean;
+  feed_url?: string | null;
+  provider_format?: SearchProviderFormat | null;
+  categories: string[];
+  requires_feed_url: boolean;
+  description: string;
+}
+
+export type SearchProviderFormat = "open_content_json" | "rss_atom";
+
+export interface SearchFeatureSettings {
+  enabled: boolean;
+  default_provider: string | null;
+  default_result_limit: number;
+  allow_private_remote_urls: boolean;
+  providers: SearchProviderInfo[];
+  safety_note: string;
+}
+
+export interface SearchProviderSetting {
+  name: string;
+  enabled: boolean;
+  label?: string | null;
+  feed_url?: string | null;
+  format?: SearchProviderFormat;
+  categories?: string[];
+}
+
+export interface SearchSettingsPatchRequest {
+  enabled?: boolean;
+  default_provider?: string;
+  default_result_limit?: number;
+  allow_private_remote_urls?: boolean;
+  providers?: SearchProviderSetting[];
+}
+
+export interface SearchQueryRequest {
+  query: string;
+  category?: string | null;
+  limit?: number | null;
+  source?: string | null;
+}
+
+export interface SearchResult {
+  id: string;
+  source: string;
+  name: string;
+  size_bytes?: number | null;
+  seeders?: number | null;
+  leechers?: number | null;
+  magnet_uri?: string | null;
+  torrent_url?: string | null;
+  description_url?: string | null;
+  published_at?: string | null;
+  category?: string | null;
+}
+
+export interface SearchProviderStatus {
+  name: string;
+  label: string;
+  configured: boolean;
+  ok: boolean;
+  result_count: number;
+  error?: string | null;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  providers: SearchProviderStatus[];
+  browse_mode: boolean;
+}
+
 export interface Toast {
   kind: "error" | "info";
   msg: string;
+}
+
+export interface ActionToastNotification {
+  kind: "error" | "info";
+  msg: string;
+  actionLabel: string;
+  onAction: () => void | Promise<void>;
+}
+
+export interface StatusToastNotification {
+  phase: "loading" | "success" | "error";
+  msg: string;
+  detail?: string;
 }
 
 // Event History types
@@ -198,3 +291,86 @@ export interface TorrentEvent {
 
 // Re-export policy types
 export * from "./policy";
+
+export type RiskState = "protected" | "warning" | "blocked" | "unknown";
+
+export interface PrivacyStatus {
+  vpn_detected: boolean;
+  vpn_interface?: string | null;
+  bind_interface?: string | null;
+  kill_switch_enabled: boolean;
+  kill_switch_engaged: boolean;
+  network_allowed: boolean;
+  dht_enabled: boolean;
+  pex_enabled: boolean;
+  lsd_enabled: boolean;
+  public_ip?: string | null;
+  risk_state: RiskState;
+  reason: string;
+}
+
+export interface PrivacyPresetResult {
+  changed: string[];
+  privacy_status: PrivacyStatus;
+}
+
+export type BandwidthProfile = "normal" | "limited";
+
+export interface BandwidthSettings {
+  normal_download_bps?: number | null;
+  normal_upload_bps?: number | null;
+  limited_download_bps?: number | null;
+  limited_upload_bps?: number | null;
+  schedule_enabled: boolean;
+  schedule_start: string;
+  schedule_end: string;
+  schedule_days: number[];
+}
+
+export interface SessionLimitsResponse {
+  download_bps?: number | null;
+  upload_bps?: number | null;
+  active_profile: BandwidthProfile;
+  bandwidth: BandwidthSettings;
+}
+
+export type SeedingAction = "stop_torrent";
+
+export interface SeedingSettings {
+  ratio_limit_enabled: boolean;
+  ratio_limit: number;
+  seed_time_limit_enabled: boolean;
+  seed_time_minutes: number;
+  action: SeedingAction;
+}
+
+export interface WatchFolderEntry {
+  id: string;
+  enabled: boolean;
+  folder_path: string;
+  default_save_path?: string | null;
+  auto_start: boolean;
+  delete_after_import: boolean;
+  archive_folder?: string | null;
+}
+
+export interface WatchFolderSettings {
+  enabled: boolean;
+  folders: WatchFolderEntry[];
+}
+
+export type WatchImportStatus = "success" | "duplicate" | "error";
+
+export interface WatchImportEvent {
+  at_ms: number;
+  folder_path: string;
+  torrent_path: string;
+  torrent_id?: string | null;
+  status: WatchImportStatus;
+  message: string;
+}
+
+export interface WatchFoldersResponse {
+  settings: WatchFolderSettings;
+  events: WatchImportEvent[];
+}

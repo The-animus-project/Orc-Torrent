@@ -68,29 +68,28 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="modalOverlay" 
-      onClick={onClose} 
-      role="dialog" 
-      aria-modal="true" 
+    <div
+      className="modalOverlay"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
       aria-labelledby={title ? "modal-title" : undefined}
       aria-describedby={title ? undefined : "modal-description"}
     >
       <div className="modalContent" ref={modalRef} onClick={(e) => e.stopPropagation()}>
         {title && (
           <div className="modalHeader">
-            <h2 className="modalTitle" id="modal-title">{title}</h2>
-            <button 
-              className="modalClose" 
-              onClick={onClose} 
-              aria-label="Close modal"
-              aria-keyshortcuts="Escape"
-            >
+            <h2 className="modalTitle" id="modal-title">
+              {title}
+            </h2>
+            <button className="modalClose" onClick={onClose} aria-label="Close modal" aria-keyshortcuts="Escape">
               ×
             </button>
           </div>
         )}
-        <div className="modalBody" id={title ? undefined : "modal-description"}>{children}</div>
+        <div className="modalBody" id={title ? undefined : "modal-description"}>
+          {children}
+        </div>
       </div>
     </div>
   );

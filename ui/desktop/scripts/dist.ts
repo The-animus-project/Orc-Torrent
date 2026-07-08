@@ -1,17 +1,38 @@
 // ui/desktop/scripts/dist.ts
 
 import { spawnSync, execSync } from "node:child_process";
-import { existsSync, rmSync, mkdtempSync, writeFileSync, symlinkSync, renameSync, copyFileSync, readdirSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  rmSync,
+  mkdtempSync,
+  writeFileSync,
+  symlinkSync,
+  renameSync,
+  copyFileSync,
+  readdirSync,
+  mkdirSync,
+} from "node:fs";
 import { join, resolve, dirname, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { getEditionBranding, isAnimusEdition } from "../src/shared/appEdition.ts";
+import { syncAnimusBrandingAssets } from "./syncAnimusBranding.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const projectRoot = resolve(__dirname, "..");        // ui/desktop
+const projectRoot = resolve(__dirname, ".."); // ui/desktop
 const isWin = process.platform === "win32";
+const STANDARD_PACKAGING_DIR = join(projectRoot, "release");
+
+function packagingDirForEdition(animusBuild: boolean): string {
+  return animusBuild ? join(projectRoot, "dist", "animus") : STANDARD_PACKAGING_DIR;
+}
+
+function winUnpackedDirFor(packagingDir: string): string {
+  return join(packagingDir, "win-unpacked");
+}
 
 function resolveCmd(cmd: string): string {
   if (isAbsolute(cmd)) return cmd;
@@ -30,8 +51,8 @@ function getToolVersion(tool: string): string {
     // On Windows, use shell: true for npm to handle the .cmd shim properly
     const useShell = isWin && tool === "npm";
     const cmd = useShell ? "npm" : tool;
-    const r = spawnSync(cmd, ["--version"], { 
-      encoding: "utf8", 
+    const r = spawnSync(cmd, ["--version"], {
+      encoding: "utf8",
       shell: useShell,
       stdio: "pipe",
     });
@@ -68,20 +89,20 @@ function printToolVersions(): void {
 
 function run(cmd: string, args: string[], cwd = projectRoot): void {
   const finalCmd = resolveCmd(cmd);
-  
+
   // On Windows, npm needs shell to find its dependencies properly
   // Use execSync with a command string to avoid deprecation warning
   // (spawnSync with shell: true and args array is deprecated)
   if (isWin && cmd === "npm") {
     // Escape args properly for Windows shell
-    const escapedArgs = args.map(arg => {
+    const escapedArgs = args.map((arg) => {
       if (/["\s&|><^%!()]/.test(arg)) {
         return `"${arg.replace(/%/g, "%%").replace(/"/g, '""')}"`;
       }
       return arg;
     });
     const command = `npm ${escapedArgs.join(" ")}`;
-    
+
     try {
       execSync(command, {
         stdio: "inherit",
@@ -95,14 +116,14 @@ function run(cmd: string, args: string[], cwd = projectRoot): void {
       process.exit(status);
     }
   }
-  
+
   // On Windows, .cmd files from node_modules must be executed via execSync for proper path handling
   const isCmdFile = isWin && (finalCmd.endsWith(".cmd") || finalCmd.endsWith(".bat"));
-  
+
   if (isCmdFile) {
     const quotedPath = `"${finalCmd}"`;
     const command = args.length > 0 ? `${quotedPath} ${args.join(" ")}` : quotedPath;
-    
+
     try {
       execSync(command, {
         stdio: "inherit",
@@ -116,7 +137,7 @@ function run(cmd: string, args: string[], cwd = projectRoot): void {
       process.exit(status);
     }
   }
-  
+
   // Normal spawnSync handling for non-.cmd files
   const r = spawnSync(finalCmd, args, {
     stdio: "inherit",
@@ -151,7 +172,9 @@ function hasSymlinkPrivilege(): boolean {
   } catch {
     return false;
   } finally {
-    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -201,12 +224,7 @@ function findProcessesByExecutablePathPowerShell(targetPath: string): ProcessInf
       }
     `;
 
-    const result = spawnSync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      psScript
-    ], {
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
       encoding: "utf8",
       shell: false,
       stdio: "pipe",
@@ -218,7 +236,7 @@ function findProcessesByExecutablePathPowerShell(targetPath: string): ProcessInf
       if (!output) return [];
 
       const processes: ProcessInfo[] = [];
-      const lines = output.split("\n").filter(line => line.trim());
+      const lines = output.split("\n").filter((line) => line.trim());
 
       for (const line of lines) {
         const parts = line.split("|");
@@ -246,7 +264,7 @@ function findProcessesByExecutablePathPowerShell(targetPath: string): ProcessInf
  * Check if ORC TORRENT.exe or orc-daemon.exe processes are running.
  * Also checks for Electron processes that might be holding file locks.
  * Optionally terminates processes if AUTO_KILL_PROCESSES environment variable is set.
- * 
+ *
  * When AUTO_KILL_PROCESSES=1, uses PowerShell to find processes by ExecutablePath
  * (more accurate than name-based detection, especially for processes running from
  * dist\win-unpacked which lock app.asar).
@@ -265,7 +283,7 @@ function checkRunningProcesses(): void {
 
       if (procsByPath.length > 0) {
         console.log("\nFound processes executing from dist\\win-unpacked:");
-        procsByPath.forEach(proc => {
+        procsByPath.forEach((proc) => {
           console.log(`   - ${proc.name} (PID: ${proc.pid})`);
           if (proc.path) {
             console.log(`     Path: ${proc.path}`);
@@ -313,11 +331,7 @@ function checkRunningProcesses(): void {
     try {
       // Use tasklist to check for running process
       // /FI filters, /NH removes header, /FO CSV outputs CSV format
-      const r = spawnSync("tasklist", [
-        "/FI", `IMAGENAME eq ${procName}`,
-        "/NH",
-        "/FO", "CSV"
-      ], {
+      const r = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${procName}`, "/NH", "/FO", "CSV"], {
         encoding: "utf8",
         shell: false,
         stdio: "pipe",
@@ -340,7 +354,7 @@ function checkRunningProcesses(): void {
     if (autoKill) {
       console.log("\n🔪 Auto-terminating locking processes...");
       let killedCount = 0;
-      
+
       for (const proc of running) {
         try {
           const killResult = spawnSync("taskkill", ["/F", "/IM", proc], {
@@ -348,7 +362,7 @@ function checkRunningProcesses(): void {
             shell: false,
             stdio: "pipe",
           });
-          
+
           if (killResult.status === 0) {
             console.log(`   Terminated: ${proc}`);
             killedCount++;
@@ -359,7 +373,7 @@ function checkRunningProcesses(): void {
           console.warn(`   WARNING: Error terminating ${proc}: ${err}`);
         }
       }
-      
+
       if (killedCount > 0) {
         console.log(`   Terminated ${killedCount} process(es). Waiting 2 seconds for file handles to release...\n`);
         // Wait for file handles to be released
@@ -367,13 +381,13 @@ function checkRunningProcesses(): void {
       }
     } else {
       console.warn("\nWARNING: The following processes are running:");
-      running.forEach(proc => console.warn(`   - ${proc}`));
+      running.forEach((proc) => console.warn(`   - ${proc}`));
       console.warn("\n   These processes may lock files and cause packaging to fail.");
       console.warn("   Please close ORC TORRENT and any Electron processes before running 'npm run dist'.");
       console.warn("\n   To automatically kill these processes, set AUTO_KILL_PROCESSES=1:");
       console.warn("   $env:AUTO_KILL_PROCESSES=1; npm run dist");
       console.warn("\n   Or manually kill them:");
-      running.forEach(proc => {
+      running.forEach((proc) => {
         console.warn(`   taskkill /F /IM "${proc}"`);
       });
       console.warn("\n   Or use Task Manager (Ctrl+Shift+Esc) to end the processes.\n");
@@ -445,12 +459,7 @@ function findProcessLockingFilePowerShell(dirPath: string): LockingProcess | nul
       }
     `;
 
-    const result = spawnSync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      psScript
-    ], {
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
       encoding: "utf8",
       shell: false,
       stdio: "pipe",
@@ -549,7 +558,7 @@ function findProcessLockingFile(dirPath: string): LockingProcess | null {
     if (result.status === 0 && result.stdout) {
       const output = result.stdout.toString();
       const lines = output.split("\n");
-      
+
       // CSV format: "Hostname","ID","Accessed By","Type","Open File (Path/executable)"
       for (const line of lines) {
         if (!line.trim() || line.includes("HOSTNAME") || !line.includes(dirPath)) {
@@ -561,13 +570,13 @@ function findProcessLockingFile(dirPath: string): LockingProcess | null {
         if (matches && matches.length >= 5) {
           const accessedBy = matches[2]?.replace(/"/g, "") || "";
           const openFile = matches[4]?.replace(/"/g, "") || "";
-          
+
           if (openFile.toLowerCase().includes(dirPath.toLowerCase())) {
             // Extract process name and PID from "Accessed By" field
             // Format is usually "PROCESS_NAME (PID)"
             const pidMatch = accessedBy.match(/\((\d+)\)/);
             const processName = accessedBy.split("(")[0]?.trim() || accessedBy;
-            
+
             if (pidMatch) {
               const pid = parseInt(pidMatch[1], 10);
               return { name: processName, pid, path: openFile };
@@ -581,18 +590,11 @@ function findProcessLockingFile(dirPath: string): LockingProcess | null {
   }
 
   const commonLockingProcesses = ["MsMpEng.exe", "MsMpEngCP.exe", "AvastSvc.exe", "avgnt.exe"];
-  
+
   for (const procName of commonLockingProcesses) {
     try {
       // Get PID of the process using wmic
-      const result = spawnSync("wmic", [
-        "process",
-        "where",
-        `name="${procName}"`,
-        "get",
-        "processid",
-        "/format:csv"
-      ], {
+      const result = spawnSync("wmic", ["process", "where", `name="${procName}"`, "get", "processid", "/format:csv"], {
         encoding: "utf8",
         shell: false,
         stdio: "pipe",
@@ -601,7 +603,7 @@ function findProcessLockingFile(dirPath: string): LockingProcess | null {
       if (result.status === 0 && result.stdout) {
         const output = result.stdout.toString();
         const pidMatch = output.match(/Node,\s*(\d+)/);
-        
+
         if (pidMatch) {
           const pid = parseInt(pidMatch[1], 10);
           // These antivirus processes are likely locking files if they're running
@@ -664,14 +666,14 @@ function killProcessByName(processName: string): number {
 
 function tryWindowsRmdir(dirPath: string): boolean {
   if (!isWin) return false;
-  
+
   try {
     const result = spawnSync("cmd.exe", ["/c", `rmdir /s /q "${dirPath}"`], {
       encoding: "utf8",
       shell: false,
       stdio: "pipe",
     });
-    
+
     return result.status === 0 && !existsSync(dirPath);
   } catch {
     return false;
@@ -684,23 +686,18 @@ function tryWindowsRmdir(dirPath: string): boolean {
  */
 function tryPowerShellRemove(dirPath: string): boolean {
   if (!isWin) return false;
-  
+
   try {
     // Escape the path for PowerShell (replace backslashes and wrap in quotes)
     const escapedPath = dirPath.replace(/\\/g, "\\\\").replace(/'/g, "''");
     const psCommand = `Remove-Item -LiteralPath '${escapedPath}' -Recurse -Force -ErrorAction Stop`;
-    
-    const result = spawnSync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      psCommand
-    ], {
+
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psCommand], {
       encoding: "utf8",
       shell: false,
       stdio: "pipe",
     });
-    
+
     return result.status === 0 && !existsSync(dirPath);
   } catch {
     return false;
@@ -714,7 +711,7 @@ function tryPowerShellRemove(dirPath: string): boolean {
  */
 function tryTakeOwnershipAndDelete(dirPath: string): boolean {
   if (!isWin) return false;
-  
+
   try {
     // First, try to take ownership using takeown
     const takeownResult = spawnSync("takeown", ["/f", dirPath, "/r", "/d", "y"], {
@@ -722,7 +719,7 @@ function tryTakeOwnershipAndDelete(dirPath: string): boolean {
       shell: false,
       stdio: "pipe",
     });
-    
+
     const rawUser = process.env.USERNAME || process.env.USER || "Administrators";
     const currentUser = rawUser.replace(/[^a-zA-Z0-9_\-. @]/g, "");
     const icaclsResult1 = spawnSync("icacls", [dirPath, "/grant", `${currentUser}:F`, "/T", "/q"], {
@@ -730,20 +727,20 @@ function tryTakeOwnershipAndDelete(dirPath: string): boolean {
       shell: false,
       stdio: "pipe",
     });
-    
+
     const icaclsResult2 = spawnSync("icacls", [dirPath, "/grant", "Administrators:F", "/T", "/q"], {
       encoding: "utf8",
       shell: false,
       stdio: "pipe",
     });
-    
+
     // Wait a moment for permissions to take effect
     sleepSync(1000);
-    
+
     // Try multiple deletion methods after taking ownership
     if (tryWindowsRmdir(dirPath)) return true;
     if (tryPowerShellRemove(dirPath)) return true;
-    
+
     // Last resort: try Node's rmSync
     try {
       rmSync(dirPath, { recursive: true, force: true });
@@ -758,44 +755,48 @@ function tryTakeOwnershipAndDelete(dirPath: string): boolean {
 
 function tryRobocopyMirrorDelete(dirPath: string): boolean {
   if (!isWin) return false;
-  
+
   try {
     // Create an empty temp directory
     const tempEmptyDir = mkdtempSync(join(tmpdir(), `empty_${Date.now()}_`));
-    
+
     // Use robocopy to mirror the empty dir (which deletes all files)
     // /MIR mirrors, /NFL no file list, /NDL no directory list, /NJH no job header, /NJS no job summary
-    const robocopyResult = spawnSync("robocopy", [
-      tempEmptyDir,
-      dirPath,
-      "/MIR",
-      "/NFL",
-      "/NDL",
-      "/NJH",
-      "/NJS",
-      "/NP",
-      "/R:0",  // Retry 0 times
-      "/W:0"   // Wait 0 seconds between retries
-    ], {
-      encoding: "utf8",
-      shell: false,
-      stdio: "pipe",
-    });
-    
+    const robocopyResult = spawnSync(
+      "robocopy",
+      [
+        tempEmptyDir,
+        dirPath,
+        "/MIR",
+        "/NFL",
+        "/NDL",
+        "/NJH",
+        "/NJS",
+        "/NP",
+        "/R:0", // Retry 0 times
+        "/W:0", // Wait 0 seconds between retries
+      ],
+      {
+        encoding: "utf8",
+        shell: false,
+        stdio: "pipe",
+      }
+    );
+
     // Clean up temp directory
     try {
       rmSync(tempEmptyDir, { recursive: true, force: true });
     } catch {
       // Ignore cleanup errors
     }
-    
+
     // Robocopy returns 0-7 for success, 8+ for errors
     // After mirroring, try to remove the now-empty directory
     if (robocopyResult.status !== undefined && robocopyResult.status <= 7) {
       sleepSync(500);
       return tryWindowsRmdir(dirPath);
     }
-    
+
     return false;
   } catch {
     return false;
@@ -808,25 +809,25 @@ function tryRobocopyMirrorDelete(dirPath: string): boolean {
  */
 function tryRenameThenDelete(dirPath: string): boolean {
   if (!isWin) return false;
-  
+
   try {
     // Generate a temporary name in the same parent directory
     const parentDir = dirname(dirPath);
     const tempName = join(parentDir, `_temp_delete_${Date.now()}_${Math.random().toString(36).substring(7)}`);
-    
+
     // Try to rename the directory
     renameSync(dirPath, tempName);
-    
+
     // If rename succeeded, try to delete the renamed directory
     // Give it a moment for handles to release
     sleepSync(1000);
-    
+
     // Try multiple methods on the renamed directory
     if (tryTakeOwnershipAndDelete(tempName)) return true;
     if (tryWindowsRmdir(tempName)) return true;
     if (tryPowerShellRemove(tempName)) return true;
     if (tryRobocopyMirrorDelete(tempName)) return true;
-    
+
     // Last resort: try Node's rmSync on the renamed directory
     try {
       rmSync(tempName, { recursive: true, force: true });
@@ -863,12 +864,7 @@ function scheduleDeletionOnReboot(dirPath: string): boolean {
       }
     `;
 
-    const result = spawnSync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      psScript
-    ], {
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
       encoding: "utf8",
       shell: false,
       stdio: "pipe",
@@ -959,9 +955,8 @@ function shouldUseTempOutputWorkaround(winUnpackedDir: string): boolean {
   if (!isWin) return false;
 
   // Force workaround via environment variable
-  const forceWorkaround = process.env.USE_TEMP_OUTPUT_ON_LOCK === "1" || 
-                          process.env.USE_TEMP_OUTPUT_ON_LOCK === "true";
-  
+  const forceWorkaround = process.env.USE_TEMP_OUTPUT_ON_LOCK === "1" || process.env.USE_TEMP_OUTPUT_ON_LOCK === "true";
+
   if (forceWorkaround) {
     return true;
   }
@@ -993,7 +988,7 @@ function getTempOutputDirectory(winUnpackedDir: string): string | null {
 
   // Create temporary output directory
   const tempOutputDir = mkdtempSync(join(tmpdir(), "orc-builder-output-"));
-  
+
   console.log("\n🔄 Using temporary output directory workaround...");
   console.log(`   Temp directory: ${tempOutputDir}`);
   console.log("   (This bypasses locked files in the normal output directory)");
@@ -1008,7 +1003,7 @@ function moveTempOutputToFinal(tempOutputDir: string, finalWinUnpackedDir: strin
   if (!isWin) return false;
 
   const tempWinUnpacked = join(tempOutputDir, "win-unpacked");
-  
+
   if (!existsSync(tempWinUnpacked)) {
     console.warn("\nWARNING: Temp build output not found, cannot move to final location.");
     return false;
@@ -1027,14 +1022,14 @@ function moveTempOutputToFinal(tempOutputDir: string, finalWinUnpackedDir: strin
   // Try to move the directory
   if (moveDirectorySafe(tempWinUnpacked, finalWinUnpackedDir)) {
     console.log("   Successfully moved build output");
-    
+
     // Clean up temp directory
     try {
       rmSync(tempOutputDir, { recursive: true, force: true });
     } catch {
       // Ignore cleanup errors for temp directory
     }
-    
+
     return true;
   } else {
     console.warn("   WARNING: Failed to move build output. It remains in:");
@@ -1055,7 +1050,7 @@ function autoResolveFileLocks(winUnpackedDir: string): boolean {
   if (!lockingProcess) return false;
 
   const isExplorer = lockingProcess.name.toLowerCase() === "explorer.exe";
-  
+
   // Never kill explorer.exe - it would close the desktop
   if (isExplorer) {
     console.log("\nDetected: Windows Explorer may have the directory open.");
@@ -1065,24 +1060,15 @@ function autoResolveFileLocks(winUnpackedDir: string): boolean {
   }
 
   // Safe processes to auto-kill: app/daemon and common editors that may lock app.asar
-  const safeToKill = [
-    "electron.exe",
-    "ORC TORRENT.exe",
-    "orc-daemon.exe",
-    "Code.exe",
-  ];
+  const safeToKill = ["electron.exe", "ORC TORRENT.exe", "orc-daemon.exe", "Code.exe"];
 
-  const canAutoKill = safeToKill.some(safe => 
-    lockingProcess.name.toLowerCase().includes(safe.toLowerCase())
-  );
+  const canAutoKill = safeToKill.some((safe) => lockingProcess.name.toLowerCase().includes(safe.toLowerCase()));
 
   if (!canAutoKill) {
     // Unknown process - be cautious but still try if it's not a system process
     const systemProcesses = ["svchost.exe", "dwm.exe", "winlogon.exe", "csrss.exe", "lsass.exe"];
-    const isSystemProcess = systemProcesses.some(sys => 
-      lockingProcess.name.toLowerCase().includes(sys)
-    );
-    
+    const isSystemProcess = systemProcesses.some((sys) => lockingProcess.name.toLowerCase().includes(sys));
+
     if (isSystemProcess) {
       console.log(`\nDetected system process locking files: ${lockingProcess.name}`);
       console.log("   (Skipping auto-kill for safety)");
@@ -1124,16 +1110,15 @@ function autoResolveFileLocks(winUnpackedDir: string): boolean {
  * Uses multiple Windows-specific deletion strategies to handle file locks.
  * Automatically detects and resolves file locks when possible.
  */
-function cleanDistDirectory(): boolean {
-  const distDir = join(projectRoot, "dist");
-  const winUnpackedDir = join(distDir, "win-unpacked");
+function cleanPackagingDirectory(packagingDir: string): boolean {
+  const winUnpackedDir = winUnpackedDirFor(packagingDir);
 
   if (!existsSync(winUnpackedDir)) {
-    console.log("\nNo dist/win-unpacked directory to clean (good!)");
+    console.log("\nNo win-unpacked directory to clean (good!)");
     return true; // Nothing to clean, success
   }
 
-  console.log("\nCleaning dist/win-unpacked directory...");
+  console.log("\nCleaning win-unpacked directory...");
   console.log(`   Path: ${winUnpackedDir}`);
 
   // Automatically attempt to resolve file locks
@@ -1210,8 +1195,8 @@ function cleanDistDirectory(): boolean {
   // All strategies failed
   const stillExists = existsSync(winUnpackedDir);
   if (stillExists) {
-    console.warn("\nWARNING: Failed to clean dist/win-unpacked directory after all retries.");
-    
+    console.warn("\nWARNING: Failed to clean win-unpacked directory after all retries.");
+
     // Try one more time to resolve locks
     if (isWin) {
       console.log("   🔄 Attempting final auto-resolution of file locks...");
@@ -1230,7 +1215,7 @@ function cleanDistDirectory(): boolean {
         }
       }
     }
-    
+
     // Re-check for locking process
     let currentLockingProcess: LockingProcess | null = null;
     if (isWin) {
@@ -1241,19 +1226,31 @@ function cleanDistDirectory(): boolean {
           console.warn(`   Process ID: ${currentLockingProcess.pid}`);
         }
       } else {
-        console.warn("   Files appear to be locked by another process (antivirus, Windows Explorer, or system process).");
+        console.warn(
+          "   Files appear to be locked by another process (antivirus, Windows Explorer, or system process)."
+        );
       }
     }
-    
+
     // Automatically enable temp output workaround
     console.warn("\n   🔄 Auto-enabling temp output workaround to bypass locked files...");
     return false; // Indicate cleanup failed, workaround will be used
   }
-  
+
   return true; // Successfully cleaned
 }
 
 console.log("\nOrc Torrent — Packaging (electron-builder)\n");
+
+const editionBranding = getEditionBranding(projectRoot);
+const animusBuild = isAnimusEdition();
+if (animusBuild) {
+  syncAnimusBrandingAssets();
+}
+const outputDir = packagingDirForEdition(animusBuild);
+
+console.log(`Edition: ${animusBuild ? "AnimUS (private)" : "standard"}`);
+console.log(`Output directory: ${outputDir}\n`);
 
 process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
 
@@ -1261,7 +1258,9 @@ printToolVersions();
 
 if (isWin && !hasSymlinkPrivilege()) {
   if (process.env.ORC_SKIP_SYMLINK_CHECK === "1") {
-    console.warn("WARNING: Symlink privilege not available (ORC_SKIP_SYMLINK_CHECK=1). Continuing anyway; build may fail.\n");
+    console.warn(
+      "WARNING: Symlink privilege not available (ORC_SKIP_SYMLINK_CHECK=1). Continuing anyway; build may fail.\n"
+    );
   } else {
     console.error("ERROR: Windows symlink privilege is not available.");
     console.error("   electron-builder will fail extracting winCodeSign without symlink rights.\n");
@@ -1279,13 +1278,13 @@ clearWinCodeSignCache();
 // Check for running processes that might lock files
 checkRunningProcesses();
 
-cleanDistDirectory();
+cleanPackagingDirectory(outputDir);
 
 console.log("\nRunning build pipeline...\n");
 run("npm", ["run", "build"], projectRoot);
 
 console.log("\nFinal cleanup before packaging...\n");
-const winUnpackedDir = join(projectRoot, "dist", "win-unpacked");
+const winUnpackedDir = winUnpackedDirFor(outputDir);
 
 let tempOutputDir: string | null = null;
 let needsWorkaround = false;
@@ -1293,13 +1292,13 @@ let needsWorkaround = false;
 if (isWin && existsSync(winUnpackedDir)) {
   // Auto-detect if cleanup is needed and try to resolve
   console.log("   Checking for file locks...");
-  
+
   // Try automatic lock resolution first
   const resolved = autoResolveFileLocks(winUnpackedDir);
   if (resolved) {
     sleepSync(2000); // Wait for handles to release
   }
-  
+
   // Check if files are locked by trying to delete a test file
   let hasLocks = false;
   try {
@@ -1311,10 +1310,10 @@ if (isWin && existsSync(winUnpackedDir)) {
     hasLocks = true;
     console.log("   WARNING: Detected file locks in directory");
   }
-  
+
   // Try aggressive cleanup
   let cleaned = false;
-  
+
   // Method 1: Try direct deletion first
   try {
     rmSync(winUnpackedDir, { recursive: true, force: true });
@@ -1329,7 +1328,7 @@ if (isWin && existsSync(winUnpackedDir)) {
       hasLocks = true;
     }
   }
-  
+
   // Method 2: Try rename-then-delete
   if (!cleaned && existsSync(winUnpackedDir)) {
     try {
@@ -1348,7 +1347,7 @@ if (isWin && existsSync(winUnpackedDir)) {
       }
     }
   }
-  
+
   // Method 3: Try Windows native commands
   if (!cleaned && existsSync(winUnpackedDir)) {
     if (tryWindowsRmdir(winUnpackedDir)) {
@@ -1359,7 +1358,7 @@ if (isWin && existsSync(winUnpackedDir)) {
       cleaned = true;
     }
   }
-  
+
   // If still not cleaned OR we detected locks, enable workaround proactively
   if ((!cleaned && existsSync(winUnpackedDir)) || hasLocks) {
     needsWorkaround = true;
@@ -1371,10 +1370,10 @@ if (isWin && existsSync(winUnpackedDir)) {
 } else if (isWin) {
   // Directory doesn't exist, but check if we should use workaround anyway (proactive)
   // This helps if previous runs had issues
-  const useProactiveWorkaround = process.env.USE_TEMP_OUTPUT_ON_LOCK === "1" || 
-                                  process.env.USE_TEMP_OUTPUT_ON_LOCK === "true";
+  const useProactiveWorkaround =
+    process.env.USE_TEMP_OUTPUT_ON_LOCK === "1" || process.env.USE_TEMP_OUTPUT_ON_LOCK === "true";
   if (useProactiveWorkaround) {
-    tempOutputDir = getTempOutputDirectory(join(projectRoot, "dist", "win-unpacked"));
+    tempOutputDir = getTempOutputDirectory(winUnpackedDirFor(outputDir));
     if (tempOutputDir) {
       needsWorkaround = true;
       console.log("   🔄 Using temp output workaround (proactive mode)...");
@@ -1403,6 +1402,30 @@ if (!existsSync(eb)) {
 const packDirOnly = process.env.PACK_DIR_ONLY === "1" || process.env.PACK_DIR_ONLY === "true";
 const electronBuilderArgs = packDirOnly ? ["--dir", "--publish", "never"] : ["--publish", "never"];
 let buildSucceeded = false;
+
+electronBuilderArgs.push(
+  "--config.directories.output",
+  outputDir,
+  "--config.artifactName",
+  animusBuild
+    ? `ORC-TORRENT-${editionBranding.artifactSuffix}-\${version}-\${os}-\${arch}.\${ext}`
+    : "ORC-TORRENT-\${version}-\${os}-\${arch}.\${ext}"
+);
+
+if (animusBuild) {
+  const animusMacIcon = join(projectRoot, "images", "animus", "app-icon-512.png");
+  electronBuilderArgs.push(
+    "--config.appId",
+    "com.orc.torrent.animus",
+    "--config.productName",
+    editionBranding.productName,
+    "--config.mac.extendInfo.LSEnvironment.ORC_TORRENT_EDITION",
+    "animus",
+    "--config.mac.icon",
+    animusMacIcon
+  );
+  console.log("   AnimUS build: GitHub auto-update metadata disabled.\n");
+}
 
 if (tempOutputDir) {
   electronBuilderArgs.push("--config.directories.output", tempOutputDir);
@@ -1435,24 +1458,32 @@ if (isWin) {
 
   // Generate icon if missing
   if (!iconOk && existsSync(sourceIco) && existsSync(resizeScript)) {
-    const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", resizeScript], {
-      encoding: "utf8",
-      shell: false,
-      stdio: "pipe",
-      cwd: projectRoot,
-    });
+    const r = spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", resizeScript],
+      {
+        encoding: "utf8",
+        shell: false,
+        stdio: "pipe",
+        cwd: projectRoot,
+      }
+    );
     if (r.status === 0) {
       iconOk = true;
       console.log("   Regenerated icon.ico from orc_ico(1).ico (256x256)");
     }
   }
   if (!iconOk && existsSync(createScript)) {
-    const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", createScript], {
-      encoding: "utf8",
-      shell: false,
-      stdio: "pipe",
-      cwd: projectRoot,
-    });
+    const r = spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", createScript],
+      {
+        encoding: "utf8",
+        shell: false,
+        stdio: "pipe",
+        cwd: projectRoot,
+      }
+    );
     if (r.status === 0) {
       iconOk = true;
       console.log("   Regenerated icon.ico (256x256)");
@@ -1461,16 +1492,16 @@ if (isWin) {
 
   // Always resize to 256x256 — electron-builder requires at least 256x256
   if (iconOk && existsSync(resizeScript) && existsSync(assetsIcon)) {
-    const r = spawnSync("powershell.exe", [
-      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-      "-File", resizeScript,
-      "-Source", assetsIcon,
-    ], {
-      encoding: "utf8",
-      shell: false,
-      stdio: "pipe",
-      cwd: projectRoot,
-    });
+    const r = spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", resizeScript, "-Source", assetsIcon],
+      {
+        encoding: "utf8",
+        shell: false,
+        stdio: "pipe",
+        cwd: projectRoot,
+      }
+    );
     if (r.status === 0) {
       console.log("   Ensured icon.ico is 256x256 for electron-builder.");
     } else if (r.stderr) {
@@ -1510,7 +1541,7 @@ if (!tempOutputDir && isWin && existsSync(winUnpackedDir)) {
   } catch {
     // If we can't even check, assume it might be locked
   }
-  
+
   if (definitelyLocked) {
     console.log("   WARNING: Detected locked files. Enabling temp output workaround...");
     tempOutputDir = getTempOutputDirectory(winUnpackedDir);
@@ -1532,9 +1563,9 @@ if (!buildSucceeded) {
 
 // If we used temp output, move it to the final location
 if (tempOutputDir && isWin && buildSucceeded) {
-  const finalWinUnpacked = join(projectRoot, "dist", "win-unpacked");
+  const finalWinUnpacked = winUnpackedDirFor(outputDir);
   const moved = moveTempOutputToFinal(tempOutputDir, finalWinUnpacked);
-  
+
   if (!moved) {
     console.warn("\nWARNING: Build completed but output is in temp directory:");
     console.warn(`   ${join(tempOutputDir, "win-unpacked")}`);

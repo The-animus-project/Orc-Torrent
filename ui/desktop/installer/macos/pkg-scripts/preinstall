@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+# Remove existing app bundles so reinstall behaves as replacement.
+rm -rf "/Applications/ORC TORRENT.app"
+rm -rf "$HOME/Applications/ORC TORRENT.app"
+
+exit 0

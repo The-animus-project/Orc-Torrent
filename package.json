@@ -1,0 +1,21 @@
+{
+  "name": "orc-desktop",
+  "private": true,
+  "version": "2.3.0",
+  "description": "ORC Torrent Client - A decentralized BitTorrent client with privacy features",
+  "author": "ORC Torrent / The ANIMUS PROJECT",
+  "type": "module",
+  "main": "dist/main/main/main.js",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "overrides": {
+    "rollup": ">=4.59.0",
+    "tar": ">=7.5.11",
+    "lodash": ">=4.18.0",
+    "minimatch": ">=10.2.3",
+    "@xmldom/xmldom": "0.8.11",
+    "picomatch": ">=4.0.4"
+  }
+}
