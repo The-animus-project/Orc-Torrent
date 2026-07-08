@@ -26,6 +26,11 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. We 
 <p align="center">
   <sub>Windows installer · macOS DMG (Apple Silicon) · Linux AppImage — <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest">portable zips &amp; other formats</a></sub>
 </p>
+<p align="center">
+  <a href="https://github.com/The-animus-project/Orc-Torrent">
+    <img alt="Leave a star on GitHub" src="https://img.shields.io/github/stars/The-animus-project/Orc-Torrent?style=for-the-badge&logo=github&label=Leave%20a%20star&color=gold">
+  </a>
+</p>
 
 **ORC Torrent is actively developed.** We update the roadmap and documentation as we go. If you’re interested in where we’re headed or how to contribute, read on.
 
@@ -339,7 +344,7 @@ ORC Torrent is developed and maintained by **ORC Torrent** and **the ANIMUS PROJ
 
 **Contributors:** See **[CONTRIBUTORS.md](CONTRIBUTORS.md)** for the full list.
 
-- **[Animus-exe](https://github.com/Animus-exe)** (Vurzumm) — [GitHub](https://github.com/Animus-exe) · [Twitter @vurzumm](https://x.com/vurzumm)
+- **[Animus-exe](https://github.com/Animus-exe)** (Vurzumm) — [GitHub](https://github.com/Animus-exe) · [X @Itsvurzum](https://x.com/Itsvurzum)
 - BuGmaN
 
 ```
