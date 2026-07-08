@@ -1,0 +1,15 @@
+#!/bin/sh
+# Block commits authored or committed as Elijah (machine or personal identity).
+
+author="$(git var GIT_AUTHOR_IDENT 2>/dev/null || true)"
+committer="$(git var GIT_COMMITTER_IDENT 2>/dev/null || true)"
+
+case "$author $committer" in
+  *[Ee][Ll][Ii][Jj][Aa][Hh]*)
+    echo "pre-commit: Refusing commit — author/committer must not be Elijah." >&2
+    echo "Run: ./scripts/setup-git-identity.sh" >&2
+    exit 1
+    ;;
+esac
+
+exit 0
