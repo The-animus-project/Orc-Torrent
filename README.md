@@ -8,7 +8,24 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. We 
 
 **ORC Torrent is compatible with Windows, macOS, and Linux.** You can build and run it on any of these platforms.
 
-**Latest release: [v2.3.1](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.1)** — security hardening plus portable installers for all three platforms, with in-app GitHub auto-update.
+**Latest release: [v2.3.1](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.1)** — security hardening plus portable builds for all three platforms, with in-app GitHub auto-update.
+
+<p align="center">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.3.1.exe">
+    <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-0078D6?style=for-the-badge&logo=windows&logoColor=white">
+  </a>
+  &nbsp;
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.1-mac-arm64.dmg">
+    <img alt="Download for macOS" src="https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white">
+  </a>
+  &nbsp;
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.1-linux-x86_64.AppImage">
+    <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-FCC624?style=for-the-badge&logo=linux&logoColor=black">
+  </a>
+</p>
+<p align="center">
+  <sub>Windows installer · macOS DMG (Apple Silicon) · Linux AppImage — <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest">portable zips &amp; other formats</a></sub>
+</p>
 
 **ORC Torrent is actively developed.** We update the roadmap and documentation as we go. If you’re interested in where we’re headed or how to contribute, read on.
 
@@ -24,13 +41,56 @@ Pre-built installers and portable archives are published on **[GitHub Releases](
 | **macOS** (arm64) | `ORC-TORRENT-<version>-mac-arm64.zip` | `.dmg`, `.pkg` |
 | **Linux** (x64) | `ORC-TORRENT-<version>-linux-x86_64.AppImage` | `.deb` |
 
-The desktop app checks GitHub for updates automatically (Settings → Updates). Unsigned builds may show a security prompt on first launch — see [Install-Instructions](Install-Instructions/) per OS.
+**Portable** builds run without an installer — extract or make executable, then launch the app. **Installers** register shortcuts, menu entries, and (on Windows/macOS) magnet / `.torrent` file associations.
+
+---
+
+## Installation
+
+Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.3.1`).
+
+### Windows
+
+| Method | Steps |
+|--------|--------|
+| **Portable** | Download `ORC-TORRENT-<version>-win-x64.zip` → extract to any folder → run **`ORC TORRENT.exe`**. No admin rights required; safe to keep on a USB drive. |
+| **Installer** | Download `ORC-TORRENT-Setup-<version>.exe` → run the wizard → start **ORC TORRENT** from the Start menu or desktop shortcut. |
+
+On first launch, Windows SmartScreen may warn because the build is unsigned — choose **More info** → **Run anyway**. Portable and installer builds both support in-app updates (Settings → Updates).
+
+### macOS (Apple Silicon)
+
+| Method | Steps |
+|--------|--------|
+| **Portable** | Download `ORC-TORRENT-<version>-mac-arm64.zip` → extract → open **`ORC TORRENT.app`**. |
+| **DMG** | Open the `.dmg` → drag **ORC TORRENT** to **Applications**. |
+| **PKG** | Run the `.pkg` installer → follow the prompts. |
+
+macOS may block the app on first open (unverified developer). Use **right-click → Open**, or allow it under **System Settings → Privacy & Security**. CI releases are **arm64** (Apple Silicon). Intel Macs: [build from source](#building-from-source).
+
+### Linux (x64)
+
+| Method | Steps |
+|--------|--------|
+| **Portable (AppImage)** | Download `ORC-TORRENT-<version>-linux-x86_64.AppImage` → `chmod +x ORC-TORRENT-*-linux-x86_64.AppImage` → run it. No root or package manager required. |
+| **.deb** | `sudo dpkg -i ORC-TORRENT-<version>-linux-amd64.deb` → launch from your application menu. |
+
+AppImages need [FUSE](https://github.com/AppImage/AppImageKit/wiki/FUSE) on some distributions (`libfuse2` on Ubuntu/Debian).
+
+### After install
+
+1. Start **ORC TORRENT** — the desktop app launches the daemon and waits until it is healthy before showing the UI.
+2. Add torrents via drag-and-drop, file picker, or associated magnet links (installers register associations; portable builds may not).
+3. Enable **Settings → Updates** to receive new releases from GitHub automatically.
+
+To compile from source instead of using a release build, see [Building from source](#building-from-source) and [Install-Instructions](Install-Instructions/).
 
 ---
 
 ## Table of contents
 
 - [Downloads](#downloads)
+- [Installation](#installation)
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [What makes it different](#what-makes-it-different)
@@ -236,12 +296,11 @@ Packaging in `ui/desktop/package.json` keeps `forceCodeSigning` and `signAndEdit
 
 ## Usage
 
-1. Download the installer or portable archive for your OS from [GitHub Releases](https://github.com/The-animus-project/Orc-Torrent/releases).
-2. Start **ORC TORRENT**. The app starts the daemon automatically and waits until it’s healthy before showing the UI.
-3. Add torrents via drag-and-drop, file picker, or associated magnet links.
-4. Use the torrent list and inspector for overview, files, peers, trackers, and transfers.
-5. Configure VPN, kill switch, network posture, watch folders, seeding, and bandwidth in Settings.
-6. Enable **Settings → Updates** to receive new releases from GitHub automatically.
+1. [Install](#installation) the app (portable archive or installer) from [GitHub Releases](https://github.com/The-animus-project/Orc-Torrent/releases).
+2. Add torrents via drag-and-drop, file picker, or associated magnet links.
+3. Use the torrent list and inspector for overview, files, peers, trackers, and transfers.
+4. Configure VPN, kill switch, network posture, watch folders, seeding, and bandwidth in Settings.
+5. Enable **Settings → Updates** to receive new releases from GitHub automatically.
 
 ---
 
@@ -263,7 +322,7 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
-| **2.3.1** | CodeQL security fixes (splash XSS/redirect sanitization, build-script shell hardening), `shell-quote` dependency bump. |
+| **2.3.1** | Portable builds for Windows (zip), macOS (zip), and Linux (AppImage) on every release; CodeQL security fixes; `shell-quote` dependency bump. |
 | **2.3.0** | Watch folders, privacy dashboard, VPN Safety Mode, GitHub auto-update, network introspection, seeding/bandwidth limits, kill-switch fixes, and honest trust copy. |
 | **2.2.17** | Security dependency patches and CodeQL build-script fixes. |
 | **2.2.16** | Animated notification themes, notification sound playback fixes, upgrade uninstall flow, and enforced app icon in installers. |

@@ -1,6 +1,8 @@
 # Install instructions
 
-Step-by-step guides to build and run ORC Torrent from source on each supported platform.
+**Pre-built releases:** Download portable archives or installers from [GitHub Releases](https://github.com/The-animus-project/Orc-Torrent/releases) — see the [Installation](../README.md#installation) section in the main README. No compilation required.
+
+**Build from source:** Step-by-step guides below for each supported platform.
 
 | Platform | Guide |
 |----------|--------|
