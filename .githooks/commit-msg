@@ -1,0 +1,14 @@
+#!/bin/sh
+# Block Cursor agent co-author trailers on commits.
+
+if grep -qiE '^Co-authored-by:[[:space:]]*Cursor[[:space:]]*<cursoragent@cursor\.com>' "$1"; then
+  echo "commit-msg: Refusing commit — remove Co-authored-by: Cursor trailer." >&2
+  exit 1
+fi
+
+if grep -qiE '^Co-authored-by:.*cursoragent@cursor\.com' "$1"; then
+  echo "commit-msg: Refusing commit — remove Cursor agent co-author trailer." >&2
+  exit 1
+fi
+
+exit 0
