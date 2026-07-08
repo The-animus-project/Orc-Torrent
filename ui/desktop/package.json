@@ -3,7 +3,7 @@
   "private": true,
   "version": "2.3.1",
   "description": "ORC Torrent Client - A decentralized BitTorrent client with privacy features",
-  "author": "ORC Torrent / The ANIMUS PROJECT",
+  "author": "ORC Torrent / The ANIMUS PROJECT <animustech36@gmail.com>",
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",
@@ -124,6 +124,7 @@
     },
     "linux": {
       "artifactName": "ORC-TORRENT-${version}-${os}-${arch}.${ext}",
+      "maintainer": "ORC Torrent <animustech36@gmail.com>",
       "target": [
         {
           "target": "AppImage",

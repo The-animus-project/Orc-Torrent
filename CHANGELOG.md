@@ -16,6 +16,10 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 - **Build script command injection** — Replace shell-string `execSync` with argument-array `spawnSync` for Windows npm and `.cmd` tooling (`scripts/dist.ts`).
 - **Dependency** — Bump transitive `shell-quote` from 1.8.3 to 1.9.0 (`ui/desktop`).
 
+### Fixed
+
+- **Linux CI / `.deb` packaging** — Set `author` email and `linux.maintainer` in `package.json` so electron-builder can produce `.deb` packages on Ubuntu runners.
+
 ---
 
 ## [2.3.0] — 2026-07-08
