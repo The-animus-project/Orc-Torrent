@@ -69,7 +69,11 @@ function getElectronBuilderVersion(): string {
   try {
     const eb = localBin("electron-builder");
     if (!existsSync(eb)) return "not installed";
-    const r = spawnSync(eb, ["--version"], { encoding: "utf8", shell: false, cwd: projectRoot });
+    const r = spawnSync(eb, ["--version"], {
+      encoding: "utf8",
+      shell: needsWindowsShell(eb, "electron-builder"),
+      cwd: projectRoot,
+    });
     if (r.status === 0 && r.stdout) {
       return r.stdout.toString().trim();
     }
@@ -87,12 +91,19 @@ function printToolVersions(): void {
   console.log();
 }
 
+function needsWindowsShell(cmdPath: string, originalCmd: string): boolean {
+  if (!isWin) return false;
+  if (originalCmd === "npm") return true;
+  return cmdPath.endsWith(".cmd") || cmdPath.endsWith(".bat");
+}
+
 function run(cmd: string, args: string[], cwd = projectRoot): void {
   const finalCmd = resolveCmd(cmd);
+  const useShell = needsWindowsShell(finalCmd, cmd);
 
   const r = spawnSync(finalCmd, args, {
     stdio: "inherit",
-    shell: false,
+    shell: useShell,
     cwd,
     env: process.env,
   });

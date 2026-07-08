@@ -19,6 +19,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 ### Fixed
 
 - **Linux CI / `.deb` packaging** — Set `author` email and `linux.maintainer` in `package.json` so electron-builder can produce `.deb` packages on Ubuntu runners.
+- **Windows CI packaging** — Use `spawnSync` with `shell: true` for `.cmd` shims on Windows (avoids `EINVAL` without rebuilding shell command strings).
 
 ---
 
