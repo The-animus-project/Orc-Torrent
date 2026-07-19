@@ -562,15 +562,21 @@ async function revealMainWindowWhenReady() {
 
   mainWindowRevealed = true;
 
-  // Kick daemon startup in the background, but don't let splash dismissal depend on it.
   if (!(await isDaemonHealthy())) {
-    console.warn("Daemon not healthy when renderer became ready, attempting to start...");
-    void startDaemonIfNeeded().catch((err) => {
-      console.error("Background daemon start failed while revealing main window:", err);
-    });
+    console.log("[Startup] Daemon not healthy yet — starting and waiting before revealing main window...");
+    try {
+      await startDaemonIfNeeded();
+    } catch (err) {
+      console.error("Daemon start failed while revealing main window:", err);
+    }
   }
 
-  // Enforce minimum splash display only when configured (0 = dismiss immediately when ready)
+  const daemonReady = await waitForHealthy(DAEMON_HEALTH_CHECK_TIMEOUT_MS * 2);
+  if (!daemonReady) {
+    console.warn("[Startup] Revealing main window without a healthy daemon (boot screen will keep waiting)");
+  }
+
+  // Enforce minimum splash display only when configured (0 = dismiss as soon as daemon and renderer are ready)
   if (splashShownAt != null && MIN_SPLASH_DISPLAY_MS > 0) {
     const elapsed = Date.now() - splashShownAt;
     if (elapsed < MIN_SPLASH_DISPLAY_MS) {

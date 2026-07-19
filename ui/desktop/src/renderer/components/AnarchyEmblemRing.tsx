@@ -1,10 +1,19 @@
 import React, { memo } from "react";
 
 const ANARCHY_EMBLEM_SRC = "./images/animus/anarchy-emblem.png";
-const RING_COUNT = 6;
+const RING_COUNT = 8;
 
-export const AnarchyEmblemRing = memo(() => (
-  <div className="anarchyEmblemRing" aria-hidden="true">
+interface AnarchyEmblemRingProps {
+  variant?: "default" | "toast";
+}
+
+export const AnarchyEmblemRing = memo<AnarchyEmblemRingProps>(({ variant = "default" }) => (
+  <div
+    className={`anarchyEmblemRing${variant === "toast" ? " anarchyEmblemRing--toast" : ""}`}
+    aria-hidden="true"
+  >
+    {variant === "toast" ? <span className="anarchyEmblemRing__tilefield" /> : null}
+    <span className="anarchyEmblemRing__impact" />
     {Array.from({ length: RING_COUNT }, (_, index) => (
       <img
         key={index}

@@ -230,6 +230,30 @@
         background: radial-gradient(circle at 35% 30%, rgba(230, 230, 230, 0.45) 0%, rgba(160, 160, 160, 0.22) 55%, transparent 100%);
       }
 
+      .animus-burst {
+        position: absolute;
+        width: var(--burst-size, 52px);
+        height: var(--burst-size, 52px);
+        opacity: 0;
+        transform: scale(0.2);
+        border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%;
+        background:
+          radial-gradient(circle at 38% 32%, rgba(215, 255, 131, 0.95) 0%, rgba(157, 255, 0, 0.58) 42%, transparent 74%);
+        box-shadow:
+          10px 5px 0 -3px rgba(157, 255, 0, 0.34),
+          -8px 10px 0 -4px rgba(157, 255, 0, 0.24),
+          5px -7px 0 -3px rgba(215, 255, 131, 0.28);
+        animation: animusPaintBurst var(--burst-duration, 4.4s) var(--easeOut) infinite;
+        animation-delay: var(--burst-delay, 0s);
+      }
+
+      .animus-burst.is-muted {
+        background: radial-gradient(circle at 38% 32%, rgba(240, 240, 240, 0.55) 0%, rgba(170, 170, 170, 0.28) 42%, transparent 74%);
+        box-shadow:
+          8px 4px 0 -3px rgba(255, 255, 255, 0.12),
+          -6px 8px 0 -4px rgba(255, 255, 255, 0.08);
+      }
+
       .animus-drip-1 {
         --drip-width: 6px;
         --drip-length: 96px;
@@ -326,6 +350,86 @@
         top: 34%;
       }
 
+      .animus-drip-9 {
+        --drip-width: 8px;
+        --drip-length: 124px;
+        --drip-duration: 5.9s;
+        --drip-delay: 1.3s;
+        left: 4%;
+      }
+
+      .animus-drip-10 {
+        --drip-width: 7px;
+        --drip-length: 102px;
+        --drip-duration: 6.1s;
+        --drip-delay: 3.8s;
+        left: 92%;
+      }
+
+      .animus-splat-5 {
+        --splat-size: 26px;
+        --splat-duration: 5.8s;
+        --splat-delay: 0.9s;
+        left: 18%;
+        top: 62%;
+      }
+
+      .animus-splat-6 {
+        --splat-size: 18px;
+        --splat-duration: 4.6s;
+        --splat-delay: 2.1s;
+        left: 66%;
+        top: 58%;
+      }
+
+      .animus-splat-7 {
+        --splat-size: 15px;
+        --splat-duration: 5.2s;
+        --splat-delay: 4.4s;
+        left: 44%;
+        top: 12%;
+      }
+
+      .animus-splat-8 {
+        --splat-size: 24px;
+        --splat-duration: 6.4s;
+        --splat-delay: 1.9s;
+        left: 94%;
+        top: 68%;
+      }
+
+      .animus-burst-1 {
+        --burst-size: 58px;
+        --burst-duration: 4.8s;
+        --burst-delay: 0.4s;
+        left: 6%;
+        top: 42%;
+      }
+
+      .animus-burst-2 {
+        --burst-size: 72px;
+        --burst-duration: 5.6s;
+        --burst-delay: 2.2s;
+        left: 82%;
+        top: 46%;
+      }
+
+      .animus-burst-3 {
+        --burst-size: 64px;
+        --burst-duration: 4.2s;
+        --burst-delay: 3.4s;
+        left: 52%;
+        top: 8%;
+      }
+
+      .animus-burst-4 {
+        --burst-size: 48px;
+        --burst-duration: 5.1s;
+        --burst-delay: 1.6s;
+        left: 28%;
+        top: 74%;
+      }
+
       @keyframes animusPaintDrip {
         0% {
           opacity: 0;
@@ -376,16 +480,36 @@
           transform: scale(0.35) rotate(0deg);
         }
         34% {
-          opacity: 0.55;
+          opacity: 0.62;
           transform: scale(1) rotate(8deg);
         }
         58% {
-          opacity: 0.38;
+          opacity: 0.45;
           transform: scale(1.12) rotate(-4deg);
         }
         100% {
           opacity: 0;
           transform: scale(0.85) rotate(6deg);
+        }
+      }
+
+      @keyframes animusPaintBurst {
+        0%,
+        10% {
+          opacity: 0;
+          transform: scale(0.12) rotate(-14deg);
+        }
+        26% {
+          opacity: 0.88;
+          transform: scale(1.18) rotate(8deg);
+        }
+        44% {
+          opacity: 0.68;
+          transform: scale(1.06) rotate(-4deg);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(0.92) rotate(10deg);
         }
       }
 
@@ -606,6 +730,7 @@
       }
 
       .animus-brand-zone {
+        position: relative;
         flex: 1;
         display: flex;
         align-items: center;
@@ -615,14 +740,61 @@
         padding-top: clamp(8px, 2vh, 18px);
       }
 
+      .animus-brand-splats {
+        position: absolute;
+        inset: -6% -2%;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .animus-brand-splat,
+      .animus-brand-burst {
+        position: absolute;
+        opacity: 0;
+      }
+
+      .animus-brand-splat {
+        width: var(--brand-splat-size, 20px);
+        height: var(--brand-splat-size, 20px);
+        border-radius: 42% 58% 52% 48% / 48% 42% 58% 52%;
+        background: radial-gradient(circle at 35% 30%, rgba(215, 255, 131, 0.85) 0%, rgba(157, 255, 0, 0.45) 55%, transparent 100%);
+        animation: animusPaintSplat var(--brand-splat-duration, 4.8s) var(--easeOut) infinite;
+        animation-delay: var(--brand-splat-delay, 0s);
+      }
+
+      .animus-brand-splat.is-muted {
+        background: radial-gradient(circle at 35% 30%, rgba(230, 230, 230, 0.5) 0%, rgba(160, 160, 160, 0.24) 55%, transparent 100%);
+      }
+
+      .animus-brand-burst {
+        width: var(--brand-burst-size, 44px);
+        height: var(--brand-burst-size, 44px);
+        border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%;
+        background: radial-gradient(circle at 38% 32%, rgba(215, 255, 131, 0.95) 0%, rgba(157, 255, 0, 0.55) 42%, transparent 74%);
+        box-shadow:
+          8px 4px 0 -3px rgba(157, 255, 0, 0.32),
+          -6px 8px 0 -4px rgba(157, 255, 0, 0.22);
+        animation: animusPaintBurst var(--brand-burst-duration, 4.2s) var(--easeOut) infinite;
+        animation-delay: var(--brand-burst-delay, 0s);
+      }
+
+      .animus-brand-splat-1 { --brand-splat-size: 24px; --brand-splat-duration: 5.2s; --brand-splat-delay: 0.3s; left: 8%; top: 18%; }
+      .animus-brand-splat-2 { --brand-splat-size: 18px; --brand-splat-duration: 4.6s; --brand-splat-delay: 1.8s; right: 10%; top: 22%; }
+      .animus-brand-splat-3 { --brand-splat-size: 28px; --brand-splat-duration: 5.8s; --brand-splat-delay: 2.6s; left: 14%; bottom: 16%; }
+      .animus-brand-burst-1 { --brand-burst-size: 56px; --brand-burst-duration: 4.4s; --brand-burst-delay: 0.8s; right: 6%; bottom: 12%; }
+      .animus-brand-burst-2 { --brand-burst-size: 68px; --brand-burst-duration: 5.4s; --brand-burst-delay: 2.1s; left: 4%; top: 8%; }
+
       .animus-logo {
-        width: min(400px, 90vw);
-        max-height: min(58vh, 520px);
+        position: relative;
+        z-index: 1;
+        width: min(580px, 96vw);
+        max-height: min(74vh, 760px);
         object-fit: contain;
         opacity: 0;
-        transform: scale(0.96) translateY(12px);
-        filter: drop-shadow(0 0 36px rgba(157, 255, 0, 0.14));
+        transform: scale(0.94) translateY(14px);
+        filter: drop-shadow(0 0 48px rgba(157, 255, 0, 0.2));
         animation: animusLogoIn 1.15s var(--easeOut) 120ms forwards;
+        background: transparent;
       }
 
       @keyframes animusLogoIn {
@@ -801,10 +973,20 @@
         <span class="animus-drip animus-drip-6"></span>
         <span class="animus-drip animus-drip-7 is-muted"></span>
         <span class="animus-drip animus-drip-8"></span>
+        <span class="animus-drip animus-drip-9"></span>
+        <span class="animus-drip animus-drip-10"></span>
         <span class="animus-splat animus-splat-1"></span>
         <span class="animus-splat animus-splat-2"></span>
         <span class="animus-splat animus-splat-3 is-muted"></span>
         <span class="animus-splat animus-splat-4"></span>
+        <span class="animus-splat animus-splat-5"></span>
+        <span class="animus-splat animus-splat-6"></span>
+        <span class="animus-splat animus-splat-7 is-muted"></span>
+        <span class="animus-splat animus-splat-8"></span>
+        <span class="animus-burst animus-burst-1"></span>
+        <span class="animus-burst animus-burst-2"></span>
+        <span class="animus-burst animus-burst-3"></span>
+        <span class="animus-burst animus-burst-4 is-muted"></span>
       </div>
     </div>
 
@@ -829,6 +1011,13 @@
 
       <div class="stack stack-animus" role="status" aria-live="polite" aria-label="ORC Torrent AnimUS Edition splash">
         <div class="animus-brand-zone">
+          <div class="animus-brand-splats" aria-hidden="true">
+            <span class="animus-brand-splat animus-brand-splat-1"></span>
+            <span class="animus-brand-splat animus-brand-splat-2 is-muted"></span>
+            <span class="animus-brand-splat animus-brand-splat-3"></span>
+            <span class="animus-brand-burst animus-brand-burst-1"></span>
+            <span class="animus-brand-burst animus-brand-burst-2"></span>
+          </div>
           <img
             class="animus-logo"
             id="animusLogo"
@@ -925,8 +1114,29 @@
         }
       }
 
-      const SPLASH_MIN_MS = 14000;
+      const SPLASH_MIN_MS = splashEdition === "animus" ? 4000 : 14000;
       const START_DELAY_MS = 650;
+      let daemonReady = splashEdition !== "animus";
+
+      async function pollDaemonHealth() {
+        if (daemonReady) return;
+        while (!daemonReady) {
+          try {
+            const response = await fetch("http://127.0.0.1:8733/health", { cache: "no-store" });
+            if (response.ok) {
+              daemonReady = true;
+              return;
+            }
+          } catch {
+            // daemon still starting
+          }
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      }
+
+      if (splashEdition === "animus") {
+        void pollDaemonHealth();
+      }
 
       if (splashEdition === "animus") {
         setImageSrc(animusLogo, splashLogo);
@@ -984,27 +1194,35 @@
 
       function tick(now) {
         const elapsed = now - startedAt;
-        const t = clamp(elapsed / SPLASH_MIN_MS, 0, 1);
+        const gateOpen = daemonReady;
+        const completionElapsed = gateOpen ? Math.max(0, elapsed - SPLASH_MIN_MS) : 0;
+        const t = gateOpen
+          ? Math.max(
+              0.92,
+              Math.min(1, 0.92 + completionElapsed / (splashEdition === "animus" ? 650 : 1200))
+            )
+          : Math.max(0, Math.min(0.92, elapsed / SPLASH_MIN_MS));
         const target = curve(t) * 100;
         const delta = target - progress;
 
         if (Math.abs(delta) > 0.05) {
-          const step = splashEdition === "animus" ? delta * 0.12 : delta > 6 ? 2 : 1;
+          const step = splashEdition === "animus" ? delta * (gateOpen ? 0.2 : 0.12) : delta > 6 ? 2 : 1;
           setProgress(progress + step);
         } else {
           setProgress(target);
         }
 
-        setStage(t);
+        const stageT = gateOpen ? 1 : t / 0.92;
+        setStage(stageT);
 
-        if (progress >= 99.9 && elapsed >= SPLASH_MIN_MS) {
-          setProgress(100);
-          window.dispatchEvent(new CustomEvent("orc:splashComplete"));
-          document.body.classList.add("splash-exit");
+        if (!gateOpen || progress < 99.9 || elapsed < SPLASH_MIN_MS) {
+          rafId = requestAnimationFrame(tick);
           return;
         }
 
-        rafId = requestAnimationFrame(tick);
+        setProgress(100);
+        window.dispatchEvent(new CustomEvent("orc:splashComplete"));
+        document.body.classList.add("splash-exit");
       }
 
       setTimeout(() => {

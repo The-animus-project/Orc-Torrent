@@ -20,7 +20,6 @@ interface AnimusShellProps {
   sidebarLogoUrl: string;
   logoUrl: string;
   sidebarEmblemUrl: string;
-  surfaceWatermarkUrl?: string;
   globalDownSpeed: number;
   globalUpSpeed: number;
   vpnStatus: VpnStatus | null;
@@ -119,7 +118,6 @@ export const AnimusShell = memo<AnimusShellProps>(
     sidebarLogoUrl,
     logoUrl,
     sidebarEmblemUrl,
-    surfaceWatermarkUrl,
     globalDownSpeed,
     globalUpSpeed,
     vpnStatus,
@@ -170,14 +168,6 @@ export const AnimusShell = memo<AnimusShellProps>(
         </aside>
 
         <section className="animusSurface">
-          {surfaceWatermarkUrl ? (
-            <img
-              src={surfaceWatermarkUrl}
-              alt=""
-              aria-hidden="true"
-              className="animusSurfaceWatermark"
-            />
-          ) : null}
           <div className="animusTopBar">
             <ToolbarSearch
               online={online}
@@ -213,7 +203,7 @@ export const AnimusShell = memo<AnimusShellProps>(
               <button type="button" className="btn primary animusTopBarButton" onClick={onAddTorrent}>
                 Add Torrent
               </button>
-              <div className="animusVersionChip">v{version}</div>
+              <div className="animusVersionLabel">v{version}</div>
             </div>
           </div>
 

@@ -40,6 +40,7 @@ function AnimusEmblemSvg() {
 
 export interface AnimusBootScreenProps {
   durationMs?: number;
+  completionGate?: boolean;
   splashLogoUrl?: string;
   splashBackgroundUrl?: string;
   splashEmblemUrl?: string;
@@ -47,6 +48,7 @@ export interface AnimusBootScreenProps {
 
 export function AnimusBootScreen({
   durationMs = 4000,
+  completionGate = false,
   splashLogoUrl = DEFAULT_LOGO,
   splashBackgroundUrl = DEFAULT_BACKGROUND,
   splashEmblemUrl = DEFAULT_EMBLEM,
@@ -57,6 +59,15 @@ export function AnimusBootScreen({
   const stageIdxRef = useRef(0);
   const startedAtRef = useRef(0);
   const rafRef = useRef(0);
+  const completionGateRef = useRef(completionGate);
+  const gateOpenedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    completionGateRef.current = completionGate;
+    if (completionGate && gateOpenedAtRef.current == null) {
+      gateOpenedAtRef.current = performance.now();
+    }
+  }, [completionGate]);
 
   useEffect(() => {
     const startDelay = window.setTimeout(() => {
@@ -66,24 +77,30 @@ export function AnimusBootScreen({
 
       const tick = (now: number) => {
         const elapsed = now - startedAtRef.current;
-        const t = Math.max(0, Math.min(1, elapsed / durationMs));
+        const gateOpen = completionGateRef.current;
+        const completionElapsed =
+          gateOpen && gateOpenedAtRef.current != null ? now - gateOpenedAtRef.current : 0;
+        const t = gateOpen
+          ? Math.max(0.92, Math.min(1, 0.92 + completionElapsed / 650))
+          : Math.max(0, Math.min(0.92, elapsed / durationMs));
         const target = curve(t) * 100;
         const delta = target - progressRef.current;
 
         if (Math.abs(delta) > 0.05) {
-          progressRef.current += delta * 0.12;
+          progressRef.current += delta * (gateOpen ? 0.2 : 0.12);
         } else {
           progressRef.current = target;
         }
 
         setProgress(progressRef.current);
 
-        while (stageIdxRef.current < BOOT_STAGES.length - 1 && t >= BOOT_STAGES[stageIdxRef.current + 1].at) {
+        const stageT = gateOpen ? 1 : t / 0.92;
+        while (stageIdxRef.current < BOOT_STAGES.length - 1 && stageT >= BOOT_STAGES[stageIdxRef.current + 1].at) {
           stageIdxRef.current += 1;
         }
         setStatus(BOOT_STAGES[stageIdxRef.current].text);
 
-        if (progressRef.current < 99.9 || elapsed < durationMs) {
+        if (!gateOpen || progressRef.current < 99.5) {
           rafRef.current = requestAnimationFrame(tick);
         } else {
           progressRef.current = 100;
@@ -125,15 +142,32 @@ export function AnimusBootScreen({
           <span className="animus-boot-drip animus-boot-drip-6" />
           <span className="animus-boot-drip animus-boot-drip-7 is-muted" />
           <span className="animus-boot-drip animus-boot-drip-8" />
+          <span className="animus-boot-drip animus-boot-drip-9" />
+          <span className="animus-boot-drip animus-boot-drip-10" />
           <span className="animus-boot-splat animus-boot-splat-1" />
           <span className="animus-boot-splat animus-boot-splat-2" />
           <span className="animus-boot-splat animus-boot-splat-3 is-muted" />
           <span className="animus-boot-splat animus-boot-splat-4" />
+          <span className="animus-boot-splat animus-boot-splat-5" />
+          <span className="animus-boot-splat animus-boot-splat-6" />
+          <span className="animus-boot-splat animus-boot-splat-7 is-muted" />
+          <span className="animus-boot-splat animus-boot-splat-8" />
+          <span className="animus-boot-burst animus-boot-burst-1" />
+          <span className="animus-boot-burst animus-boot-burst-2" />
+          <span className="animus-boot-burst animus-boot-burst-3" />
+          <span className="animus-boot-burst animus-boot-burst-4 is-muted" />
         </div>
       </div>
 
       <div className="animus-boot-wrap">
         <div className="animus-boot-brand">
+          <div className="animus-boot-brand-splats" aria-hidden="true">
+            <span className="animus-boot-brand-splat animus-boot-brand-splat-1" />
+            <span className="animus-boot-brand-splat animus-boot-brand-splat-2 is-muted" />
+            <span className="animus-boot-brand-splat animus-boot-brand-splat-3" />
+            <span className="animus-boot-brand-burst animus-boot-brand-burst-1" />
+            <span className="animus-boot-brand-burst animus-boot-brand-burst-2" />
+          </div>
           <img className="animus-boot-logo" src={splashLogoUrl} alt="ORC Torrent AnimUS Edition" />
         </div>
 

@@ -2045,6 +2045,7 @@ export default function App() {
       globalUpSpeed={globalStats.up}
       netPosture={netPosture}
       dashboardTorrents={dashboardTorrents}
+      panelWatermarkUrl={editionBranding.surfaceWatermarkUrl}
       onOpenDownloads={handleOpenDownloads}
       onAddTorrent={handleOpenAddModal}
       onSelectTorrent={handleOpenTorrentInDownloads}
@@ -2129,7 +2130,6 @@ export default function App() {
                 sidebarLogoUrl={editionBranding.sidebarLogoUrl}
                 logoUrl={editionBranding.logoUrl}
                 sidebarEmblemUrl={editionBranding.sidebarEmblemUrl}
-                surfaceWatermarkUrl={editionBranding.surfaceWatermarkUrl}
                 globalDownSpeed={globalStats.down}
                 globalUpSpeed={globalStats.up}
                 vpnStatus={vpnStatus}

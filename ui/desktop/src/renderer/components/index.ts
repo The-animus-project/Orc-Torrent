@@ -5,6 +5,7 @@ export { ActionToast } from "./ActionToast";
 export { StatusToast } from "./StatusToast";
 export { KawaiiHeartRing } from "./KawaiiHeartRing";
 export { AnarchyEmblemRing } from "./AnarchyEmblemRing";
+export { AnarchyToastIcon } from "./AnarchyToastIcon";
 export { AddTorrent } from "./AddTorrent";
 export { TorrentList } from "./TorrentList";
 export { TorrentDetails } from "./TorrentDetails";

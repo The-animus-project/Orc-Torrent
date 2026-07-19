@@ -13,6 +13,9 @@ const ANIMUS_BOOT_ASSETS = {
 } as const;
 
 const BOOT_MIN_MS = 4000;
+const DAEMON_POLL_MS = 350;
+const DAEMON_BOOT_TIMEOUT_MS = 90_000;
+const COMPLETION_ANIMATION_MS = 450;
 
 async function pingDaemon(): Promise<boolean> {
   try {
@@ -34,6 +37,17 @@ async function pingDaemon(): Promise<boolean> {
   }
 }
 
+async function waitForDaemonReady(): Promise<boolean> {
+  const deadline = Date.now() + DAEMON_BOOT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await pingDaemon()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, DAEMON_POLL_MS));
+  }
+  return false;
+}
+
 function isAnimusBootEdition(): boolean {
   return document.documentElement.dataset.appEdition === "animus";
 }
@@ -48,6 +62,7 @@ interface BootGateProps {
  */
 export function BootGate({ children }: BootGateProps) {
   const [state, setState] = useState<BootState>({ phase: "booting" });
+  const [completionGate, setCompletionGate] = useState(false);
   const [isAnimusEdition, setIsAnimusEdition] = useState(isAnimusBootEdition);
   const [bootAssets, setBootAssets] = useState<{
     splashLogoUrl: string;
@@ -77,18 +92,27 @@ export function BootGate({ children }: BootGateProps) {
 
   useEffect(() => {
     let alive = true;
+    const bootStartedAt = Date.now();
 
     (async () => {
-      const minDelay = new Promise((res) => setTimeout(res, BOOT_MIN_MS));
-      const daemonOk = await pingDaemon();
-      await minDelay;
+      const daemonOk = await waitForDaemonReady();
+      if (!alive) return;
 
+      const elapsed = Date.now() - bootStartedAt;
+      const remainingMin = BOOT_MIN_MS - elapsed;
+      if (remainingMin > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remainingMin));
+      }
       if (!alive) return;
 
       if (!daemonOk) {
         setState({ phase: "daemon_down" });
         return;
       }
+
+      setCompletionGate(true);
+      await new Promise((resolve) => setTimeout(resolve, COMPLETION_ANIMATION_MS));
+      if (!alive) return;
 
       setState({ phase: "ready" });
     })();
@@ -102,12 +126,13 @@ export function BootGate({ children }: BootGateProps) {
     () => (
       <AnimusBootScreen
         durationMs={BOOT_MIN_MS}
+        completionGate={completionGate}
         splashLogoUrl={bootAssets.splashLogoUrl}
         splashBackgroundUrl={bootAssets.splashBackgroundUrl}
         splashEmblemUrl={bootAssets.splashEmblemUrl}
       />
     ),
-    [bootAssets]
+    [bootAssets, completionGate]
   );
 
   if (state.phase === "booting") {

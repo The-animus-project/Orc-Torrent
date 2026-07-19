@@ -1,7 +1,9 @@
 import React, { memo, useEffect, useState, useRef } from "react";
 import { AnarchyEmblemRing } from "./AnarchyEmblemRing";
+import { AnarchyToastIcon } from "./AnarchyToastIcon";
 import { KawaiiHeartRing } from "./KawaiiHeartRing";
 import {
+  getNotificationThemeExitAnimationMs,
   usesAnarchyEmblemRing,
   usesKawaiiHeartRing,
   type NotificationVisualTheme,
@@ -37,7 +39,7 @@ export const Toast = memo<ToastProps>(({ toast, onClose, theme = "electric" }) =
     setIsClosing(true);
     animationTimerRef.current = setTimeout(() => {
       onClose();
-    }, 250);
+    }, getNotificationThemeExitAnimationMs(theme));
   };
 
   useEffect(() => {
@@ -120,11 +122,11 @@ export const Toast = memo<ToastProps>(({ toast, onClose, theme = "electric" }) =
       onBlur={() => setIsPaused(false)}
     >
       {usesKawaiiHeartRing(theme) ? <KawaiiHeartRing /> : null}
-      {usesAnarchyEmblemRing(theme) ? <AnarchyEmblemRing /> : null}
+      {usesAnarchyEmblemRing(theme) ? <AnarchyEmblemRing variant="toast" /> : null}
       <div className="toastHeader">
         <div className="toastIcon" aria-hidden="true">
           {theme === "anarchy" ? (
-            <img className="anarchyToastIcon" src="./images/animus/anarchy-emblem.png" alt="" draggable={false} />
+            <AnarchyToastIcon phase={toast.kind === "error" ? "error" : "default"} />
           ) : (
             icon
           )}

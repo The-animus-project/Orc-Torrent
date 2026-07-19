@@ -83,3 +83,8 @@ export function usesKawaiiHeartRing(theme: NotificationVisualTheme): boolean {
 export function usesAnarchyEmblemRing(theme: NotificationVisualTheme): boolean {
   return theme === "anarchy";
 }
+
+/** Exit animation duration (ms) — keep in sync with `anarchyStampOut` in styles.css */
+export function getNotificationThemeExitAnimationMs(theme: NotificationVisualTheme): number {
+  return theme === "anarchy" ? 320 : 250;
+}

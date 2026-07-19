@@ -54,11 +54,7 @@ html[data-app-edition="animus"] {
 html[data-app-edition="animus"],
 html[data-app-edition="animus"] body {
   color-scheme: dark;
-  background:
-    radial-gradient(circle at 16% 16%, rgba(157, 255, 0, 0.1) 0%, transparent 28%),
-    radial-gradient(circle at 84% 14%, rgba(255, 255, 255, 0.04) 0%, transparent 20%),
-    radial-gradient(circle at 68% 80%, rgba(157, 255, 0, 0.06) 0%, transparent 30%),
-    linear-gradient(180deg, #060706 0%, #020302 100%);
+  background: #060706;
 }
 
 html[data-app-edition="animus"] .app {
@@ -120,9 +116,9 @@ html[data-app-edition="animus"] .animusShell {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-  gap: 18px;
-  padding: 18px;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
   overflow: hidden;
 }
 
@@ -131,7 +127,7 @@ html[data-app-edition="animus"] .animusRail {
   flex-direction: column;
   gap: 18px;
   min-height: 0;
-  padding: 22px 18px 18px;
+  padding: 24px 16px 18px 20px;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -179,9 +175,9 @@ html[data-app-edition="animus"] .animusRailButton {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 13px 14px;
+  padding: 12px 14px;
   border: 1px solid transparent;
-  border-radius: 16px;
+  border-radius: 999px;
   background: transparent;
   color: var(--animus-text-muted);
   font-size: 14px;
@@ -257,33 +253,32 @@ html[data-app-edition="animus"] .animusSurface {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 0;
+  padding: 18px 22px 18px 12px;
   overflow: hidden;
   position: relative;
   isolation: isolate;
-}
-
-html[data-app-edition="animus"] .animusSurfaceWatermark {
-  position: absolute;
-  bottom: 4%;
-  right: 2%;
-  width: min(32vh, 320px);
-  max-width: none;
-  height: auto;
-  opacity: 0.14;
-  transform: rotate(20deg);
-  transform-origin: center center;
-  pointer-events: none;
-  user-select: none;
-  z-index: 0;
-  mix-blend-mode: screen;
-  filter: drop-shadow(0 0 48px rgba(157, 255, 0, 0.06));
 }
 
 html[data-app-edition="animus"] .animusTopBar,
 html[data-app-edition="animus"] .animusContent {
   position: relative;
   z-index: 1;
+}
+
+html[data-app-edition="animus"] .animusDashboardPanelWatermark {
+  position: absolute;
+  bottom: 2%;
+  right: 1.5%;
+  width: min(28vh, 280px);
+  height: auto;
+  opacity: 0.12;
+  transform: rotate(18deg);
+  transform-origin: center center;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  mix-blend-mode: screen;
 }
 
 html[data-app-edition="animus"] .toolbarSearchHostAnimus .animusTopSearch {
@@ -321,7 +316,7 @@ html[data-app-edition="animus"] .animusTopBar {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 4px 12px;
+  padding: 0 0 20px;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -399,6 +394,15 @@ html[data-app-edition="animus"] .animusVersionChip {
   font-weight: 600;
 }
 
+html[data-app-edition="animus"] .animusVersionLabel {
+  color: var(--animus-text-soft);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
 html[data-app-edition="animus"] .animusSpeedChip.down .animusSpeedIcon,
 html[data-app-edition="animus"] .animusSpeedChip.up .animusSpeedIcon {
   color: var(--animus-lime);
@@ -424,6 +428,8 @@ html[data-app-edition="animus"] .animusMainContent {
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
 }
 
 html[data-app-edition="animus"] .animusPageHeader,
@@ -450,6 +456,10 @@ html[data-app-edition="animus"] .animusPageTitle,
 html[data-app-edition="animus"] .settingsPageTitle,
 html[data-app-edition="animus"] .animusPanelTitle {
   color: var(--animus-text);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0;
 }
 
 html[data-app-edition="animus"] .animusPageDescription,
@@ -467,14 +477,16 @@ html[data-app-edition="animus"] .animusPageActions {
 html[data-app-edition="animus"] .animusDashboardPage {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
 }
 
 html[data-app-edition="animus"] .animusDashboardHeading {
   color: var(--animus-text);
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   margin: 0;
 }
@@ -485,6 +497,8 @@ html[data-app-edition="animus"] .animusPanelHeader {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
+  position: relative;
+  z-index: 1;
 }
 
 html[data-app-edition="animus"] .tableRow {
@@ -540,6 +554,12 @@ html[data-app-edition="animus"] .settingsTabsBar {
 
 html[data-app-edition="animus"] .animusDashboardPanel {
   padding: 24px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
 }
 
 html[data-app-edition="animus"] .animusDashboardMetrics {
@@ -572,6 +592,11 @@ html[data-app-edition="animus"] .animusMetricValue {
   line-height: 1;
 }
 
+html[data-app-edition="animus"] .animusMetricValueStatus {
+  font-size: 24px;
+  letter-spacing: 0.02em;
+}
+
 html[data-app-edition="animus"] .animusMetricValue.protected,
 html[data-app-edition="animus"] .animusTorrentState.seeding,
 html[data-app-edition="animus"] .animusTorrentState.downloading {
@@ -596,11 +621,14 @@ html[data-app-edition="animus"] .animusDashboardEmpty {
   gap: 12px;
   align-items: center;
   justify-content: center;
-  min-height: 260px;
+  flex: 1;
+  min-height: 280px;
   border-radius: 12px;
   border: none;
   background: rgba(255, 255, 255, 0.025);
   text-align: center;
+  position: relative;
+  z-index: 1;
 }
 
 html[data-app-edition="animus"] .animusDashboardEmptyTitle {
@@ -815,7 +843,64 @@ html[data-app-edition="animus"] .eventHistoryRow:hover {
 
 html[data-app-edition="animus"] .daemonHealthLed,
 html[data-app-edition="animus"] .vpnLed {
-  border-radius: 14px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: none !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: var(--animus-text) !important;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none !important;
+  transition: background-color 0.18s ease;
+}
+
+html[data-app-edition="animus"] .daemonHealthLed:hover,
+html[data-app-edition="animus"] .vpnLed:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+html[data-app-edition="animus"] .daemonHealthLedIndicator,
+html[data-app-edition="animus"] .vpnLedIndicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+html[data-app-edition="animus"] .daemonHealthLedLabel,
+html[data-app-edition="animus"] .vpnLedLabel {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+html[data-app-edition="animus"] .daemonHealthLedHealthy .daemonHealthLedIndicator,
+html[data-app-edition="animus"] .vpnLedConnected .vpnLedIndicator {
+  background: var(--animus-lime);
+  box-shadow: 0 0 10px rgba(157, 255, 0, 0.55);
+}
+
+html[data-app-edition="animus"] .daemonHealthLedWarning .daemonHealthLedIndicator,
+html[data-app-edition="animus"] .vpnLedUnknown .vpnLedIndicator,
+html[data-app-edition="animus"] .vpnLedChecking .vpnLedIndicator {
+  background: #ffd36b;
+  box-shadow: 0 0 8px rgba(255, 211, 107, 0.45);
+}
+
+html[data-app-edition="animus"] .daemonHealthLedError .daemonHealthLedIndicator,
+html[data-app-edition="animus"] .vpnLedDisconnected .vpnLedIndicator {
+  background: #ffb4aa;
+  box-shadow: 0 0 8px rgba(255, 180, 170, 0.45);
+}
+
+html[data-app-edition="animus"] .daemonHealthLedOffline .daemonHealthLedIndicator,
+html[data-app-edition="animus"] .vpnLedDisabled .vpnLedIndicator {
+  background: rgba(244, 244, 244, 0.35);
   box-shadow: none;
 }
 
@@ -844,6 +929,10 @@ html[data-app-edition="animus"] ::-webkit-scrollbar-track {
     grid-template-columns: 1fr;
   }
 
+  html[data-app-edition="animus"] .animusSurface {
+    padding: 16px;
+  }
+
   html[data-app-edition="animus"] .animusRail {
     min-height: auto;
   }
@@ -860,7 +949,7 @@ html[data-app-edition="animus"] ::-webkit-scrollbar-track {
 }
 
 @media (max-width: 820px) {
-  html[data-app-edition="animus"] .animusShell {
+  html[data-app-edition="animus"] .animusSurface {
     padding: 12px;
   }
 
@@ -888,5 +977,363 @@ html[data-app-edition="animus"] ::-webkit-scrollbar-track {
   html[data-app-edition="animus"] .animusPageHeader,
   html[data-app-edition="animus"] .settingsPageHeader {
     flex-direction: column;
+  }
+}
+
+/* Settings page — spacing and overflow fixes for AnimUS shell */
+html[data-app-edition="animus"] .settingsPage {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: auto;
+  padding: 0;
+  overflow: visible;
+}
+
+html[data-app-edition="animus"] .settingsPageHeader {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 20px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+  position: static;
+  top: auto;
+  z-index: auto;
+  background: transparent;
+  border-bottom: none;
+  padding: 0;
+}
+
+html[data-app-edition="animus"] .settingsPageHeaderCopy {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: none;
+  gap: 8px;
+}
+
+html[data-app-edition="animus"] .settingsPageTitle {
+  font-size: clamp(24px, 2.8vw, 30px);
+  line-height: 1.15;
+}
+
+html[data-app-edition="animus"] .settingsPageDescription {
+  max-width: none;
+  line-height: 1.55;
+}
+
+html[data-app-edition="animus"] .settingsPageHeaderActions {
+  flex: 1 1 260px;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+html[data-app-edition="animus"] .settingsPageHeaderActions .btn {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+}
+
+html[data-app-edition="animus"] .settingsTabsBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: none;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+  flex-shrink: 0;
+}
+
+html[data-app-edition="animus"] .settingsTabBtn {
+  flex: 0 1 auto;
+  padding: 10px 14px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+html[data-app-edition="animus"] .settingsTabBtn.active {
+  background: rgba(157, 255, 0, 0.12);
+  box-shadow: inset 0 -2px 0 var(--animus-lime);
+}
+
+html[data-app-edition="animus"] .settingsPageContent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  width: 100%;
+  max-width: none;
+  flex: none;
+  min-height: auto;
+  max-height: none;
+  overflow: visible;
+  align-content: start;
+  padding: 0 0 28px;
+}
+
+html[data-app-edition="animus"] .settingsSectionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 24px;
+  overflow: visible;
+  align-self: stretch;
+}
+
+html[data-app-edition="animus"] .settingsSectionCardTitle {
+  margin: 0 0 2px;
+  line-height: 1.2;
+  padding-bottom: 10px;
+}
+
+html[data-app-edition="animus"] .settingsSection,
+html[data-app-edition="animus"] .settingsSectionSpacious,
+html[data-app-edition="animus"] .searchSettingsStack,
+html[data-app-edition="animus"] .settingsRateLimitPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .settingsSummaryRows {
+  gap: 12px;
+}
+
+html[data-app-edition="animus"] .settingsSummaryRow {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
+  padding-bottom: 12px;
+}
+
+html[data-app-edition="animus"] .settingsSummaryRow > span:first-child {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .settingsSummaryRow > span:last-child,
+html[data-app-edition="animus"] .settingsSummaryRow > .settingsSummaryBadge,
+html[data-app-edition="animus"] .settingsSummaryRow > .settingsSummaryValue {
+  flex: 0 1 auto;
+  text-align: right;
+}
+
+html[data-app-edition="animus"] .settingsSummaryField {
+  gap: 12px;
+}
+
+html[data-app-edition="animus"] .settingsSummaryNote {
+  margin: 0;
+  line-height: 1.55;
+}
+
+html[data-app-edition="animus"] .settingsQuickActions,
+html[data-app-edition="animus"] .settingsQuickGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+html[data-app-edition="animus"] .settingsQuickActions .btn,
+html[data-app-edition="animus"] .settingsQuickGrid .btn {
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+html[data-app-edition="animus"] .settingsRateLimitToggleRow {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 18px;
+}
+
+html[data-app-edition="animus"] .settingsRateLimitToggleRow > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .settingsRateLimitGrid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+html[data-app-edition="animus"] .settingsRateLimitField,
+html[data-app-edition="animus"] .settingsRateLimitLabel,
+html[data-app-edition="animus"] .notificationThemeLabel {
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .notificationSoundSelect,
+html[data-app-edition="animus"] .settingsNumberInput,
+html[data-app-edition="animus"] #notification-theme-select-interface,
+html[data-app-edition="animus"] #app-theme-select-interface {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+html[data-app-edition="animus"] .notificationThemeControls,
+html[data-app-edition="animus"] .notificationThemeControlsSticky {
+  position: static;
+  top: auto;
+  z-index: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  padding-bottom: 0;
+  background: transparent;
+}
+
+html[data-app-edition="animus"] .notificationThemeControls .btn {
+  justify-self: start;
+  width: auto;
+  max-width: 100%;
+}
+
+html[data-app-edition="animus"] .animusMainContent {
+  overflow-x: hidden;
+  align-items: stretch;
+}
+
+html[data-app-edition="animus"] .animusMainContent > .settingsPage {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+html[data-app-edition="animus"] .settingsSectionCard .securitySettings,
+html[data-app-edition="animus"] .settingsSectionCard .notificationSoundSettings {
+  padding: 0;
+  gap: 18px;
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .profileButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+html[data-app-edition="animus"] .profileButtons .btn {
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+html[data-app-edition="animus"] .securitySettingsTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+html[data-app-edition="animus"] .securitySettingsTabs .tab {
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+
+html[data-app-edition="animus"] .policyToggle,
+html[data-app-edition="animus"] .policyToggleHeader {
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .policyToggleHeader {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+html[data-app-edition="animus"] .policyToggleLabel {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .securityHintWithAction {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+html[data-app-edition="animus"] .notificationSoundDefaultsRow {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+html[data-app-edition="animus"] .notificationSoundDefaultsRow .notificationSoundSelect {
+  max-width: 100%;
+}
+
+html[data-app-edition="animus"] .notificationSoundActions,
+html[data-app-edition="animus"] .notificationSoundButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+html[data-app-edition="animus"] .notificationSoundActions .btn,
+html[data-app-edition="animus"] .notificationSoundButtons .btn {
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+html[data-app-edition="animus"] .settingsRateLimitToggleRow > .toggle,
+html[data-app-edition="animus"] .settingsRateLimitToggleRow > label.toggle {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+html[data-app-edition="animus"] .searchProviderCardHeader {
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .searchProviderCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .searchControlsGrid,
+html[data-app-edition="animus"] .searchCustomProviderGrid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  min-width: 0;
+}
+
+html[data-app-edition="animus"] .searchControlFieldWide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+  html[data-app-edition="animus"] .settingsPageHeaderActions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  html[data-app-edition="animus"] .settingsPageHeaderActions .btn {
+    flex: 1 1 calc(50% - 10px);
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-app-edition="animus"] .settingsTabBtn {
+    flex: 1 1 calc(50% - 8px);
+    text-align: center;
+  }
+
+  html[data-app-edition="animus"] .settingsQuickActions .btn,
+  html[data-app-edition="animus"] .settingsQuickGrid .btn,
+  html[data-app-edition="animus"] .settingsPageHeaderActions .btn {
+    flex: 1 1 100%;
   }
 }

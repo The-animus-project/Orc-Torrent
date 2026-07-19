@@ -887,20 +887,38 @@ body{
   background:
     linear-gradient(
       112deg,
-      transparent 8%,
-      rgba(157, 255, 0, 0.22) 24%,
-      rgba(255, 255, 255, 0.12) 32%,
-      transparent 46%
+      transparent 4%,
+      rgba(157, 255, 0, 0.38) 20%,
+      rgba(255, 255, 255, 0.22) 28%,
+      rgba(157, 255, 0, 0.14) 36%,
+      transparent 52%
     ),
     repeating-linear-gradient(
       0deg,
-      rgba(157, 255, 0, 0.06) 0px,
-      rgba(157, 255, 0, 0.06) 1px,
+      rgba(157, 255, 0, 0.09) 0px,
+      rgba(157, 255, 0, 0.09) 1px,
       transparent 1px,
-      transparent 7px
+      transparent 5px
     );
-  transform: translateX(-130%);
-  animation: anarchyLimeSweep 2.4s linear infinite;
+  transform: translateX(-140%) skewX(-8deg);
+  animation: anarchyLimeSweep 1.65s linear infinite;
+}
+
+.banner.anarchy::after,
+.toast.toastTheme-anarchy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(157, 255, 0, 0.22), transparent 58%),
+    linear-gradient(90deg, transparent 47%, rgba(255, 255, 255, 0.14) 49.5%, transparent 52%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation:
+    anarchyImpactFlash 0.72s cubic-bezier(0.2, 1, 0.3, 1) forwards,
+    anarchyGlitchFlicker 6s steps(1) 0.72s infinite;
 }
 
 @keyframes slideDown {
@@ -1842,22 +1860,105 @@ body{
 }
 
 .toast.toastTheme-anarchy{
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(157, 255, 0, 0.34);
   background:
-    radial-gradient(circle at 12% 0%, rgba(157, 255, 0, 0.12), transparent 34%),
-    radial-gradient(circle at 88% 8%, rgba(255, 255, 255, 0.05), transparent 28%),
-    radial-gradient(circle at 50% 115%, rgba(157, 255, 0, 0.08), transparent 46%),
+    radial-gradient(circle at 12% 0%, rgba(157, 255, 0, 0.16), transparent 34%),
+    radial-gradient(circle at 88% 8%, rgba(255, 255, 255, 0.07), transparent 28%),
+    radial-gradient(circle at 50% 115%, rgba(157, 255, 0, 0.11), transparent 46%),
     linear-gradient(145deg, rgba(2, 2, 2, 0.98), rgba(0, 0, 0, 0.99));
-  border-left: 3px solid rgba(255, 255, 255, 0.88);
+  border-left: 3px solid rgba(157, 255, 0, 0.94);
   padding: 14px 34px 14px 18px;
   box-shadow:
     0 10px 32px rgba(0, 0, 0, 0.6),
-    0 0 20px rgba(157, 255, 0, 0.1);
-  animation: anarchyStampIn 0.55s cubic-bezier(0.22, 1.4, 0.36, 1) forwards;
+    0 0 24px rgba(157, 255, 0, 0.12),
+    inset 0 0 0 0 rgba(157, 255, 0, 0);
+  transform-origin: 88% 92%;
+  animation:
+    anarchyStampIn 0.68s cubic-bezier(0.14, 1.4, 0.24, 1) forwards,
+    anarchyRiotGlow 2.6s ease-in-out 0.68s infinite;
 }
 
 .toast.toastTheme-anarchy.closing {
-  animation: anarchyStampOut 0.28s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: anarchyStampOut 0.32s cubic-bezier(0.55, 0, 0.9, 0.35) forwards !important;
+}
+
+.toast.error.toastTheme-anarchy,
+.toast.actionToast.error.toastTheme-anarchy {
+  border-color: rgba(255, 90, 70, 0.38);
+  border-left-color: rgba(255, 90, 70, 0.94);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 90, 70, 0.14), transparent 34%),
+    radial-gradient(circle at 88% 8%, rgba(255, 255, 255, 0.06), transparent 28%),
+    radial-gradient(circle at 50% 115%, rgba(255, 60, 50, 0.1), transparent 46%),
+    linear-gradient(145deg, rgba(8, 2, 2, 0.98), rgba(0, 0, 0, 0.99));
+  animation:
+    anarchyStampIn 0.68s cubic-bezier(0.14, 1.4, 0.24, 1) forwards,
+    anarchyRiotGlowError 2.6s ease-in-out 0.68s infinite;
+}
+
+.toast.statusToast.status-error.toastTheme-anarchy {
+  border-color: rgba(255, 90, 70, 0.38);
+  border-left-color: rgba(255, 90, 70, 0.94);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 90, 70, 0.14), transparent 34%),
+    radial-gradient(circle at 88% 8%, rgba(255, 255, 255, 0.06), transparent 28%),
+    radial-gradient(circle at 50% 115%, rgba(255, 60, 50, 0.1), transparent 46%),
+    linear-gradient(145deg, rgba(8, 2, 2, 0.98), rgba(0, 0, 0, 0.99));
+  animation:
+    anarchyStampIn 0.68s cubic-bezier(0.14, 1.4, 0.24, 1) forwards,
+    anarchyRiotGlowError 2.6s ease-in-out 0.68s infinite;
+}
+
+.toast.error.toastTheme-anarchy::before,
+.toast.actionToast.error.toastTheme-anarchy::before,
+.toast.statusToast.status-error.toastTheme-anarchy::before {
+  background:
+    linear-gradient(
+      112deg,
+      transparent 4%,
+      rgba(255, 90, 70, 0.38) 20%,
+      rgba(255, 255, 255, 0.18) 28%,
+      rgba(255, 90, 70, 0.14) 36%,
+      transparent 52%
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 90, 70, 0.09) 0px,
+      rgba(255, 90, 70, 0.09) 1px,
+      transparent 1px,
+      transparent 5px
+    );
+}
+
+.toast.error.toastTheme-anarchy .toastTitle,
+.toast.actionToast.error.toastTheme-anarchy .toastTitle,
+.toast.statusToast.status-error.toastTheme-anarchy .toastTitle {
+  text-shadow:
+    0 0 14px rgba(255, 90, 70, 0.45),
+    1px 0 0 rgba(255, 90, 70, 0.2);
+  animation: anarchyTitleGlitchError 5.5s steps(1) 0.68s infinite;
+}
+
+.toast.toastTheme-anarchy .toastHeader {
+  animation: anarchyContentReveal 0.5s cubic-bezier(0.22, 1.2, 0.36, 1) 0.14s both;
+}
+
+.toast.toastTheme-anarchy .toastBody,
+.toast.toastTheme-anarchy .toastDetail,
+.toast.toastTheme-anarchy .actionToastFooter {
+  animation: anarchyContentReveal 0.52s cubic-bezier(0.22, 1.2, 0.36, 1) 0.26s both;
+}
+
+.toast.toastTheme-anarchy .toastProgressTrack {
+  animation: anarchyContentReveal 0.48s cubic-bezier(0.22, 1.2, 0.36, 1) 0.38s both;
+}
+
+.toast.toastTheme-anarchy.closing .toastHeader,
+.toast.toastTheme-anarchy.closing .toastBody,
+.toast.toastTheme-anarchy.closing .toastDetail,
+.toast.toastTheme-anarchy.closing .actionToastFooter,
+.toast.toastTheme-anarchy.closing .toastProgressTrack {
+  animation: none;
 }
 
 .toast.toastTheme-info .toastTitle{
@@ -1882,7 +1983,20 @@ body{
 .toast.toastTheme-anarchy .toastTitle{
   opacity: 1;
   color: rgba(255, 255, 255, 0.98);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
+  text-shadow:
+    0 0 14px rgba(157, 255, 0, 0.45),
+    1px 0 0 rgba(157, 255, 0, 0.2);
+  animation: anarchyTitleGlitch 5.5s steps(1) 0.68s infinite;
+}
+
+.toast.toastTheme-anarchy .toastHeader,
+.toast.toastTheme-anarchy .toastBody,
+.toast.toastTheme-anarchy .toastDetail,
+.toast.toastTheme-anarchy .actionToastFooter,
+.toast.toastTheme-anarchy .toastProgressTrack {
+  position: relative;
+  z-index: 2;
 }
 
 .banner.flames > *,
@@ -2031,81 +2145,250 @@ body{
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  overflow: visible;
+}
+
+.anarchyEmblemRing__impact{
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  border: 2px solid rgba(157, 255, 0, 0.85);
+  box-shadow: 0 0 20px rgba(157, 255, 0, 0.45);
+  opacity: 0;
+  animation: anarchyImpactRing 0.75s cubic-bezier(0.15, 1, 0.3, 1) 0.08s forwards;
 }
 
 .anarchyEmblemRing__emblem{
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
-  opacity: 0.62;
-  filter: drop-shadow(0 0 8px rgba(157, 255, 0, 0.35));
-  animation: anarchyEmblemPulse 2.2s ease-in-out infinite;
-}
-
-.anarchyEmblemRing__emblem:nth-child(1){
-  top: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  animation-delay: 0s;
+  opacity: 0;
+  filter: invert(1) drop-shadow(0 0 10px rgba(157, 255, 0, 0.45));
+  animation: anarchyEmblemPopIdle 2.4s ease-in-out infinite;
 }
 
 .anarchyEmblemRing__emblem:nth-child(2){
-  top: 12%;
-  right: -4px;
-  animation-delay: 0.35s;
-  animation-name: anarchyEmblemShakeRight;
+  top: 4px;
+  left: 8px;
+  animation-delay: 0.12s;
 }
 
 .anarchyEmblemRing__emblem:nth-child(3){
-  bottom: 12%;
-  right: -2px;
-  animation-delay: 0.7s;
-  animation-name: anarchyEmblemShakeRight;
+  top: 4px;
+  left: 50%;
+  animation-name: anarchyEmblemPopIdleCenterX;
+  animation-delay: 0.2s;
 }
 
 .anarchyEmblemRing__emblem:nth-child(4){
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  animation-delay: 1.05s;
+  top: 4px;
+  right: 8px;
+  animation-delay: 0.28s;
 }
 
 .anarchyEmblemRing__emblem:nth-child(5){
-  bottom: 12%;
-  left: -4px;
-  animation-delay: 1.4s;
-  animation-name: anarchyEmblemShakeLeft;
+  top: 50%;
+  right: 4px;
+  animation-name: anarchyEmblemPopIdleCenterY;
+  animation-delay: 0.36s;
 }
 
 .anarchyEmblemRing__emblem:nth-child(6){
-  top: 12%;
-  left: -4px;
-  animation-delay: 1.75s;
-  animation-name: anarchyEmblemShakeLeft;
+  bottom: 6px;
+  right: 10px;
+  animation-delay: 0.44s;
+}
+
+.anarchyEmblemRing__emblem:nth-child(7){
+  bottom: 6px;
+  left: 50%;
+  animation-name: anarchyEmblemPopIdleCenterX;
+  animation-delay: 0.52s;
+}
+
+.anarchyEmblemRing__emblem:nth-child(8){
+  bottom: 6px;
+  left: 10px;
+  animation-delay: 0.6s;
+}
+
+.anarchyEmblemRing__emblem:nth-child(9){
+  top: 50%;
+  left: 4px;
+  animation-name: anarchyEmblemPopIdleCenterY;
+  animation-delay: 0.68s;
+}
+
+/* Toast-only emblem ring: tiny tiled background, orbit idle, in-bounds impact, content scrim */
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__tilefield {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.13;
+  background-image: url("./images/animus/anarchy-emblem.png");
+  background-size: 16px 16px;
+  background-repeat: repeat;
+  background-position: 0 0;
+  filter: invert(1) brightness(1.15);
+  mask-image: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.92) 0%,
+    rgba(0, 0, 0, 0.72) 38%,
+    rgba(0, 0, 0, 0.42) 62%,
+    rgba(0, 0, 0, 0.22) 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.92) 0%,
+    rgba(0, 0, 0, 0.72) 38%,
+    rgba(0, 0, 0, 0.42) 62%,
+    rgba(0, 0, 0, 0.22) 100%
+  );
+  animation: anarchyTilefieldDrift 18s linear infinite;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse 80% 70% at 18% 50%, rgba(0, 0, 0, 0.55), transparent 68%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.42) 0%, rgba(0, 0, 0, 0.18) 38%, transparent 62%);
+  border-radius: inherit;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__impact {
+  animation: anarchyImpactRingToast 0.65s cubic-bezier(0.15, 1, 0.3, 1) 0.06s forwards;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem {
+  width: 24px;
+  height: 24px;
+  animation: anarchyEmblemToastEntry 0.55s cubic-bezier(0.18, 1.35, 0.32, 1) forwards,
+    anarchyEmblemOrbit 3.2s ease-in-out 0.55s infinite;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(2) {
+  top: 3px;
+  left: 6px;
+  animation-delay: 0.08s, 0.63s;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(3) {
+  top: 3px;
+  left: 50%;
+  animation-name: anarchyEmblemToastEntryCenterX, anarchyEmblemOrbitCenterX;
+  animation-delay: 0.16s, 0.71s;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(4) {
+  top: 3px;
+  right: 6px;
+  animation-delay: 0.24s, 0.79s;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(5) {
+  top: 50%;
+  right: 2px;
+  animation-name: anarchyEmblemToastEntryCenterY, anarchyEmblemOrbitCenterY;
+  animation-delay: 0.32s, 0.87s;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(6) {
+  bottom: 4px;
+  right: 8px;
+  animation-delay: 0.4s, 0.95s;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(7) {
+  bottom: 4px;
+  left: 50%;
+  animation-name: anarchyEmblemToastEntryCenterX, anarchyEmblemOrbitCenterX;
+  animation-delay: 0.48s, 1.03s;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(8) {
+  bottom: 4px;
+  left: 8px;
+  animation-delay: 0.56s, 1.11s;
+}
+
+.toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(9) {
+  top: 50%;
+  left: 2px;
+  animation-name: anarchyEmblemToastEntryCenterY, anarchyEmblemOrbitCenterY;
+  animation-delay: 0.64s, 1.19s;
+}
+
+.toast.error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__tilefield,
+.toast.actionToast.error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__tilefield,
+.toast.statusToast.status-error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__tilefield {
+  filter: invert(1) sepia(1) saturate(2.8) hue-rotate(-18deg) brightness(1.1);
+  opacity: 0.11;
+}
+
+.toast.error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem,
+.toast.actionToast.error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem,
+.toast.statusToast.status-error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem {
+  filter: invert(1) drop-shadow(0 0 10px rgba(255, 90, 70, 0.45));
+}
+
+.toast.error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__impact,
+.toast.actionToast.error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__impact,
+.toast.statusToast.status-error.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__impact {
+  border-color: rgba(255, 90, 70, 0.85);
+  box-shadow: 0 0 20px rgba(255, 90, 70, 0.45);
 }
 
 .anarchyToastIcon{
   width: 18px;
   height: 18px;
   object-fit: contain;
-  animation: anarchyIconStamp 0.6s cubic-bezier(0.22, 1.4, 0.36, 1) forwards;
+  filter: invert(1) drop-shadow(0 0 8px rgba(157, 255, 0, 0.4));
+  animation: anarchyIconStamp 0.7s cubic-bezier(0.18, 1.45, 0.32, 1) 0.1s both;
+}
+
+.anarchyToastIcon--loading{
+  animation: anarchyIconRiot 0.78s ease-in-out infinite;
+  filter: invert(1) drop-shadow(0 0 10px rgba(157, 255, 0, 0.6));
+}
+
+.anarchyToastIcon--success{
+  filter: invert(1) drop-shadow(0 0 12px rgba(157, 255, 0, 0.7));
+}
+
+.anarchyToastIcon--error{
+  filter: invert(1) drop-shadow(0 0 12px rgba(255, 90, 70, 0.6));
+  animation: anarchyIconStamp 0.7s cubic-bezier(0.18, 1.45, 0.32, 1) 0.1s both,
+    anarchyIconRiot 0.42s ease-in-out 0.8s 2;
 }
 
 .toast.toastTheme-anarchy .toastIcon{
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(157, 255, 0, 0.1);
+  border: 1px solid rgba(157, 255, 0, 0.38);
   width: 28px;
   height: 28px;
   border-radius: 6px;
+  box-shadow: 0 0 14px rgba(157, 255, 0, 0.18);
+  animation: anarchyIconSlotPop 0.5s cubic-bezier(0.18, 1.5, 0.28, 1) 0.04s both;
 }
 
 .toast.toastTheme-anarchy.statusToast.status-loading .toastIcon.statusDot{
-  background: rgba(157, 255, 0, 0.14);
+  background: rgba(157, 255, 0, 0.16);
+  animation: anarchyIconSlotPulse 1s ease-in-out infinite;
 }
 
 .toast.toastTheme-anarchy.statusToast.status-success .toastIcon{
-  background: rgba(157, 255, 0, 0.16);
+  background: rgba(157, 255, 0, 0.22);
+  box-shadow: 0 0 18px rgba(157, 255, 0, 0.32);
 }
 
 .toast.toastTheme-anarchy.statusToast.status-error .toastIcon{
@@ -2133,6 +2416,14 @@ body{
 
 .toast.toastTheme-anarchy .toastProgressFill{
   background: linear-gradient(90deg, rgba(157, 255, 0, 0.5), rgba(255, 255, 255, 0.92));
+  animation: anarchyProgressPulse 2.4s ease-in-out infinite;
+}
+
+.toast.error.toastTheme-anarchy .toastProgressFill,
+.toast.actionToast.error.toastTheme-anarchy .toastProgressFill,
+.toast.statusToast.status-error.toastTheme-anarchy .toastProgressFill {
+  background: linear-gradient(90deg, rgba(255, 90, 70, 0.55), rgba(255, 200, 190, 0.92));
+  animation: anarchyProgressPulseError 2.4s ease-in-out infinite;
 }
 
 .toast.toastTheme-anarchy.actionToast .btn.small{
@@ -2317,104 +2608,478 @@ body{
 @keyframes anarchyStampIn {
   0% {
     opacity: 0;
-    transform: translateX(80%) scale(2.2) rotate(-12deg);
+    transform: translate(78%, -22%) scale(2.8) rotate(-18deg) skewX(-5deg);
+    filter: brightness(2.6) saturate(1.2) contrast(1.1);
+    box-shadow:
+      0 10px 32px rgba(0, 0, 0, 0.6),
+      0 0 24px rgba(157, 255, 0, 0.12),
+      inset 0 0 0 0 rgba(157, 255, 0, 0);
   }
-  55% {
+  32% {
     opacity: 1;
-    transform: translateX(-4%) scale(1.04) rotate(2deg);
+    transform: translate(-12%, 8%) scale(1.18) rotate(6deg) skewX(2deg);
+    filter: brightness(1.65) contrast(1.35);
+    box-shadow:
+      0 14px 38px rgba(0, 0, 0, 0.65),
+      0 0 48px rgba(157, 255, 0, 0.35),
+      inset 0 0 28px 4px rgba(157, 255, 0, 0.18);
   }
-  72% {
-    transform: translateX(2%) scale(0.98) rotate(-1deg);
+  48% {
+    transform: translate(5%, -4%) scale(0.9) rotate(-4deg) skewX(-1deg);
+    filter: brightness(1.25) contrast(1.1);
+    box-shadow:
+      0 10px 32px rgba(0, 0, 0, 0.6),
+      0 0 24px rgba(157, 255, 0, 0.12),
+      inset 0 0 0 0 rgba(157, 255, 0, 0);
   }
-  86% {
-    transform: translateX(-1%) scale(1.01) rotate(0.5deg);
+  64% {
+    transform: translate(-3%, 2%) scale(1.06) rotate(2deg);
+    filter: brightness(1.08);
+  }
+  80% {
+    transform: translate(2%, -1%) scale(0.98) rotate(-1deg);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1) rotate(0deg);
+    transform: translate(0, 0) scale(1) rotate(0deg) skewX(0deg);
+    filter: brightness(1) contrast(1);
+    box-shadow:
+      0 10px 32px rgba(0, 0, 0, 0.6),
+      0 0 24px rgba(157, 255, 0, 0.12),
+      inset 0 0 0 0 rgba(157, 255, 0, 0);
   }
 }
 
 @keyframes anarchyStampOut {
-  from {
+  0% {
     opacity: 1;
-    transform: translateX(0) scale(1) rotate(0deg);
+    transform: translate(0, 0) scale(1) rotate(0deg);
+    filter: brightness(1);
   }
-  to {
+  35% {
+    transform: translate(12%, -4%) scale(1.04) rotate(6deg);
+    filter: brightness(1.15);
+  }
+  100% {
     opacity: 0;
-    transform: translateX(90%) scale(0.85) rotate(8deg);
+    transform: translate(110%, 8%) scale(0.76) rotate(14deg) skewX(3deg);
+    filter: brightness(0.65);
+  }
+}
+
+@keyframes anarchyRiotGlow {
+  0%, 100% {
+    box-shadow:
+      0 10px 32px rgba(0, 0, 0, 0.6),
+      0 0 22px rgba(157, 255, 0, 0.14);
+  }
+  50% {
+    box-shadow:
+      0 14px 38px rgba(0, 0, 0, 0.65),
+      0 0 38px rgba(157, 255, 0, 0.3);
+  }
+}
+
+@keyframes anarchyRiotGlowError {
+  0%, 100% {
+    box-shadow:
+      0 10px 32px rgba(0, 0, 0, 0.6),
+      0 0 22px rgba(255, 90, 70, 0.14);
+  }
+  50% {
+    box-shadow:
+      0 14px 38px rgba(0, 0, 0, 0.65),
+      0 0 38px rgba(255, 90, 70, 0.28);
+  }
+}
+
+@keyframes anarchyImpactFlash {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.4);
+  }
+  18% {
+    opacity: 0.35;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes anarchyGlitchFlicker {
+  0%, 90%, 100% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  91% {
+    opacity: 0.5;
+    transform: translateX(4px);
+  }
+  92% {
+    opacity: 0.12;
+    transform: translateX(-5px);
+  }
+  93% {
+    opacity: 0.42;
+    transform: translateX(2px);
+  }
+  94% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+}
+
+@keyframes anarchyContentReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) translateX(6px);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) translateX(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes anarchyTitleGlitch {
+  0%, 97%, 100% {
+    text-shadow:
+      0 0 14px rgba(157, 255, 0, 0.45),
+      1px 0 0 rgba(157, 255, 0, 0.2);
+    transform: translateX(0);
+  }
+  98% {
+    text-shadow:
+      0 0 14px rgba(157, 255, 0, 0.45),
+      4px 0 0 rgba(157, 255, 0, 0.55),
+      -3px 0 0 rgba(255, 255, 255, 0.35),
+      0 0 0 rgba(255, 0, 80, 0.25);
+    transform: translateX(-2px);
+  }
+  99% {
+    text-shadow:
+      0 0 14px rgba(157, 255, 0, 0.45),
+      -2px 0 0 rgba(157, 255, 0, 0.4),
+      3px 0 0 rgba(255, 255, 255, 0.3);
+    transform: translateX(3px);
+  }
+}
+
+@keyframes anarchyTitleGlitchError {
+  0%, 97%, 100% {
+    text-shadow:
+      0 0 14px rgba(255, 90, 70, 0.45),
+      1px 0 0 rgba(255, 90, 70, 0.2);
+    transform: translateX(0);
+  }
+  98% {
+    text-shadow:
+      0 0 14px rgba(255, 90, 70, 0.45),
+      4px 0 0 rgba(255, 90, 70, 0.55),
+      -3px 0 0 rgba(255, 255, 255, 0.35);
+    transform: translateX(-2px);
+  }
+  99% {
+    text-shadow:
+      0 0 14px rgba(255, 90, 70, 0.45),
+      -2px 0 0 rgba(255, 60, 50, 0.4),
+      3px 0 0 rgba(255, 255, 255, 0.3);
+    transform: translateX(3px);
   }
 }
 
 @keyframes anarchyLimeSweep {
   0% {
-    transform: translateX(-130%);
+    transform: translateX(-140%) skewX(-8deg);
   }
   100% {
-    transform: translateX(130%);
+    transform: translateX(140%) skewX(-8deg);
   }
 }
 
-@keyframes anarchyEmblemPulse {
-  0%, 100% {
-    opacity: 0.45;
-    transform: translateX(-50%) scale(0.88) rotate(-6deg);
+@keyframes anarchyImpactRing {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.15);
   }
-  50% {
-    opacity: 0.82;
-    transform: translateX(-50%) scale(1.08) rotate(6deg);
+  100% {
+    opacity: 0;
+    transform: scale(9);
   }
 }
 
-@keyframes anarchyEmblemShakeRight {
+@keyframes anarchyImpactRingToast {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(5);
+  }
+}
+
+@keyframes anarchyEmblemPopIdle {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(-24deg);
+  }
+  14% {
+    opacity: 1;
+    transform: scale(1.16) rotate(8deg);
+  }
+  22% {
+    opacity: 0.72;
+    transform: scale(1) rotate(0deg);
+  }
+  56% {
+    opacity: 0.92;
+    transform: scale(1.1) rotate(7deg);
+  }
+  100% {
+    opacity: 0.58;
+    transform: scale(0.9) rotate(-7deg);
+  }
+}
+
+@keyframes anarchyEmblemPopIdleCenterX {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0) rotate(-24deg);
+  }
+  14% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.16) rotate(8deg);
+  }
+  22% {
+    opacity: 0.72;
+    transform: translateX(-50%) scale(1) rotate(0deg);
+  }
+  56% {
+    opacity: 0.92;
+    transform: translateX(-50%) scale(1.1) rotate(7deg);
+  }
+  100% {
+    opacity: 0.58;
+    transform: translateX(-50%) scale(0.9) rotate(-7deg);
+  }
+}
+
+@keyframes anarchyEmblemPopIdleCenterY {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0) rotate(-24deg);
+  }
+  14% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.16) rotate(8deg);
+  }
+  22% {
+    opacity: 0.72;
+    transform: translateY(-50%) scale(1) rotate(0deg);
+  }
+  56% {
+    opacity: 0.92;
+    transform: translateY(-50%) scale(1.1) rotate(7deg);
+  }
+  100% {
+    opacity: 0.58;
+    transform: translateY(-50%) scale(0.9) rotate(-7deg);
+  }
+}
+
+@keyframes anarchyTilefieldDrift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 16px 16px;
+  }
+}
+
+@keyframes anarchyEmblemToastEntry {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(-28deg);
+  }
+  55% {
+    opacity: 0.85;
+    transform: scale(1.2) rotate(10deg);
+  }
+  100% {
+    opacity: 0.42;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes anarchyEmblemToastEntryCenterX {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0) rotate(-28deg);
+  }
+  55% {
+    opacity: 0.85;
+    transform: translateX(-50%) scale(1.2) rotate(10deg);
+  }
+  100% {
+    opacity: 0.42;
+    transform: translateX(-50%) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes anarchyEmblemToastEntryCenterY {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0) rotate(-28deg);
+  }
+  55% {
+    opacity: 0.85;
+    transform: translateY(-50%) scale(1.2) rotate(10deg);
+  }
+  100% {
+    opacity: 0.42;
+    transform: translateY(-50%) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes anarchyEmblemOrbit {
   0%, 100% {
-    opacity: 0.48;
-    transform: scale(0.9) rotate(-8deg);
+    opacity: 0.42;
+    transform: scale(1) rotate(0deg);
   }
   25% {
-    transform: scale(1.06) rotate(10deg);
+    opacity: 0.52;
+    transform: scale(1.06) rotate(4deg);
   }
   50% {
-    opacity: 0.78;
-    transform: scale(1.02) rotate(-4deg);
+    opacity: 0.38;
+    transform: scale(0.94) rotate(-3deg);
   }
   75% {
-    transform: scale(1.08) rotate(8deg);
+    opacity: 0.48;
+    transform: scale(1.04) rotate(3deg);
   }
 }
 
-@keyframes anarchyEmblemShakeLeft {
+@keyframes anarchyEmblemOrbitCenterX {
   0%, 100% {
-    opacity: 0.48;
-    transform: scale(0.9) rotate(8deg);
+    opacity: 0.42;
+    transform: translateX(-50%) scale(1) rotate(0deg);
   }
   25% {
-    transform: scale(1.06) rotate(-10deg);
+    opacity: 0.52;
+    transform: translateX(-50%) scale(1.06) rotate(4deg);
   }
   50% {
-    opacity: 0.78;
-    transform: scale(1.02) rotate(4deg);
+    opacity: 0.38;
+    transform: translateX(-50%) scale(0.94) rotate(-3deg);
   }
   75% {
-    transform: scale(1.08) rotate(-8deg);
+    opacity: 0.48;
+    transform: translateX(-50%) scale(1.04) rotate(3deg);
+  }
+}
+
+@keyframes anarchyEmblemOrbitCenterY {
+  0%, 100% {
+    opacity: 0.42;
+    transform: translateY(-50%) scale(1) rotate(0deg);
+  }
+  25% {
+    opacity: 0.52;
+    transform: translateY(-50%) scale(1.06) rotate(4deg);
+  }
+  50% {
+    opacity: 0.38;
+    transform: translateY(-50%) scale(0.94) rotate(-3deg);
+  }
+  75% {
+    opacity: 0.48;
+    transform: translateY(-50%) scale(1.04) rotate(3deg);
   }
 }
 
 @keyframes anarchyIconStamp {
   0% {
     opacity: 0;
-    transform: scale(2.4) rotate(-18deg);
+    transform: scale(3) rotate(-22deg);
+    filter: brightness(2.2);
   }
-  60% {
+  55% {
     opacity: 1;
-    transform: scale(0.92) rotate(4deg);
+    transform: scale(0.88) rotate(7deg);
+    filter: brightness(1.35);
   }
-  80% {
-    transform: scale(1.06) rotate(-2deg);
+  72% {
+    transform: scale(1.1) rotate(-5deg);
   }
   100% {
     opacity: 1;
     transform: scale(1) rotate(0deg);
+    filter: brightness(1);
+  }
+}
+
+@keyframes anarchyIconRiot {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  20% {
+    transform: scale(1.14) rotate(14deg);
+  }
+  40% {
+    transform: scale(0.92) rotate(-12deg);
+  }
+  60% {
+    transform: scale(1.08) rotate(10deg);
+  }
+  80% {
+    transform: scale(0.96) rotate(-6deg);
+  }
+}
+
+@keyframes anarchyIconSlotPop {
+  0% {
+    transform: scale(0.25);
+    box-shadow: 0 0 0 rgba(157, 255, 0, 0);
+  }
+  60% {
+    transform: scale(1.08);
+    box-shadow: 0 0 22px rgba(157, 255, 0, 0.35);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 14px rgba(157, 255, 0, 0.18);
+  }
+}
+
+@keyframes anarchyIconSlotPulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(157, 255, 0, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(157, 255, 0, 0.5);
+  }
+}
+
+@keyframes anarchyProgressPulse {
+  0%, 100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.25);
+  }
+}
+
+@keyframes anarchyProgressPulseError {
+  0%, 100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.2);
   }
 }
 
@@ -2424,38 +3089,70 @@ body{
   .banner.matrix::before,
   .banner.kawaii::before,
   .banner.anarchy::before,
+  .banner.anarchy::after,
   .toast.toastTheme-flames::before,
   .toast.toastTheme-electric::before,
   .toast.toastTheme-matrix::before,
   .toast.toastTheme-kawaii::before,
   .toast.toastTheme-anarchy::before,
+  .toast.toastTheme-anarchy::after,
   .kawaiiHeartRing__heart,
+  .anarchyEmblemRing__impact,
   .anarchyEmblemRing__emblem,
-  .anarchyToastIcon {
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__impact,
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem,
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__tilefield,
+  .anarchyToastIcon,
+  .toast.toastTheme-anarchy .toastHeader,
+  .toast.toastTheme-anarchy .toastBody,
+  .toast.toastTheme-anarchy .toastDetail,
+  .toast.toastTheme-anarchy .actionToastFooter,
+  .toast.toastTheme-anarchy .toastProgressTrack,
+  .toast.toastTheme-anarchy .toastProgressFill,
+  .toast.toastTheme-anarchy .toastTitle,
+  .toast.toastTheme-anarchy .toastIcon {
     animation: none !important;
     transform: none !important;
     opacity: 0.55 !important;
+    filter: none !important;
   }
 
-  .anarchyEmblemRing__emblem:nth-child(1),
-  .anarchyEmblemRing__emblem:nth-child(4){
+  .anarchyEmblemRing__emblem:nth-child(3),
+  .anarchyEmblemRing__emblem:nth-child(7),
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(3),
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(7) {
     transform: translateX(-50%) !important;
   }
 
+  .anarchyEmblemRing__emblem:nth-child(5),
+  .anarchyEmblemRing__emblem:nth-child(9),
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(5),
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast .anarchyEmblemRing__emblem:nth-child(9) {
+    transform: translateY(-50%) !important;
+  }
+
   .kawaiiHeartRing__heart:nth-child(2),
-  .kawaiiHeartRing__heart:nth-child(6){
+  .kawaiiHeartRing__heart:nth-child(6) {
     transform: translateX(-50%) !important;
   }
 
   .kawaiiHeartRing__heart:nth-child(4),
-  .kawaiiHeartRing__heart:nth-child(8){
+  .kawaiiHeartRing__heart:nth-child(8) {
     transform: translateY(-50%) !important;
   }
+
   .toast,
   .toast.closing,
+  .toast.toastTheme-anarchy,
+  .toast.toastTheme-anarchy.closing,
   .statusToast.status-loading .toastIcon.statusDot {
     animation: none !important;
     transform: none !important;
+    filter: none !important;
+  }
+
+  .toast.toastTheme-anarchy .anarchyEmblemRing--toast::after {
+    opacity: 1 !important;
   }
 }
 
@@ -7792,10 +8489,47 @@ body {
 
 .vpnLed,
 .daemonHealthLed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 16px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: #faf7f0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.daemonHealthLedIndicator,
+.vpnLedIndicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.daemonHealthLedHealthy .daemonHealthLedIndicator {
+  background: #4caf50;
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+}
+
+.daemonHealthLedWarning .daemonHealthLedIndicator {
+  background: #ff9800;
+  box-shadow: 0 0 8px rgba(255, 152, 0, 0.5);
+}
+
+.daemonHealthLedError .daemonHealthLedIndicator {
+  background: #f44336;
+  box-shadow: 0 0 8px rgba(244, 67, 54, 0.5);
+}
+
+.daemonHealthLedOffline .daemonHealthLedIndicator {
+  background: #9e9e9e;
+}
+
+.daemonHealthLedLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .btn {

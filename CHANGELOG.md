@@ -8,6 +8,25 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.3.2] — 2026-07-20
+
+### Security
+
+- **npm dependency patches (`ui/desktop`)** — Clear open Dependabot findings by bumping/overriding `vite` (≥7.3.5), `@xmldom/xmldom` (0.8.13), `form-data`, `tmp`, `tar`, `postcss`, `ip-address`, `js-yaml` (4.3.0), `@babel/core` (7.29.7), `esbuild` (≥0.28.1), and related transitive packages; `npm audit` reports 0 vulnerabilities.
+- **npm dependency patches (`librqbit-patched/webui`)** — Bump `vite` (≥8.0.16), `postcss`, `@vitejs/plugin-react` (5.x for Vite 8), and overrides for `@babel/core`, `js-yaml`, `esbuild`, and `launch-editor`.
+- **Rust dependency patches** — Update `openssl` to 0.10.81, `rustls-webpki` to 0.103.13, `serde_with` to 3.21.0, and `rand` to 0.8.7 / 0.9.5 in both `crates/Cargo.lock` and `crates/librqbit-patched/Cargo.lock`.
+
+### Changed
+
+- **Animus boot / splash** — Boot screen waits for a healthy daemon before completing, with a gated finish animation; splash and graffiti theme polish; anarchy toast icon wiring across notification surfaces.
+- **Startup sequencing** — Main process waits for daemon health before revealing the window so the boot gate and splash stay in sync.
+
+### Added
+
+- **Asset helper** — `ui/desktop/scripts/processAnimusAssets.py` to strip solid backgrounds from Animus overlay PNGs.
+
+---
+
 ## [2.3.1] — 2026-07-08
 
 ### Security
@@ -246,6 +265,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+[2.3.2]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.17...v2.3.0
 [2.2.17]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.16...v2.2.17

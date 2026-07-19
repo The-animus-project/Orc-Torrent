@@ -15,6 +15,7 @@ interface AnimusDashboardPageProps {
   globalUpSpeed: number;
   netPosture: NetPosture | null;
   dashboardTorrents: DashboardTorrent[];
+  panelWatermarkUrl?: string;
   onOpenDownloads: () => void;
   onAddTorrent: () => void;
   onSelectTorrent: (torrentId: string) => void;
@@ -53,6 +54,7 @@ export const AnimusDashboardPage = memo<AnimusDashboardPageProps>(
     globalUpSpeed,
     netPosture,
     dashboardTorrents,
+    panelWatermarkUrl,
     onOpenDownloads,
     onAddTorrent,
     onSelectTorrent,
@@ -100,12 +102,22 @@ export const AnimusDashboardPage = memo<AnimusDashboardPageProps>(
           </article>
           <article className="animusMetricCard">
             <div className="animusMetricLabel">Protection</div>
-            <div className={`animusMetricValue ${netPosture?.state ?? "unconfigured"}`}>{protectionLabel}</div>
+            <div className={`animusMetricValue animusMetricValueStatus ${netPosture?.state ?? "unconfigured"}`}>
+              {protectionLabel}
+            </div>
             <div className="animusMetricSubtle">{protectionDetail}</div>
           </article>
         </section>
 
         <section className="animusDashboardPanel">
+          {panelWatermarkUrl ? (
+            <img
+              src={panelWatermarkUrl}
+              alt=""
+              aria-hidden="true"
+              className="animusDashboardPanelWatermark"
+            />
+          ) : null}
           <div className="animusPanelHeader">
             <div>
               <div className="animusPanelEyebrow">Active Torrents</div>

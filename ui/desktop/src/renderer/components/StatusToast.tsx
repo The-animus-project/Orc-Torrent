@@ -1,7 +1,9 @@
 import React, { memo, useEffect, useRef, useState } from "react";
 import { AnarchyEmblemRing } from "./AnarchyEmblemRing";
+import { AnarchyToastIcon } from "./AnarchyToastIcon";
 import { KawaiiHeartRing } from "./KawaiiHeartRing";
 import {
+  getNotificationThemeExitAnimationMs,
   usesAnarchyEmblemRing,
   usesKawaiiHeartRing,
   type NotificationVisualTheme,
@@ -14,7 +16,6 @@ interface StatusToastProps {
   theme?: NotificationVisualTheme;
 }
 
-const EXIT_ANIMATION_MS = 250;
 const DEFAULT_DURATION_MS = 4200;
 const LOADING_DURATION_MS = 7000;
 const TICK_MS = 100;
@@ -42,7 +43,7 @@ export const StatusToast = memo<StatusToastProps>(({ toast, onClose, theme = "el
     setIsClosing(true);
     animationTimerRef.current = setTimeout(() => {
       onClose();
-    }, EXIT_ANIMATION_MS);
+    }, getNotificationThemeExitAnimationMs(theme));
   };
 
   const scheduleFromRemaining = (nextRemainingMs: number) => {
@@ -130,11 +131,13 @@ export const StatusToast = memo<StatusToastProps>(({ toast, onClose, theme = "el
       onBlur={() => setIsPaused(false)}
     >
       {usesKawaiiHeartRing(theme) ? <KawaiiHeartRing /> : null}
-      {usesAnarchyEmblemRing(theme) ? <AnarchyEmblemRing /> : null}
+      {usesAnarchyEmblemRing(theme) ? <AnarchyEmblemRing variant="toast" /> : null}
       <div className="toastHeader">
         <div className={`toastIcon ${toast.phase === "loading" ? "statusDot" : ""}`} aria-hidden="true">
           {theme === "anarchy" ? (
-            <img className="anarchyToastIcon" src="./images/animus/anarchy-emblem.png" alt="" draggable={false} />
+            <AnarchyToastIcon
+              phase={toast.phase === "loading" ? "loading" : toast.phase === "error" ? "error" : "success"}
+            />
           ) : (
             icon
           )}
