@@ -8,18 +8,18 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. We 
 
 **ORC Torrent is compatible with Windows, macOS, and Linux.** You can build and run it on any of these platforms.
 
-**Latest release: [v2.3.2](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.2)** — Dependabot security patches across npm and Rust, plus Animus boot polish; portable builds for all three platforms with in-app GitHub auto-update.
+**Latest release: [v2.3.3](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.3)** — Patch bump after the v2.3.2 security release; portable builds for all three platforms with in-app GitHub auto-update.
 
 <p align="center">
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.3.2.exe">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.3.3.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-0078D6?style=for-the-badge&logo=windows&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.2-mac-arm64.dmg">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.3-mac-arm64.dmg">
     <img alt="Download for macOS" src="https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.2-linux-x86_64.AppImage">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.3-linux-x86_64.AppImage">
     <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   </a>
 </p>
@@ -52,7 +52,7 @@ Pre-built installers and portable archives are published on **[GitHub Releases](
 
 ## Installation
 
-Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.3.2`).
+Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.3.3`).
 
 ### Windows
 
@@ -327,6 +327,7 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
+| **2.3.3** | Patch bump after v2.3.2 (next valid semver after the security release). |
 | **2.3.2** | Dependabot security patches (npm + Rust openssl/webpki/serde_with/rand), Animus boot/splash polish, daemon-gated startup. |
 | **2.3.1** | Portable builds for Windows (zip), macOS (zip), and Linux (AppImage) on every release; CodeQL security fixes; `shell-quote` dependency bump. |
 | **2.3.0** | Watch folders, privacy dashboard, VPN Safety Mode, GitHub auto-update, network introspection, seeding/bandwidth limits, kill-switch fixes, and honest trust copy. |

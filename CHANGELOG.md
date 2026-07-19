@@ -8,6 +8,14 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.3.3] — 2026-07-20
+
+### Changed
+
+- **Version** — Bump to 2.3.3 (next patch after 2.3.2). Four-part versions such as `2.3.2.1` are not valid for npm, Cargo, or GitHub auto-update, so this release uses the next semver patch.
+
+---
+
 ## [2.3.2] — 2026-07-20
 
 ### Security
@@ -265,6 +273,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+[2.3.3]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.2.17...v2.3.0
