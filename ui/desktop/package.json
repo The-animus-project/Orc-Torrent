@@ -39,7 +39,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "concurrently": "^8.2.2",
     "electron": "^39.8.4",
-    "electron-builder": "^26.6.0",
+    "electron-builder": "^26.15.3",
     "prettier": "^3.6.2",
     "tsx": "^4.7.0",
     "typescript": "^5.4.2",
