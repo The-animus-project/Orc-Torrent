@@ -13,7 +13,7 @@
 edition = "2021"
 name = "librqbit"
 version = "8.1.1"
-authors = ["Igor Katson <igor.katson@gmail.com>"]
+authors = ["Igor Katson <contact@orclabs.io>"]
 build = "build.rs"
 autolib = false
 autobins = false

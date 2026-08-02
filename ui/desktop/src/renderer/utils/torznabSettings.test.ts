@@ -20,7 +20,7 @@ describe("torznabSettings", () => {
 
   it("validates Torznab endpoints", () => {
     expect(validateTorznabEndpoint("http://127.0.0.1:9117/api/v2.0/indexers/all/results/torznab/")).toBeNull();
-    expect(validateTorznabEndpoint("https://user:pass@example.com/torznab")).not.toBeNull();
+    expect(validateTorznabEndpoint("https://user:contact@orclabs.io/torznab")).not.toBeNull();
     expect(validateTorznabEndpoint("ftp://example.com/torznab")).not.toBeNull();
   });
 

@@ -13,7 +13,7 @@ Before reporting a vulnerability, confirm that it still affects the latest relea
 
 ## Reporting a vulnerability
 
-Please report suspected security vulnerabilities privately by emailing **security@orclabs.io**. Do not open a public GitHub issue for an undisclosed vulnerability.
+Please report suspected security vulnerabilities privately by emailing **contact@orclabs.io**. Do not open a public GitHub issue for an undisclosed vulnerability.
 
 Include as much of the following information as possible:
 

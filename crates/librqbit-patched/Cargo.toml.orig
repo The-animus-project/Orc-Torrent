@@ -1,7 +1,7 @@
 [package]
 name = "librqbit"
 version = "8.1.1"
-authors = ["Igor Katson <igor.katson@gmail.com>"]
+authors = ["Igor Katson <contact@orclabs.io>"]
 edition = "2021"
 description = "The main library used by rqbit torrent client. The binary is just a small wrapper on top of it."
 license = "Apache-2.0"
