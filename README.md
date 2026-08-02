@@ -48,6 +48,38 @@ Pre-built installers and portable archives are published on **[GitHub Releases](
 
 **Portable** builds run without an installer — extract or make executable, then launch the app. **Installers** register shortcuts, menu entries, and (on Windows/macOS) magnet / `.torrent` file associations.
 
+### Verify a release build with PGP
+
+Signed release builds are published with armored detached PGP signatures. Download the build and its matching `.asc` file from the same [GitHub release](https://github.com/The-animus-project/Orc-Torrent/releases), then download [`ORC-Torrent-Release-Key.asc`](ORC-Torrent-Release-Key.asc) from this repository.
+
+Import the release key and confirm its fingerprint:
+
+```sh
+gpg --import ORC-Torrent-Release-Key.asc
+gpg --fingerprint 6D0D5CE9E0DA5A92
+```
+
+The fingerprint must be:
+
+```text
+094F 3796 D3B6 99DB 5E69 A278 6D0D 5CE9 E0DA 5A92
+```
+
+Verify the downloaded build before opening or extracting it. For example:
+
+```sh
+gpg --verify ORC-TORRENT-2.3.3-linux-x86_64.AppImage.asc ORC-TORRENT-2.3.3-linux-x86_64.AppImage
+```
+
+You can also verify the signed checksum manifest and then check all downloaded builds in it:
+
+```sh
+gpg --verify SHA256SUMS.asc SHA256SUMS
+shasum -a 256 -c SHA256SUMS
+```
+
+A valid result reports a good signature made by the key above. A good signature proves the file has not changed since it was signed; independently confirm the fingerprint from a trusted source before trusting the key. PGP signing is separate from Windows Authenticode and Apple Developer ID signing, so the operating system may still display an unverified-developer warning.
+
 ---
 
 ## Installation
@@ -95,6 +127,7 @@ To compile from source instead of using a release build, see [Building from sour
 ## Table of contents
 
 - [Downloads](#downloads)
+- [Verify a release build with PGP](#verify-a-release-build-with-pgp)
 - [Installation](#installation)
 - [Screenshots](#screenshots)
 - [Features](#features)
@@ -107,7 +140,7 @@ To compile from source instead of using a release build, see [Building from sour
 - [Usage](#usage)
 - [Development](#development)
 - [Changelog](#changelog)
-- [Authors and contributors](#authors-and-contributors)
+- [Author](#author)
 - [License](#license)
 
 ---
@@ -340,14 +373,9 @@ Full history: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ---
 
-## Authors and contributors
+## Author
 
-ORC Torrent is developed and maintained by **ORC Torrent** and **the ANIMUS PROJECT**.
-
-**Contributors:** See **[CONTRIBUTORS.md](CONTRIBUTORS.md)** for the full list.
-
-- **[Animus-exe](https://github.com/Animus-exe)** (Vurzumm) — [GitHub](https://github.com/Animus-exe) · [X @Itsvurzum](https://x.com/Itsvurzum)
-- BuGmaN
+- **[Vurzumm](https://github.com/Animus-exe)** — [GitHub](https://github.com/Animus-exe) · [X @Itsvurzum](https://x.com/Itsvurzum)
 
 ```
   /\_/\  (
