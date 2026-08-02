@@ -46,19 +46,16 @@ static DET_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"class="detLink"[^>]*>([^<]+)</a>"#).expect("regex"));
 static MAGNET_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"href="(magnet:\?[^"]+)"#).expect("regex"));
-static DET_DESC_SIZE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)Size\s+([\d.]+\s*(?:&nbsp;)?[KMGT]?i?B)").expect("regex")
-});
+static DET_DESC_SIZE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)Size\s+([\d.]+\s*(?:&nbsp;)?[KMGT]?i?B)").expect("regex"));
 static ALIGN_RIGHT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"align="right">(\d+)</td>"#).expect("regex"));
 static BTIH_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)btih:([a-f0-9]{40})").expect("regex"));
-static HTML_CATEGORY_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"browse/(\d+)"#).expect("regex")
-});
-static HTML_DESCRIPTION_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"href="(https?://[^"]+/torrent/\d+[^"]*)""#).expect("regex")
-});
+static HTML_CATEGORY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"browse/(\d+)"#).expect("regex"));
+static HTML_DESCRIPTION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"href="(https?://[^"]+/torrent/\d+[^"]*)""#).expect("regex"));
 
 pub(crate) fn urlencoding_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
@@ -82,9 +79,7 @@ pub(crate) fn apibay_browse_urls(primary_category: u32) -> Vec<String> {
         format!("{APIBAY_BASE}/precompiled/data_top100_{primary_category}.json"),
         format!("{APIBAY_BASE}/precompiled/data_top100_48h_{primary_category}.json"),
         format!("{APIBAY_BASE}/precompiled/data_top100_recent.json"),
-        format!(
-            "{APIBAY_BASE}/q.php?q=category:{primary_category}"
-        ),
+        format!("{APIBAY_BASE}/q.php?q=category:{primary_category}"),
     ]
 }
 
@@ -151,9 +146,7 @@ pub(crate) fn is_valid_apibay_items(items: &[ApibayItem]) -> bool {
             .map(str::trim)
             .unwrap_or_default()
             .to_ascii_lowercase();
-        !info_hash.is_empty()
-            && info_hash != ZERO_HASH
-            && item.id.as_deref() != Some("0")
+        !info_hash.is_empty() && info_hash != ZERO_HASH && item.id.as_deref() != Some("0")
     })
 }
 
@@ -346,7 +339,10 @@ mod tests {
 
     #[test]
     fn html_paths_use_expected_routes() {
-        assert_eq!(tpb_html_search_path("foo bar", 200), "/search/foo+bar/1/99/200");
+        assert_eq!(
+            tpb_html_search_path("foo bar", 200),
+            "/search/foo+bar/1/99/200"
+        );
         assert_eq!(tpb_html_browse_path(205), "/top/205");
     }
 

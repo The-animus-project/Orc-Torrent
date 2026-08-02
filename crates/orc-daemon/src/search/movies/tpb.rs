@@ -42,6 +42,7 @@ fn torrent_to_result(torrent: &TpbTorrent) -> SearchResult {
         description_url: torrent.description_url.clone(),
         published_at: torrent.added.clone(),
         category: Some("movies".to_string()),
+        sources: Vec::new(),
     }
 }
 

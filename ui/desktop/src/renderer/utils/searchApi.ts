@@ -1,12 +1,14 @@
 import type {
+  SearchCredentialResponse,
   SearchFeatureSettings,
   SearchProviderInfo,
   SearchQueryRequest,
   SearchResponse,
   SearchResult,
   SearchSettingsPatchRequest,
+  TorznabCapsTestResult,
 } from "../types";
-import { getJson, patchJson, postJson } from "./api";
+import { deleteJson, getJson, patchJson, postJson, putJson } from "./api";
 import { addMagnetToDaemon, importTorrentUrlToDaemon, type ImportedTorrentResult } from "./torrentImport";
 
 export async function getSearchSettings(): Promise<SearchFeatureSettings> {
@@ -23,6 +25,27 @@ export async function getSearchProviders(): Promise<SearchProviderInfo[]> {
 
 export async function searchTorrents(query: SearchQueryRequest): Promise<SearchResponse> {
   return postJson<SearchResponse>("/search", query, 30000);
+}
+
+export async function putSearchProviderCredentials(
+  name: string,
+  apiKey: string
+): Promise<SearchCredentialResponse> {
+  return putJson<SearchCredentialResponse>(`/search/providers/${encodeURIComponent(name)}/credentials`, {
+    api_key: apiKey,
+  });
+}
+
+export async function deleteSearchProviderCredentials(name: string): Promise<SearchCredentialResponse> {
+  return deleteJson<SearchCredentialResponse>(`/search/providers/${encodeURIComponent(name)}/credentials`);
+}
+
+export async function testSearchProvider(name: string): Promise<TorznabCapsTestResult> {
+  return postJson<TorznabCapsTestResult>(`/search/providers/${encodeURIComponent(name)}/test`, undefined, 30000);
+}
+
+export async function deleteSearchProvider(name: string): Promise<SearchProviderInfo[]> {
+  return deleteJson<SearchProviderInfo[]>(`/search/providers/${encodeURIComponent(name)}`);
 }
 
 export async function addSearchResult(result: SearchResult): Promise<ImportedTorrentResult> {

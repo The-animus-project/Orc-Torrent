@@ -183,6 +183,7 @@ impl SearchProvider for YtsSearchProvider {
                     description_url: None,
                     published_at: published_at.clone(),
                     category: quality,
+                    sources: Vec::new(),
                 });
             }
         }

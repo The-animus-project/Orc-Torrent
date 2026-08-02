@@ -261,6 +261,30 @@ export async function postJson<T>(path: string, body?: unknown, timeoutMs?: numb
  * @returns Parsed JSON response (may be empty object if no response body)
  * @throws ApiError if request fails or times out
  */
+/**
+ * Perform a PUT request to the daemon API with JSON body
+ */
+export async function putJson<T>(path: string, body: unknown): Promise<T> {
+  try {
+    const r = await fetchWithRetry(`${DAEMON_BASE}${path}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const errorText = await r.text().catch(() => r.statusText);
+      throw createApiError(`Request failed: ${errorText || r.statusText}`, r.status, r.statusText);
+    }
+    const txt = await r.text();
+    return txt ? JSON.parse(txt) : ({} as T);
+  } catch (error) {
+    if (error instanceof Error && "status" in error) {
+      throw error;
+    }
+    throw createApiError(error instanceof Error ? error.message : "Unknown error occurred", undefined, undefined, true);
+  }
+}
+
 export async function patchJson<T>(path: string, body: unknown): Promise<T> {
   try {
     const r = await fetchWithRetry(`${DAEMON_BASE}${path}`, {

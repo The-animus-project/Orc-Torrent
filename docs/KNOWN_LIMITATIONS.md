@@ -14,6 +14,7 @@
 - **Watch folders** — Debounced import; very large or slow copies may need extra delay before import.
 - **Windows paths** — Watch folder canonicalization should be validated on Windows installs.
 - **Per-torrent seeding** — API supported; UI override in torrent inspector is minimal.
+- **Torznab search** — Native Torznab/Jackett/Prowlarr endpoints are supported; unrestricted Python/qBittorrent search plugins are not. DNS-rebinding mitigation relies on URL validation plus redirect host pinning (not a full pre-connect DNS pin). Some indexers that omit `t=caps` will fail the connection test even if search works.
 
 ## Packaging
 

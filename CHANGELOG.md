@@ -8,6 +8,38 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.3.4] — 2026-08-02
+
+### Added
+
+- **Torznab search providers** — Add Jackett, Prowlarr, and compatible Torznab endpoints with capability discovery, connection testing, category selection, and explicit consent for private or local endpoints.
+- **Protected search credentials** — Store provider API keys outside `config.json` using the operating-system keyring, with an encrypted AES-GCM file fallback protected by restrictive file permissions.
+- **Search result deduplication** — Merge duplicate results across providers while retaining the strongest metadata and source attribution.
+- **Intel macOS builds** — Publish x86_64 DMG, ZIP, and PKG artifacts alongside Apple Silicon builds.
+- **Cross-client benchmarks** — Add reproducible download-speed methodology, randomized run data, and documented comparisons with other torrent clients.
+
+### Changed
+
+- **Search experience** — Expand the toolbar, provider settings, result presentation, Animus styling, and API types for multi-provider movie and TV searches.
+- **Search documentation** — Document provider setup, credential handling, endpoint safety rules, plugin architecture, configuration, limitations, and test coverage.
+- **Release verification** — Publish detached PGP signatures for every distributable plus a signed `SHA256SUMS` manifest.
+- **Release automation** — Add a dedicated GitHub Actions Intel macOS job using the supported `macos-15-intel` runner.
+
+### Fixed
+
+- **Provider parsing and deduplication** — Harden movie and TV provider parsing, normalize result identity, and prevent repeated entries from overlapping sources.
+- **macOS network reporting** — Improve platform route and DNS handling used by the network-status UI.
+
+### Tests
+
+- Add Torznab settings tests, daemon credential-store coverage, provider parsing tests, deduplication coverage, and endpoint validation scenarios.
+
+### Credit
+
+- **Vurzum**
+
+---
+
 ## [2.3.3] — 2026-07-20
 
 ### Changed
@@ -273,6 +305,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+[2.3.4]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.0...v2.3.1

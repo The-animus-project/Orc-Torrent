@@ -45,6 +45,13 @@ flowchart TB
 - `GET/PATCH /watch-folders`, `POST /watch-folders/test`, `GET /watch-folders/events`
 - `GET/PATCH /seeding`, `GET/PATCH /torrents/:id/seeding`
 
+### Search
+- `GET/PATCH /search/settings`, `GET /search/providers`, `POST /search`
+- `PUT/DELETE /search/providers/:name/credentials` (Torznab API keys; never returned by GET)
+- `POST /search/providers/:name/test` (Torznab `t=caps`)
+- `DELETE /search/providers/:name` (custom providers only; deletes stored secret)
+- Implementation: `crates/orc-daemon/src/search.rs` plus `search/{torznab,secrets,dedup,magnet,movies}`
+
 ## Config persistence
 
 Platform-specific path:

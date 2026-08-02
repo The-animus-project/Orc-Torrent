@@ -10,7 +10,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     middleware::Next,
     response::IntoResponse,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use subtle::ConstantTimeEq;
@@ -27,12 +27,11 @@ use librqbit::api::Api as RqbitApi;
 use orc_core::{
     apply_bandwidth_profile_limits, apply_net_posture_stored, apply_policy_stored,
     apply_stored_kill_switch, apply_vpn_safety_preset, build_add_torrent_options,
-    drain_seeding_stop_pending,
-    effective_seeding_policy, extract_info_hash_from_magnet, extract_info_hash_from_torrent_bytes,
-    find_torrent_by_info_hash, get_content, get_kill_switch, get_policy, get_row_snapshot,
-    get_status, get_torrent, health, integrate_added_torrent, list_torrents, mark_announce,
-    media_download_policy_enabled, net_bind_interface, net_posture, net_posture_stored_from_state,
-    new_state, only_files_for, overlay_status,
+    drain_seeding_stop_pending, effective_seeding_policy, extract_info_hash_from_magnet,
+    extract_info_hash_from_torrent_bytes, find_torrent_by_info_hash, get_content, get_kill_switch,
+    get_policy, get_row_snapshot, get_status, get_torrent, health, integrate_added_torrent,
+    list_torrents, mark_announce, media_download_policy_enabled, net_bind_interface, net_posture,
+    net_posture_stored_from_state, new_state, only_files_for, overlay_status,
     patch_bandwidth_settings, patch_kill_switch, patch_net_posture, patch_policy,
     patch_seeding_settings, patch_torrent_seeding_override, peers_for, policy_stored_from_state,
     prepare_add_input, privacy_status, rebind_rqbit_session, remove_torrent,
@@ -43,10 +42,15 @@ use orc_core::{
     PatchNetPostureRequest, PatchPolicyRequest, PatchTorrentProfileRequest, SeedingSettings,
     SharedState,
 };
+use search::secrets::validate_api_key;
 use search::{
-    available_providers, execute_search, search_settings_response,
-    SearchQuery, SearchSettingsPatchRequest,
+    available_providers_with_secrets, create_default_secret_store, credential_ref_for_provider,
+    execute_search_with_secrets, removed_provider_credential_refs,
+    search_settings_response_with_secrets, test_torznab_provider, SearchExecutionContext,
+    SearchHttpClient, SearchProviderFormat, SearchQuery, SearchSecretStore,
+    SearchSettingsPatchRequest,
 };
+use serde::Deserialize;
 use watch_folders::{PatchWatchFoldersRequest, TestWatchFolderRequest, WatchFolderManager};
 
 #[derive(Clone)]
@@ -59,6 +63,18 @@ struct AppCtx {
     bind_is_loopback: bool,
     watch_manager: Arc<WatchFolderManager>,
     download_dir: PathBuf,
+    secrets: Arc<dyn SearchSecretStore>,
+    /// Transient Torznab connection-test results (not persisted).
+    connection_status: Arc<
+        tokio::sync::RwLock<
+            std::collections::HashMap<String, search::torznab::ProviderConnectionSnapshot>,
+        >,
+    >,
+}
+
+#[derive(Debug, Deserialize)]
+struct PutSearchCredentialsRequest {
+    api_key: String,
 }
 
 /// Constant-time admin token check. Empty `expected` means no token configured (allow).
@@ -140,12 +156,13 @@ async fn sync_media_download_policy(api: &RqbitApi, torrent_id: &str, state: &Sh
     }
 
     if let Err(error) = api
-        .api_torrent_action_update_only_files(librqbit::api::TorrentIdOrHash::Id(rqbit_id), &only_files)
+        .api_torrent_action_update_only_files(
+            librqbit::api::TorrentIdOrHash::Id(rqbit_id),
+            &only_files,
+        )
         .await
     {
-        warn!(
-            "Failed to sync AnimUS media download policy for torrent {torrent_id}: {error:?}"
-        );
+        warn!("Failed to sync AnimUS media download policy for torrent {torrent_id}: {error:?}");
     }
 }
 
@@ -461,6 +478,13 @@ async fn main() -> anyhow::Result<()> {
     );
     const MAX_CONCURRENT_REQUESTS: usize = 100;
     let config_state = Arc::new(tokio::sync::RwLock::new(config.clone()));
+    let secrets = {
+        let config_dir = config::config_path()
+            .ok()
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from(&download_dir));
+        create_default_secret_store(&config_dir)
+    };
 
     let app_ctx = AppCtx {
         state,
@@ -470,6 +494,8 @@ async fn main() -> anyhow::Result<()> {
         bind_is_loopback,
         watch_manager,
         download_dir: PathBuf::from(download_dir),
+        secrets,
+        connection_status: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
     };
 
     let app = Router::new()
@@ -512,6 +538,12 @@ async fn main() -> anyhow::Result<()> {
             "/search/settings",
             get(h_search_settings).patch(h_patch_search_settings),
         )
+        .route(
+            "/search/providers/:name/credentials",
+            put(h_put_search_credentials).delete(h_delete_search_credentials),
+        )
+        .route("/search/providers/:name/test", post(h_test_search_provider))
+        .route("/search/providers/:name", delete(h_delete_search_provider))
         .route("/search", post(h_search))
         .route("/v1/policy", get(h_policy).patch(h_patch_policy))
         .route("/torrents", get(h_list_torrents).post(h_add_torrent))
@@ -744,8 +776,18 @@ async fn h_patch_policy(
 
 async fn h_search_settings(State(ctx): State<AppCtx>) -> impl IntoResponse {
     let config = ctx.config.read().await;
-    match search_settings_response(&config.search) {
-        Ok(settings) => (StatusCode::OK, Json(settings)).into_response(),
+    match search_settings_response_with_secrets(&config.search, ctx.secrets.as_ref()).await {
+        Ok(mut settings) => {
+            let status_map = ctx.connection_status.read().await;
+            for provider in &mut settings.providers {
+                if let Some(snapshot) = status_map.get(&provider.name) {
+                    provider.connection_status = Some(snapshot.status_label());
+                    provider.last_tested_at = Some(snapshot.tested_at.clone());
+                    provider.last_error = snapshot.last_error.clone();
+                }
+            }
+            (StatusCode::OK, Json(settings)).into_response()
+        }
         Err(e) => {
             let sanitized = sanitize_error(&e, "Failed to load search settings");
             (
@@ -770,12 +812,14 @@ async fn h_patch_search_settings(
             .into_response();
     }
 
-    let updated = {
+    let (updated, removed_refs) = {
         let mut config = ctx.config.write().await;
+        let before = config.search.clone();
         match req.apply(&config.search) {
-            Ok(updated) => {
-                config.search = updated.clone();
-                config.clone()
+            Ok(updated_search) => {
+                let removed = removed_provider_credential_refs(&before, &updated_search);
+                config.search = updated_search;
+                (config.clone(), removed)
             }
             Err(e) => {
                 let sanitized = sanitize_error(&e, "Invalid search settings request");
@@ -788,6 +832,12 @@ async fn h_patch_search_settings(
         }
     };
 
+    for reference in removed_refs {
+        if let Err(e) = ctx.secrets.delete_secret(&reference).await {
+            warn!("failed to delete search credential for removed provider: {e}");
+        }
+    }
+
     if let Err(e) = config::save_config(&updated).await {
         let sanitized = sanitize_error(&e, "Failed to persist search settings");
         return (
@@ -797,7 +847,7 @@ async fn h_patch_search_settings(
             .into_response();
     }
 
-    match search_settings_response(&updated.search) {
+    match search_settings_response_with_secrets(&updated.search, ctx.secrets.as_ref()).await {
         Ok(settings) => (StatusCode::OK, Json(settings)).into_response(),
         Err(e) => {
             let sanitized = sanitize_error(&e, "Failed to load search settings");
@@ -812,8 +862,18 @@ async fn h_patch_search_settings(
 
 async fn h_search_providers(State(ctx): State<AppCtx>) -> impl IntoResponse {
     let config = ctx.config.read().await;
-    match available_providers(&config.search) {
-        Ok(providers) => (StatusCode::OK, Json(providers)).into_response(),
+    match available_providers_with_secrets(&config.search, ctx.secrets.clone()).await {
+        Ok(mut providers) => {
+            let status_map = ctx.connection_status.read().await;
+            for provider in &mut providers {
+                if let Some(snapshot) = status_map.get(&provider.name) {
+                    provider.connection_status = Some(snapshot.status_label());
+                    provider.last_tested_at = Some(snapshot.tested_at.clone());
+                    provider.last_error = snapshot.last_error.clone();
+                }
+            }
+            (StatusCode::OK, Json(providers)).into_response()
+        }
         Err(e) => {
             let sanitized = sanitize_error(&e, "Failed to load search providers");
             (
@@ -831,7 +891,7 @@ async fn h_search(State(ctx): State<AppCtx>, Json(req): Json<SearchQuery>) -> im
         config.search.clone()
     };
 
-    match execute_search(&settings, req).await {
+    match execute_search_with_secrets(&settings, req, ctx.secrets.clone()).await {
         Ok(results) => (StatusCode::OK, Json(results)).into_response(),
         Err(e) => {
             let sanitized = sanitize_error(&e, "Search failed");
@@ -842,6 +902,277 @@ async fn h_search(State(ctx): State<AppCtx>, Json(req): Json<SearchQuery>) -> im
                 .into_response()
         }
     }
+}
+
+async fn h_put_search_credentials(
+    State(ctx): State<AppCtx>,
+    Path(name): Path<String>,
+    Json(req): Json<PutSearchCredentialsRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = validate_api_key(&req.api_key) {
+        let sanitized = sanitize_error(&e, "Invalid API key");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": sanitized })),
+        )
+            .into_response();
+    }
+
+    let reference = {
+        let config = ctx.config.read().await;
+        let Ok(setting) = config.search.provider_setting(&name) else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Unknown search provider" })),
+            )
+                .into_response();
+        };
+        if setting.format != SearchProviderFormat::Torznab {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Credentials are only supported for Torznab providers"
+                })),
+            )
+                .into_response();
+        }
+        setting
+            .credential_ref
+            .unwrap_or_else(|| credential_ref_for_provider(&name))
+    };
+
+    if let Err(e) = ctx.secrets.set_secret(&reference, req.api_key.trim()).await {
+        let sanitized = sanitize_error(&e, "Failed to store credentials");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": sanitized })),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "provider": name,
+            "has_api_key": true
+        })),
+    )
+        .into_response()
+}
+
+async fn h_delete_search_credentials(
+    State(ctx): State<AppCtx>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let reference = {
+        let config = ctx.config.read().await;
+        let Ok(setting) = config.search.provider_setting(&name) else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Unknown search provider" })),
+            )
+                .into_response();
+        };
+        if setting.format != SearchProviderFormat::Torznab {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Credentials are only supported for Torznab providers"
+                })),
+            )
+                .into_response();
+        }
+        setting
+            .credential_ref
+            .unwrap_or_else(|| credential_ref_for_provider(&name))
+    };
+
+    if let Err(e) = ctx.secrets.delete_secret(&reference).await {
+        let sanitized = sanitize_error(&e, "Failed to clear credentials");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": sanitized })),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "provider": name,
+            "has_api_key": false
+        })),
+    )
+        .into_response()
+}
+
+async fn h_test_search_provider(
+    State(ctx): State<AppCtx>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let settings = {
+        let config = ctx.config.read().await;
+        config.search.clone()
+    };
+
+    let ctx_exec = match SearchHttpClient::new() {
+        Ok(http) => SearchExecutionContext {
+            http,
+            allow_private_remote_urls: settings.allow_private_remote_urls,
+            secrets: ctx.secrets.clone(),
+        },
+        Err(e) => {
+            let sanitized = sanitize_error(&e, "Failed to initialise search client");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": sanitized })),
+            )
+                .into_response();
+        }
+    };
+
+    match test_torznab_provider(&settings, &name, ctx.secrets.clone(), &ctx_exec).await {
+        Ok(result) => {
+            let snapshot = search::torznab::ProviderConnectionSnapshot {
+                ok: result.ok,
+                tested_at: chrono_like_now(),
+                latency_ms: result.latency_ms,
+                supports_search: result.supports_search,
+                category_count: result.category_count,
+                last_error: if result.ok {
+                    None
+                } else {
+                    Some(result.message.clone())
+                },
+            };
+            ctx.connection_status
+                .write()
+                .await
+                .insert(name.clone(), snapshot);
+            (StatusCode::OK, Json(result)).into_response()
+        }
+        Err(e) => {
+            let sanitized = sanitize_error(&e, "Provider test failed");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": sanitized })),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn h_delete_search_provider(
+    State(ctx): State<AppCtx>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let known_builtin = matches!(
+        name.as_str(),
+        "mock"
+            | "open_content"
+            | "internet_archive"
+            | "internet_archive_software"
+            | "yts"
+            | "tpb_movies"
+            | "tpb_tv"
+            | "x1337_movies"
+            | "x1337_tv"
+    );
+    if known_builtin {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Built-in providers cannot be removed" })),
+        )
+            .into_response();
+    }
+
+    let (updated, credential_ref) = {
+        let mut config = ctx.config.write().await;
+        let Ok(setting) = config.search.provider_setting(&name) else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Unknown search provider" })),
+            )
+                .into_response();
+        };
+        let credential_ref = if setting.format == SearchProviderFormat::Torznab {
+            Some(
+                setting
+                    .credential_ref
+                    .clone()
+                    .unwrap_or_else(|| credential_ref_for_provider(&name)),
+            )
+        } else {
+            None
+        };
+
+        config
+            .search
+            .providers
+            .retain(|provider| provider.name != name);
+        if config
+            .search
+            .default_provider
+            .as_deref()
+            .is_some_and(|value| value == name)
+        {
+            config.search.default_provider = config
+                .search
+                .providers
+                .iter()
+                .find(|provider| provider.enabled)
+                .map(|provider| provider.name.clone());
+        }
+        if let Err(e) = config.search.validate() {
+            let sanitized = sanitize_error(&e, "Invalid search settings after provider removal");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": sanitized })),
+            )
+                .into_response();
+        }
+        (config.clone(), credential_ref)
+    };
+
+    if let Some(reference) = credential_ref {
+        if let Err(e) = ctx.secrets.delete_secret(&reference).await {
+            warn!("failed to delete credential for removed provider: {e}");
+        }
+    }
+    {
+        let mut status = ctx.connection_status.write().await;
+        status.remove(&name);
+    }
+
+    if let Err(e) = config::save_config(&updated).await {
+        let sanitized = sanitize_error(&e, "Failed to persist search settings");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": sanitized })),
+        )
+            .into_response();
+    }
+
+    match available_providers_with_secrets(&updated.search, ctx.secrets.clone()).await {
+        Ok(providers) => (StatusCode::OK, Json(providers)).into_response(),
+        Err(e) => {
+            let sanitized = sanitize_error(&e, "Failed to load search providers");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": sanitized })),
+            )
+                .into_response()
+        }
+    }
+}
+
+fn chrono_like_now() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    format!("{secs}")
 }
 
 async fn h_list_torrents(State(ctx): State<AppCtx>) -> impl IntoResponse {

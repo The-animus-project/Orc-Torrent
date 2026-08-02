@@ -9,5 +9,6 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["src/renderer/**/*", "src/renderer/vite-env.d.ts", "src/shared/**/*"]
+  "include": ["src/renderer/**/*", "src/renderer/vite-env.d.ts", "src/shared/**/*"],
+  "exclude": ["src/**/*.{test,spec}.{ts,tsx}", "src/**/__tests__/**"]
 }

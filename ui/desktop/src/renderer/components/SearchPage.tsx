@@ -27,6 +27,7 @@ interface SearchPageProps {
   onTorrentAdded: (id: string, showFileDialog?: boolean, torrentName?: string) => void | Promise<void>;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
+  variant?: "standard" | "animus";
 }
 
 function formatSearchMetric(value?: number | null): string {
@@ -48,7 +49,9 @@ export function SearchPage({
   onTorrentAdded,
   onError,
   onSuccess,
+  variant = "standard",
 }: SearchPageProps) {
+  const isAnimus = variant === "animus";
   const [providers, setProviders] = useState<SearchProviderInfo[]>([]);
   const [providerName, setProviderName] = useState(ALL_PROVIDERS_SOURCE);
   const [category, setCategory] = useState("all");
@@ -100,7 +103,11 @@ export function SearchPage({
         providersCacheKeyRef.current = settingsKey;
         setProviders(loaded);
         setProviderName((current) =>
-          resolveProviderSelection(current, loaded.filter((provider) => provider.enabled), settings.default_provider)
+          resolveProviderSelection(
+            current,
+            loaded.filter((provider) => provider.enabled),
+            settings.default_provider
+          )
         );
       })
       .catch((error) => {
@@ -240,6 +247,13 @@ export function SearchPage({
         return;
       }
 
+      const failedProviders = response.providers.filter((provider) => !provider.ok);
+      if (failedProviders.length > 0 && response.results.length > 0) {
+        setErrorText(
+          `${failedProviders.length} provider${failedProviders.length === 1 ? "" : "s"} failed; showing results from the others.`
+        );
+      }
+
       if (response.results.length === 0) {
         onSuccess(
           response.browse_mode
@@ -337,87 +351,147 @@ export function SearchPage({
 
   if (!settings) {
     return (
-      <div className="searchPage">
+      <div className={`searchPage${isAnimus ? " searchPageAnimus" : ""}`}>
         <div className="searchPageHeader searchPageHeaderCompact">
-          <button className="btn" onClick={onBack}>
+          <button className="btn searchBackButton" onClick={onBack}>
+            {isAnimus ? <span aria-hidden="true">←</span> : null}
             {backLabel}
           </button>
         </div>
+        {isAnimus ? (
+          <div className="animusSearchLoading" role="status">
+            <span className="animusSearchLoadingMark" aria-hidden="true" />
+            Loading search workspace…
+          </div>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <div className="searchPage">
-      <div className="searchPageHeader searchPageHeaderCompact">
-        <button className="btn" onClick={onBack}>
+    <div className={`searchPage${isAnimus ? " searchPageAnimus" : ""}`}>
+      <div className={`searchPageHeader ${isAnimus ? "searchPageHeaderAnimus" : "searchPageHeaderCompact"}`}>
+        {isAnimus ? (
+          <div className="animusSearchIntro">
+            <span className="animusSearchEyebrow">Discover</span>
+            <h1 className="searchPageTitle">Search the swarm</h1>
+            <p className="searchPageSubtitle">Find verified movie and TV torrents across your approved sources.</p>
+          </div>
+        ) : null}
+        <button className="btn searchBackButton" onClick={onBack}>
+          {isAnimus ? <span aria-hidden="true">←</span> : null}
           {backLabel}
         </button>
       </div>
 
-      <div className="searchSafetyNote">{settings.safety_note}</div>
+      <div className="searchSafetyNote">
+        {isAnimus ? (
+          <span className="animusSearchSafetyIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 3 5.5 5.7v5.6c0 4.1 2.5 7.6 6.5 9.7 4-2.1 6.5-5.6 6.5-9.7V5.7L12 3Z" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </span>
+        ) : null}
+        <span>
+          {isAnimus ? <strong>Protected search</strong> : null}
+          {settings.safety_note}
+        </span>
+      </div>
 
       <div className="searchControlsCard">
         <div className="searchControlsGrid">
-          <label className="searchControlField searchControlFieldWide">
-            <span className="settingsRateLimitLabel">Query</span>
-            <input
-              type="text"
-              className="searchInput searchPageInput"
-              placeholder={
-                browseSupportedForSelection
-                  ? "Search approved torrents or leave blank to browse"
-                  : requireQuery
-                    ? "Search movies and TV by title"
-                    : "Search approved torrents"
-              }
-              value={query}
-              maxLength={SEARCH_QUERY_MAX_LEN}
-              onChange={(event) => onQueryChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void runSearch();
+          <div className="searchControlField searchControlFieldWide">
+            <span className="settingsRateLimitLabel">{isAnimus ? "What are you looking for?" : "Query"}</span>
+            <span className="animusSearchQueryWrap">
+              {isAnimus ? (
+                <span className="animusSearchQueryIcon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="6.5" />
+                    <path d="M16 16l4.5 4.5" />
+                  </svg>
+                </span>
+              ) : null}
+              <input
+                type="text"
+                className="searchInput searchPageInput"
+                aria-label="Search query"
+                placeholder={
+                  browseSupportedForSelection
+                    ? "Search approved torrents or leave blank to browse"
+                    : requireQuery
+                      ? "Search movies and TV by title"
+                      : "Search approved torrents"
                 }
-              }}
-              disabled={!canSearch || loadingProviders}
-            />
-          </label>
+                value={query}
+                maxLength={SEARCH_QUERY_MAX_LEN}
+                onChange={(event) => onQueryChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void runSearch();
+                  }
+                }}
+                disabled={!canSearch || loadingProviders}
+              />
+              {isAnimus && query ? (
+                <button type="button" className="animusSearchQueryClear" onClick={() => onQueryChange("")}>
+                  Clear
+                </button>
+              ) : null}
+            </span>
+          </div>
 
           <label className="searchControlField">
             <span className="settingsRateLimitLabel">Provider</span>
-            <select
-              className="notificationSoundSelect"
-              value={resolvedProviderName}
-              onChange={(event) => {
-                setProviderName(event.target.value);
-                setCategory("all");
-              }}
-              disabled={!canSearch || loadingProviders || enabledProviders.length === 0}
-            >
-              {enabledProviders.length > 1 ? <option value={ALL_PROVIDERS_SOURCE}>All approved sources</option> : null}
-              {enabledProviders.map((provider) => (
-                <option key={provider.name} value={provider.name}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
+            <span className="animusSelectWrap">
+              <select
+                className="notificationSoundSelect"
+                value={resolvedProviderName}
+                onChange={(event) => {
+                  setProviderName(event.target.value);
+                  setCategory("all");
+                }}
+                disabled={!canSearch || loadingProviders || enabledProviders.length === 0}
+              >
+                {enabledProviders.length > 1 ? (
+                  <option value={ALL_PROVIDERS_SOURCE}>All approved sources</option>
+                ) : null}
+                {enabledProviders.map((provider) => (
+                  <option key={provider.name} value={provider.name}>
+                    {provider.label}
+                  </option>
+                ))}
+              </select>
+              {isAnimus ? (
+                <span className="animusSelectChevron" aria-hidden="true">
+                  ⌄
+                </span>
+              ) : null}
+            </span>
           </label>
 
           <label className="searchControlField">
             <span className="settingsRateLimitLabel">Category</span>
-            <select
-              className="notificationSoundSelect"
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              disabled={!canSearch || loadingProviders}
-            >
-              {availableCategories.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
+            <span className="animusSelectWrap">
+              <select
+                className="notificationSoundSelect"
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                disabled={!canSearch || loadingProviders}
+              >
+                {availableCategories.map((value) => (
+                  <option key={value} value={value}>
+                    {isAnimus && value === "all" ? "All categories" : value}
+                  </option>
+                ))}
+              </select>
+              {isAnimus ? (
+                <span className="animusSelectChevron" aria-hidden="true">
+                  ⌄
+                </span>
+              ) : null}
+            </span>
           </label>
 
           <label className="searchControlField">
@@ -436,13 +510,31 @@ export function SearchPage({
           </label>
         </div>
 
-        <div className="settingsQuickActions">
+        <div className="settingsQuickActions searchQuickActions">
           <button
             className="btn primary"
             onClick={() => void runSearch()}
             disabled={!canSearch || isSearching || loadingProviders || (requireQuery && !queryReady)}
           >
-            {isSearching ? "Searching..." : requireQuery || queryTrimmed.length > 0 ? "Search" : "Browse"}
+            {isSearching ? (
+              isAnimus ? (
+                <>
+                  <span className="animusButtonSpinner" aria-hidden="true" /> Searching…
+                </>
+              ) : (
+                "Searching..."
+              )
+            ) : requireQuery || queryTrimmed.length > 0 ? (
+              isAnimus ? (
+                <>
+                  Search <span aria-hidden="true">→</span>
+                </>
+              ) : (
+                "Search"
+              )
+            ) : (
+              "Browse"
+            )}
           </button>
           <button className="btn ghost" onClick={handleClear} disabled={isSearching}>
             Clear
@@ -455,7 +547,9 @@ export function SearchPage({
           </p>
         )}
         {settings.enabled && enabledProviders.length === 0 && !loadingProviders && (
-          <p className="settingsSummaryNote">No search providers are enabled. Turn on providers in Settings → Search.</p>
+          <p className="settingsSummaryNote">
+            No search providers are enabled. Turn on providers in Settings → Search.
+          </p>
         )}
         {browseSupportedForSelection && queryTrimmed.length === 0 && (
           <p className="settingsSummaryNote">
@@ -481,11 +575,14 @@ export function SearchPage({
                   <div className="searchProviderStatusMeta">
                     {provider.ok
                       ? `${provider.result_count} result${provider.result_count === 1 ? "" : "s"}`
-                      : "Unavailable"}
+                      : provider.timed_out
+                        ? "Timed out"
+                        : "Unavailable"}
+                    {typeof provider.latency_ms === "number" ? ` • ${provider.latency_ms} ms` : ""}
                   </div>
                 </div>
                 <span className={`searchProviderStatusPill ${provider.ok ? "is-ok" : "is-error"}`}>
-                  {provider.ok ? "Online" : "Offline"}
+                  {provider.ok ? "Online" : provider.timed_out ? "Timed out" : "Offline"}
                 </span>
               </div>
               <p className="settingsSummaryNote">
@@ -503,6 +600,7 @@ export function SearchPage({
       <div className="searchResultsCard">
         <div className="searchResultsHeader">
           <div>
+            {isAnimus ? <span className="animusSearchEyebrow">Torrent index</span> : null}
             <h2 className="settingsSectionCardTitle">Results</h2>
             <span className="settingsSummaryNote">
               {sortedResults.length} result{sortedResults.length === 1 ? "" : "s"}
@@ -513,29 +611,59 @@ export function SearchPage({
           </div>
           <label className="searchSortField">
             <span className="settingsRateLimitLabel">Sort</span>
-            <select
-              className="notificationSoundSelect"
-              value={sortMode}
-              onChange={(event) => setSortMode(event.target.value as SearchSortMode)}
-              disabled={isSearching || sortedResults.length === 0}
-            >
-              <option value="best">Best match</option>
-              <option value="seeders">Most seeders</option>
-              <option value="newest">Newest</option>
-              <option value="size">Largest</option>
-              <option value="name">Name</option>
-            </select>
+            <span className="animusSelectWrap">
+              <select
+                className="notificationSoundSelect"
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as SearchSortMode)}
+                disabled={isSearching || sortedResults.length === 0}
+              >
+                <option value="best">Best match</option>
+                <option value="seeders">Most seeders</option>
+                <option value="newest">Newest</option>
+                <option value="size">Largest</option>
+                <option value="name">Name</option>
+              </select>
+              {isAnimus ? (
+                <span className="animusSelectChevron" aria-hidden="true">
+                  ⌄
+                </span>
+              ) : null}
+            </span>
           </label>
         </div>
 
         {isSearching ? (
-          <div className="searchEmptyState">Searching approved providers…</div>
+          isAnimus ? (
+            <div className="searchEmptyState animusSearchProgress">
+              <span className="animusSearchLoadingMark" aria-hidden="true" />
+              <span>
+                <strong>Searching approved providers</strong>Results will appear here as each source responds.
+              </span>
+            </div>
+          ) : (
+            <div className="searchEmptyState">Searching approved providers…</div>
+          )
         ) : sortedResults.length === 0 ? (
-          <div className="searchEmptyState">
-            {lastBrowseMode
-              ? "No approved catalog items matched the current provider or category filter."
-              : "Run a search to see approved torrent sources here."}
-          </div>
+          isAnimus ? (
+            <div className="searchEmptyState">
+              <span className="animusSearchEmptyIcon" aria-hidden="true">
+                ⌕
+              </span>
+              <span>
+                <strong>{lastBrowseMode ? "Nothing matched those filters" : "Ready when you are"}</strong>
+                {lastBrowseMode
+                  ? "No approved catalog items matched the current provider or category filter."
+                  : "Run a search to see approved torrent sources here."}
+              </span>
+            </div>
+          ) : (
+            <div className="searchEmptyState">
+              {lastBrowseMode
+                ? "No approved catalog items matched the current provider or category filter."
+                : "Run a search to see approved torrent sources here."}
+            </div>
+          )
         ) : (
           <div className="searchResultsTableWrap">
             <table className="searchResultsTable">
@@ -555,16 +683,22 @@ export function SearchPage({
                   const canAdd = Boolean(result.magnet_uri || result.torrent_url);
                   return (
                     <tr key={result.id}>
-                      <td>
+                      <td data-label="Name">
                         <div className="searchResultName">{result.name}</div>
                         {result.published_at ? <div className="searchResultMeta">{result.published_at}</div> : null}
                       </td>
-                      <td>{providerLabelMap.get(result.source) ?? result.source}</td>
-                      <td>{typeof result.size_bytes === "number" ? fmtBytes(result.size_bytes) : "—"}</td>
-                      <td>{formatSearchMetric(result.seeders)}</td>
-                      <td>{formatSearchMetric(result.leechers)}</td>
-                      <td>{result.category ?? "—"}</td>
-                      <td>
+                      <td data-label="Source">{providerLabelMap.get(result.source) ?? result.source}</td>
+                      <td data-label="Size">
+                        {typeof result.size_bytes === "number" ? fmtBytes(result.size_bytes) : "—"}
+                      </td>
+                      <td data-label="Seeders" className="searchResultSeeders">
+                        {formatSearchMetric(result.seeders)}
+                      </td>
+                      <td data-label="Leechers">{formatSearchMetric(result.leechers)}</td>
+                      <td data-label="Category">
+                        <span className="searchResultCategory">{result.category ?? "—"}</span>
+                      </td>
+                      <td data-label="Actions">
                         <div className="searchResultActions">
                           <button
                             className="btn primary compact"

@@ -177,9 +177,15 @@ export interface SearchProviderInfo {
   categories: string[];
   requires_feed_url: boolean;
   description: string;
+  has_credentials?: boolean;
+  allow_private_url?: boolean;
+  timeout_seconds?: number | null;
+  connection_status?: string | null;
+  last_tested_at?: string | null;
+  last_error?: string | null;
 }
 
-export type SearchProviderFormat = "open_content_json" | "rss_atom";
+export type SearchProviderFormat = "open_content_json" | "rss_atom" | "torznab";
 
 export interface SearchFeatureSettings {
   enabled: boolean;
@@ -197,6 +203,23 @@ export interface SearchProviderSetting {
   feed_url?: string | null;
   format?: SearchProviderFormat;
   categories?: string[];
+  credential_ref?: string | null;
+  allow_private_url?: boolean;
+  timeout_seconds?: number | null;
+}
+
+export interface SearchCredentialResponse {
+  provider: string;
+  has_api_key: boolean;
+}
+
+export interface TorznabCapsTestResult {
+  ok: boolean;
+  provider: string;
+  latency_ms?: number | null;
+  supports_search?: boolean | null;
+  category_count?: number | null;
+  message: string;
 }
 
 export interface SearchSettingsPatchRequest {
@@ -235,6 +258,8 @@ export interface SearchProviderStatus {
   ok: boolean;
   result_count: number;
   error?: string | null;
+  latency_ms?: number | null;
+  timed_out?: boolean;
 }
 
 export interface SearchResponse {

@@ -70,7 +70,9 @@ pub fn list_network_adapters() -> NetworkAdaptersResponse {
     let adapters = match NetworkInterface::show() {
         Ok(interfaces) => interfaces
             .into_iter()
-            .map(|iface| adapter_from_interface(&iface, default_iface.as_deref(), vpn_iface.as_deref()))
+            .map(|iface| {
+                adapter_from_interface(&iface, default_iface.as_deref(), vpn_iface.as_deref())
+            })
             .collect(),
         Err(_) => Vec::new(),
     };
@@ -174,7 +176,11 @@ fn adapter_from_interface(
         is_default_route: default_iface == Some(name.as_str()),
         is_vpn,
         interface_type: classify_interface_type(&lowered, is_vpn),
-        status: if has_addr { "up".to_string() } else { "down".to_string() },
+        status: if has_addr {
+            "up".to_string()
+        } else {
+            "down".to_string()
+        },
         name,
     }
 }
@@ -218,7 +224,10 @@ fn is_likely_vpn_name(name: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn macos_default_route() -> Option<(String, Option<String>, Option<u32>)> {
-    let output = Command::new("route").args(["-n", "get", "default"]).output().ok()?;
+    let output = Command::new("route")
+        .args(["-n", "get", "default"])
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }

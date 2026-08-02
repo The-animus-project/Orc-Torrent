@@ -9322,6 +9322,12 @@ html[data-app-theme="dark"] .eventHistoryFilterTag {
   min-height: 0;
 }
 
+/* These wrappers become layout elements only in the AnimUS edition theme. */
+.animusSearchQueryWrap,
+.animusSelectWrap {
+  display: contents;
+}
+
 .searchResultsCard {
   display: flex;
   flex-direction: column;

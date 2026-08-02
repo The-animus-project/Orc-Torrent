@@ -24,7 +24,25 @@ File permissions on Unix: `0600`.
 {
   "listen_port": 49000,
   "kill_switch": { "enabled": false, "...": "..." },
-  "search": { "...": "..." },
+  "search": {
+    "enabled": true,
+    "default_provider": "internet_archive",
+    "default_result_limit": 25,
+    "allow_private_remote_urls": false,
+    "providers": [
+      {
+        "name": "local_jackett",
+        "enabled": false,
+        "label": "Local Jackett",
+        "feed_url": "http://127.0.0.1:9117/api/v2.0/indexers/all/results/torznab/",
+        "format": "torznab",
+        "categories": ["2000", "5000"],
+        "credential_ref": "search-provider:local_jackett",
+        "allow_private_url": true,
+        "timeout_seconds": 10
+      }
+    ]
+  },
   "watch_folders": {
     "enabled": false,
     "folders": [{
@@ -97,5 +115,13 @@ File permissions on Unix: `0600`.
 | PATCH | `/bandwidth/schedule` | Bandwidth schedule settings |
 | GET | `/net/privacy-status` | Consolidated privacy dashboard |
 | POST | `/net/privacy/preset/vpn-safety` | Apply VPN Safety Mode preset |
+| GET/PATCH | `/search/settings` | Search feature settings (no API keys) |
+| GET | `/search/providers` | Provider list + non-sensitive status |
+| POST | `/search` | Federated search |
+| PUT/DELETE | `/search/providers/:name/credentials` | Store/clear Torznab API key |
+| POST | `/search/providers/:name/test` | Torznab capabilities test |
+| DELETE | `/search/providers/:name` | Remove custom provider + secret |
+
+Torznab API keys are stored in the OS keyring when available, otherwise in an encrypted file under the config directory (`search-secrets.bin`). They are never written into `config.json`. See [SEARCH_PROVIDERS.md](SEARCH_PROVIDERS.md).
 
 Torrent session data is stored separately at `{ORC_DOWNLOAD_DIR}/session.json` by the rqbit engine.

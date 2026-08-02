@@ -32,6 +32,9 @@ librqbit = { version = "8.1.1", default-features = false }
 # Security dependencies
 subtle = "2.5"
 tower = { version = "0.5", features = ["limit"] }
+keyring = "3.6"
+aes-gcm = "0.10"
+rand = "0.8"
 
 [patch.crates-io]
 # Use patched librqbit that re-exports PeerStatsFilter so we can show real connected peers.

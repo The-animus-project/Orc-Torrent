@@ -59,9 +59,7 @@ fn extension_of(file_name: &str) -> Option<String> {
 }
 
 fn is_rar_part_extension(ext: &str) -> bool {
-    ext.len() == 3
-        && ext.starts_with('r')
-        && ext.chars().skip(1).all(|ch| ch.is_ascii_digit())
+    ext.len() == 3 && ext.starts_with('r') && ext.chars().skip(1).all(|ch| ch.is_ascii_digit())
 }
 
 pub fn is_download_allowed_for_path(path: &[String]) -> bool {

@@ -36,6 +36,20 @@ Use this checklist before a release or after changing daemon/UI integration.
 - [ ] Verify **Normal** profile outside window
 - [ ] Settings persist after restart
 
+## Torznab search providers
+
+- [ ] Add Torznab provider (`local_jackett` or similar) with endpoint + API key
+- [ ] Enable local/private endpoint for loopback Jackett/Prowlarr
+- [ ] Save — API key field shows saved state and is not re-populated
+- [ ] Test connection — capabilities succeed
+- [ ] Search All Providers / single Torznab provider for a lawful open-source item
+- [ ] Confirm duplicates merge and provider latency/errors are shown
+- [ ] Confirm Add is required before a torrent starts
+- [ ] Disable provider — excluded from All Providers
+- [ ] Remove provider — credential deleted
+- [ ] Automated: `cd crates && cargo test -p orc-daemon`
+- [ ] Automated: `cd ui/desktop && npm test`
+
 ## Privacy / VPN (v2.3)
 
 - [ ] Privacy card disclaimer visible (no anonymity claims)
@@ -62,8 +76,8 @@ Use this checklist before a release or after changing daemon/UI integration.
 ## Build quality
 
 ```bash
-cd crates && cargo fmt && cargo test && cargo build --release -p orc-daemon
-cd ui/desktop && npm run lint:types && npm run build
+cd crates && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+cd ui/desktop && npm ci && npm run lint:types && npm test && npm run build
 ```
 
 ## Platform notes

@@ -182,7 +182,10 @@ pub(crate) fn filter_rows(rows: Vec<X1337Row>, query: &str) -> Vec<X1337Row> {
         .collect()
 }
 
-pub(crate) async fn fetch_x1337_html(path: &str, ctx: &SearchExecutionContext) -> Result<(String, String)> {
+pub(crate) async fn fetch_x1337_html(
+    path: &str,
+    ctx: &SearchExecutionContext,
+) -> Result<(String, String)> {
     let mut last_error: Option<anyhow::Error> = None;
     for host in X1337_HOSTS {
         let base = format!("https://{host}");
@@ -280,6 +283,7 @@ impl SearchProvider for X1337MoviesSearchProvider {
                 description_url: Some(format!("{}{}", base, row.path)),
                 published_at,
                 category: Some("movies".to_string()),
+                sources: Vec::new(),
             });
         }
 

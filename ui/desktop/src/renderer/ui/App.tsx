@@ -1858,6 +1858,7 @@ export default function App() {
       onTorrentAdded={handleTorrentAdded}
       onError={(msg) => pushToast("error", msg)}
       onSuccess={(msg) => pushToast("info", msg)}
+      variant={isAnimusEdition ? "animus" : "standard"}
     />
   );
 

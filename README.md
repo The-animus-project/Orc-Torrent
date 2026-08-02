@@ -8,23 +8,23 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. We 
 
 **ORC Torrent is compatible with Windows, macOS, and Linux.** You can build and run it on any of these platforms.
 
-**Latest release: [v2.3.3](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.3)** — Patch bump after the v2.3.2 security release; portable builds for all three platforms with in-app GitHub auto-update.
+**Latest release: [v2.3.4](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.4)** — Torznab search integrations, protected provider credentials, Intel macOS packages, and PGP-signed builds for every supported platform.
 
 <p align="center">
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.3.3.exe">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.3.4.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-0078D6?style=for-the-badge&logo=windows&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.3-mac-arm64.dmg">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.4-mac-arm64.dmg">
     <img alt="Download for macOS" src="https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.3-linux-x86_64.AppImage">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.4-linux-x86_64.AppImage">
     <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   </a>
 </p>
 <p align="center">
-  <sub>Windows installer · macOS DMG (Apple Silicon) · Linux AppImage — <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest">portable zips &amp; other formats</a></sub>
+  <sub>Windows installer · macOS DMG (Apple Silicon and Intel) · Linux AppImage — <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest">portable zips &amp; other formats</a></sub>
 </p>
 <p align="center">
   <a href="https://github.com/The-animus-project/Orc-Torrent">
@@ -43,7 +43,7 @@ Pre-built installers and portable archives are published on **[GitHub Releases](
 | Platform | Portable (no install) | Installer |
 |----------|----------------------|-----------|
 | **Windows** (x64) | `ORC-TORRENT-<version>-win-x64.zip` | `ORC-TORRENT-Setup-<version>.exe` |
-| **macOS** (arm64) | `ORC-TORRENT-<version>-mac-arm64.zip` | `.dmg`, `.pkg` |
+| **macOS** (arm64 / x64) | `ORC-TORRENT-<version>-mac-<arch>.zip` | `.dmg`, `.pkg` |
 | **Linux** (x64) | `ORC-TORRENT-<version>-linux-x86_64.AppImage` | `.deb` |
 
 **Portable** builds run without an installer — extract or make executable, then launch the app. **Installers** register shortcuts, menu entries, and (on Windows/macOS) magnet / `.torrent` file associations.
@@ -68,7 +68,7 @@ The fingerprint must be:
 Verify the downloaded build before opening or extracting it. For example:
 
 ```sh
-gpg --verify ORC-TORRENT-2.3.3-linux-x86_64.AppImage.asc ORC-TORRENT-2.3.3-linux-x86_64.AppImage
+gpg --verify ORC-TORRENT-2.3.4-linux-x86_64.AppImage.asc ORC-TORRENT-2.3.4-linux-x86_64.AppImage
 ```
 
 You can also verify the signed checksum manifest and then check all downloaded builds in it:
@@ -84,7 +84,7 @@ A valid result reports a good signature made by the key above. A good signature 
 
 ## Installation
 
-Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.3.3`).
+Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.3.4`).
 
 ### Windows
 
@@ -95,15 +95,15 @@ Download the asset for your OS from the [latest release](https://github.com/The-
 
 On first launch, Windows SmartScreen may warn because the build is unsigned — choose **More info** → **Run anyway**. Portable and installer builds both support in-app updates (Settings → Updates).
 
-### macOS (Apple Silicon)
+### macOS (Apple Silicon or Intel)
 
 | Method | Steps |
 |--------|--------|
-| **Portable** | Download `ORC-TORRENT-<version>-mac-arm64.zip` → extract → open **`ORC TORRENT.app`**. |
+| **Portable** | Download `ORC-TORRENT-<version>-mac-arm64.zip` on Apple Silicon or `ORC-TORRENT-<version>-mac-x64.zip` on Intel → extract → open **`ORC TORRENT.app`**. |
 | **DMG** | Open the `.dmg` → drag **ORC TORRENT** to **Applications**. |
 | **PKG** | Run the `.pkg` installer → follow the prompts. |
 
-macOS may block the app on first open (unverified developer). Use **right-click → Open**, or allow it under **System Settings → Privacy & Security**. CI releases are **arm64** (Apple Silicon). Intel Macs: [build from source](#building-from-source).
+macOS may block the app on first open (unverified developer). Use **right-click → Open**, or allow it under **System Settings → Privacy & Security**. Choose **arm64** for Apple Silicon or **x64** for Intel Macs.
 
 ### Linux (x64)
 
@@ -165,7 +165,7 @@ Screenshots of the ORC Torrent desktop client:
 | **Torrent management** | Add via magnet links or `.torrent` files; list, start, stop, remove, recheck, and announce torrents. |
 | **File control** | Per-file priority and content view; resume from existing downloads. |
 | **Peers and trackers** | Inspect connected peers and tracker status. |
-| **Torrent search** | Compliant search page with Internet Archive, open-content JSON, and user-defined RSS/Atom/JSON feeds. Results are display-only until you manually add a torrent. |
+| **Torrent search** | Search page with Internet Archive, open-content JSON, user-defined RSS/Atom/JSON feeds, and **Torznab** providers (Jackett / Prowlarr compatible). Results are display-only until you manually add a torrent. |
 | **Watch folders** | Auto-import `.torrent` files dropped into configured folders (debounced, duplicate-safe). |
 | **Seeding controls** | Global ratio and seed-time limits; completed torrents stop automatically when targets are met. |
 | **Bandwidth scheduling** | Normal and limited speed profiles with quiet-hours schedule. |
@@ -313,6 +313,7 @@ npm run dev
 - ORC Torrent ships a development `Mock Provider` and a strict `Open Content Feed` provider for legal/public-domain/open-license catalogs.
 - Optional built-in movie search providers (`YTS`, `The Pirate Bay`, `1337x`) are **disabled by default**; enable them in Search Settings if you want movie index results alongside Internet Archive.
 - Custom providers can be added with either the built-in open-content JSON format or standard RSS/Atom torrent feeds for compliant catalogs.
+- **Torznab** providers (Jackett, Prowlarr, or compatible) can be added with securely stored API keys and optional local/private endpoint consent. See [docs/SEARCH_PROVIDERS.md](docs/SEARCH_PROVIDERS.md).
 - Search results are display-only until the user manually clicks **Add**; the client never auto-downloads from search.
 - The UI reminder is: *Only use torrents you have the legal right to download.*
 
@@ -360,6 +361,7 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
+| **2.3.4** | Torznab providers, protected API-key storage, search deduplication and UI polish, Intel macOS packages, and PGP signatures for every distributable. |
 | **2.3.3** | Patch bump after v2.3.2 (next valid semver after the security release). |
 | **2.3.2** | Dependabot security patches (npm + Rust openssl/webpki/serde_with/rand), Animus boot/splash polish, daemon-gated startup. |
 | **2.3.1** | Portable builds for Windows (zip), macOS (zip), and Linux (AppImage) on every release; CodeQL security fixes; `shell-quote` dependency bump. |
@@ -375,7 +377,7 @@ Full history: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Author
 
-- **[Vurzumm](https://github.com/Animus-exe)** — [GitHub](https://github.com/Animus-exe) · [X @Itsvurzum](https://x.com/Itsvurzum)
+- **[Vurzum](https://github.com/Animus-exe)** — [GitHub](https://github.com/Animus-exe) · [X @Itsvurzum](https://x.com/Itsvurzum)
 
 ```
   /\_/\  (

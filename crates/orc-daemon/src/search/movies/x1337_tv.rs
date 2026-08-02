@@ -1,7 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
-use super::x1337::{fetch_detail, fetch_x1337_html, filter_rows, parse_x1337_rows, url_encode_query};
+use super::x1337::{
+    fetch_detail, fetch_x1337_html, filter_rows, parse_x1337_rows, url_encode_query,
+};
 use crate::search::{
     ResolvedSearchQuery, SearchExecutionContext, SearchProvider, SearchResult, SearchSettings,
 };
@@ -45,10 +47,7 @@ impl SearchProvider for X1337TvSearchProvider {
         let path = if query.browse_mode {
             "/popular-tv".to_string()
         } else {
-            format!(
-                "/category-search/{}/TV/1/",
-                url_encode_query(&query.query)
-            )
+            format!("/category-search/{}/TV/1/", url_encode_query(&query.query))
         };
 
         let (base, html) = fetch_x1337_html(&path, ctx).await?;
@@ -77,6 +76,7 @@ impl SearchProvider for X1337TvSearchProvider {
                 description_url: Some(format!("{}{}", base, row.path)),
                 published_at,
                 category: Some("tv".to_string()),
+                sources: Vec::new(),
             });
         }
 

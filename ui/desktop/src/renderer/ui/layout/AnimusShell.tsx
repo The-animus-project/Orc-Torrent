@@ -177,6 +177,7 @@ export const AnimusShell = memo<AnimusShellProps>(
               onTorrentAdded={onTorrentAdded}
               onError={onSearchError}
               onSuccess={onSearchSuccess}
+              onOpenSearch={() => onNavigate("search")}
               variant="animus"
             />
 

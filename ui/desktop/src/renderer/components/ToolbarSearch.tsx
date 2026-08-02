@@ -21,6 +21,7 @@ interface ToolbarSearchProps {
   onTorrentAdded: (id: string, showFileDialog?: boolean, torrentName?: string) => void | Promise<void>;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
+  onOpenSearch?: () => void;
   variant?: ToolbarSearchVariant;
 }
 
@@ -39,6 +40,7 @@ export function ToolbarSearch({
   onTorrentAdded,
   onError,
   onSuccess,
+  onOpenSearch,
   variant = "standard",
 }: ToolbarSearchProps) {
   const listboxId = useId();
@@ -48,6 +50,7 @@ export function ToolbarSearch({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const searchRequestRef = useRef(0);
 
   const canSearch = online && settings?.enabled;
@@ -106,6 +109,7 @@ export function ToolbarSearch({
     setIsSearching(true);
     setStatusText("Searching approved providers…");
     setResults([]);
+    setActiveIndex(-1);
 
     const source =
       enabledProviderCount > 1
@@ -184,6 +188,21 @@ export function ToolbarSearch({
     }
   };
 
+  const handleClear = () => {
+    searchRequestRef.current += 1;
+    onQueryChange("");
+    setResults([]);
+    setStatusText(null);
+    setActiveIndex(-1);
+    setIsSearching(false);
+    setIsOpen(false);
+  };
+
+  const handleOpenSearch = () => {
+    setIsOpen(false);
+    onOpenSearch?.();
+  };
+
   const isAnimus = variant === "animus";
   const hostClassName = isAnimus ? "toolbarSearchHost toolbarSearchHostAnimus" : "toolbarSearchHost";
   const fieldClassName = isAnimus ? "animusTopSearch" : "toolbarSearchField";
@@ -193,7 +212,7 @@ export function ToolbarSearch({
   return (
     <div className={hostClassName} ref={hostRef}>
       <form className={isAnimus ? undefined : "toolbarSearchForm"} onSubmit={handleSubmit}>
-        <label className={fieldClassName} aria-label="Search approved torrents">
+        <div className={`${fieldClassName}${isOpen ? " is-open" : ""}`}>
           <span className={iconClassName} aria-hidden="true">
             <svg viewBox="0 0 24 24" focusable="false">
               <circle cx="11" cy="11" r="6.5" />
@@ -203,13 +222,39 @@ export function ToolbarSearch({
           <input
             type="search"
             className={inputClassName}
+            aria-label="Search approved torrents"
             placeholder="Search torrents…"
             value={query}
             maxLength={SEARCH_QUERY_MAX_LEN}
             onChange={(event) => onQueryChange(event.target.value)}
+            onFocus={() => {
+              if (results.length > 0 || statusText) {
+                setIsOpen(true);
+              }
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 setIsOpen(false);
+                setActiveIndex(-1);
+                return;
+              }
+              if (event.key === "ArrowDown" && results.length > 0) {
+                event.preventDefault();
+                setIsOpen(true);
+                setActiveIndex((current) => Math.min(current + 1, results.length - 1));
+                return;
+              }
+              if (event.key === "ArrowUp" && results.length > 0) {
+                event.preventDefault();
+                setActiveIndex((current) => Math.max(current - 1, 0));
+                return;
+              }
+              if (event.key === "Enter" && isOpen && activeIndex >= 0) {
+                event.preventDefault();
+                const activeResult = results[activeIndex];
+                if (activeResult && (activeResult.magnet_uri || activeResult.torrent_url)) {
+                  void handleAdd(activeResult);
+                }
               }
             }}
             disabled={!online}
@@ -217,38 +262,110 @@ export function ToolbarSearch({
             aria-expanded={isOpen}
             aria-controls={listboxId}
             aria-autocomplete="list"
+            aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
           />
-        </label>
+          {isAnimus && query ? (
+            <button
+              type="button"
+              className="animusTopSearchClear"
+              aria-label="Clear search"
+              title="Clear search"
+              onClick={(event) => {
+                event.preventDefault();
+                handleClear();
+              }}
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="m6 6 8 8M14 6l-8 8" />
+              </svg>
+            </button>
+          ) : null}
+          {isAnimus ? <span className="animusTopSearchHint">Enter</span> : null}
+        </div>
       </form>
 
       {isOpen ? (
         <div className="toolbarSearchDropdown" id={listboxId} role="listbox" aria-label="Search results">
           <div className="toolbarSearchDropdownHeader">
-            <span className="toolbarSearchDropdownTitle">
-              {isSearching ? "Searching…" : statusText ?? "Results"}
-            </span>
-            <button type="button" className="toolbarSearchDropdownClose" onClick={() => setIsOpen(false)}>
-              Close
-            </button>
+            {isAnimus ? (
+              <>
+                <div className="toolbarSearchDropdownHeading">
+                  <span className="toolbarSearchDropdownEyebrow">Quick search</span>
+                  <span className="toolbarSearchDropdownTitle">
+                    {isSearching ? "Searching…" : (statusText ?? "Results")}
+                  </span>
+                </div>
+                <div className="toolbarSearchDropdownHeaderActions">
+                  {onOpenSearch ? (
+                    <button type="button" className="toolbarSearchDropdownOpenPage" onClick={handleOpenSearch}>
+                      Full search
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="toolbarSearchDropdownClose"
+                    aria-label="Close search results"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d="m6 6 8 8M14 6l-8 8" />
+                    </svg>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="toolbarSearchDropdownTitle">
+                  {isSearching ? "Searching…" : (statusText ?? "Results")}
+                </span>
+                <button type="button" className="toolbarSearchDropdownClose" onClick={() => setIsOpen(false)}>
+                  Close
+                </button>
+              </>
+            )}
           </div>
 
           {isSearching ? (
-            <div className="toolbarSearchDropdownState">Looking across approved providers…</div>
+            isAnimus ? (
+              <div className="toolbarSearchDropdownState toolbarSearchDropdownLoading">
+                <span className="toolbarSearchSpinner" aria-hidden="true" />
+                <span>
+                  <strong>Scanning the network</strong>
+                  Looking across {enabledProviderCount} approved provider{enabledProviderCount === 1 ? "" : "s"}…
+                </span>
+              </div>
+            ) : (
+              <div className="toolbarSearchDropdownState">Looking across approved providers…</div>
+            )
           ) : results.length === 0 ? (
             <div className="toolbarSearchDropdownState">{statusText ?? "No results"}</div>
           ) : (
             <ul className="toolbarSearchDropdownList">
-              {results.map((result) => {
+              {results.map((result, index) => {
                 const canAdd = Boolean(result.magnet_uri || result.torrent_url);
                 const sourceLabel = providerLabelMap.get(result.source) ?? result.source;
                 return (
-                  <li key={result.id} className="toolbarSearchDropdownItem" role="option">
+                  <li
+                    key={result.id}
+                    id={`${listboxId}-option-${index}`}
+                    className={`toolbarSearchDropdownItem ${activeIndex === index ? "is-active" : ""}`}
+                    role="option"
+                    aria-selected={activeIndex === index}
+                    onMouseEnter={() => setActiveIndex(index)}
+                  >
                     <div className="toolbarSearchDropdownItemMain">
                       <div className="toolbarSearchDropdownItemName">{result.name}</div>
                       <div className="toolbarSearchDropdownItemMeta">
-                        <span>{sourceLabel}</span>
+                        <span className={isAnimus ? "toolbarSearchDropdownSource" : undefined}>{sourceLabel}</span>
                         {typeof result.size_bytes === "number" ? <span>{fmtBytes(result.size_bytes)}</span> : null}
-                        <span>{formatMetric(result.seeders)} seeders</span>
+                        {isAnimus ? (
+                          <span className="toolbarSearchDropdownSeeders">
+                            <span aria-hidden="true">↑</span> {formatMetric(result.seeders)} seeders
+                          </span>
+                        ) : (
+                          <span>{formatMetric(result.seeders)} seeders</span>
+                        )}
                       </div>
                     </div>
                     <button
@@ -257,13 +374,21 @@ export function ToolbarSearch({
                       onClick={() => void handleAdd(result)}
                       disabled={!canAdd || addingId === result.id}
                     >
-                      {addingId === result.id ? "Adding…" : "Add"}
+                      {addingId === result.id ? "Adding…" : isAnimus ? "Add +" : "Add"}
                     </button>
                   </li>
                 );
               })}
             </ul>
           )}
+          {isAnimus && results.length > 0 ? (
+            <div className="toolbarSearchDropdownFooter">
+              <span>Use ↑ ↓ to select</span>
+              <button type="button" onClick={handleOpenSearch} disabled={!onOpenSearch}>
+                Refine results on Search
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

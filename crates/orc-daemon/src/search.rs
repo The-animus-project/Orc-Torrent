@@ -2,7 +2,8 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     net::IpAddr,
-    time::Duration,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -10,11 +11,21 @@ use async_trait::async_trait;
 use quick_xml::{events::Event, Reader};
 use reqwest::{redirect::Policy, Client};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tokio::sync::Semaphore;
 use tracing::warn;
 use url::Url;
 
+mod dedup;
 mod magnet;
 mod movies;
+pub mod secrets;
+pub mod torznab;
+
+pub use secrets::{
+    create_default_secret_store, credential_ref_for_provider, InMemorySearchSecretStore,
+    SearchSecretStore,
+};
+pub use torznab::{test_torznab_provider, TorznabProvider};
 
 const QUERY_MIN_LEN: usize = 2;
 const QUERY_MAX_LEN: usize = 200;
@@ -25,12 +36,17 @@ const PROVIDER_URL_MAX_LEN: usize = 2048;
 const DEFAULT_RESULT_LIMIT: u32 = 25;
 pub const MAX_RESULT_LIMIT: u32 = 100;
 const SEARCH_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
-const SEARCH_USER_AGENT: &str =
+pub(crate) const SEARCH_USER_AGENT: &str =
     "ORC-Torrent/2.2 (+https://github.com/The-Animus-Project/Orc-Torrent)";
 const SAFETY_NOTE: &str = "Only use torrents you have the legal right to download.";
 const ANIMUS_SAFETY_NOTE: &str =
     "Enter a title to search movie and TV providers. Only add torrents you have the legal right to download.";
 const ALL_PROVIDERS_SOURCE: &str = "all";
+const DEFAULT_PROVIDER_TIMEOUT_SECS: u64 = 10;
+const MIN_PROVIDER_TIMEOUT_SECS: u64 = 2;
+const MAX_PROVIDER_TIMEOUT_SECS: u64 = 60;
+const MAX_CONCURRENT_PROVIDERS: usize = 8;
+const MAX_SEARCH_RESPONSE_BYTES: u64 = 5 * 1024 * 1024;
 
 pub const ANIMUS_EDITION: &str = "animus";
 
@@ -57,6 +73,14 @@ pub struct SearchProviderSetting {
     pub format: SearchProviderFormat,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<String>,
+    /// Opaque reference into the secret store. Never holds the raw API key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_ref: Option<String>,
+    /// Explicit consent for loopback/RFC1918 Torznab endpoints (Jackett/Prowlarr).
+    #[serde(default)]
+    pub allow_private_url: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -65,6 +89,7 @@ pub enum SearchProviderFormat {
     #[default]
     OpenContentJson,
     RssAtom,
+    Torznab,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +140,18 @@ pub struct SearchProviderInfo {
     pub categories: Vec<String>,
     pub requires_feed_url: bool,
     pub description: String,
+    #[serde(default)]
+    pub has_credentials: bool,
+    #[serde(default)]
+    pub allow_private_url: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_tested_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -138,15 +175,17 @@ pub struct SearchResult {
     pub description_url: Option<String>,
     pub published_at: Option<String>,
     pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ResolvedSearchQuery {
-    query: String,
-    category: Option<String>,
-    limit: u32,
-    sources: Vec<String>,
-    browse_mode: bool,
+pub(crate) struct ResolvedSearchQuery {
+    pub(crate) query: String,
+    pub(crate) category: Option<String>,
+    pub(crate) limit: u32,
+    pub(crate) sources: Vec<String>,
+    pub(crate) browse_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -158,6 +197,10 @@ pub struct SearchProviderStatus {
     pub result_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    #[serde(default)]
+    pub timed_out: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -167,14 +210,15 @@ pub struct SearchResponse {
     pub browse_mode: bool,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct SearchExecutionContext {
-    http: SearchHttpClient,
-    allow_private_remote_urls: bool,
+#[derive(Clone)]
+pub(crate) struct SearchExecutionContext {
+    pub(crate) http: SearchHttpClient,
+    pub(crate) allow_private_remote_urls: bool,
+    pub(crate) secrets: Arc<dyn SearchSecretStore>,
 }
 
 #[derive(Debug, Clone)]
-struct SearchHttpClient {
+pub(crate) struct SearchHttpClient {
     client: Client,
 }
 
@@ -200,7 +244,7 @@ struct OpenContentFeedItem {
 }
 
 #[async_trait]
-pub(super) trait SearchProvider: Send + Sync {
+pub(crate) trait SearchProvider: Send + Sync {
     fn name(&self) -> &str;
     fn label(&self) -> &str;
     fn description(&self) -> &str;
@@ -254,14 +298,9 @@ pub fn default_provider_settings() -> Vec<SearchProviderSetting> {
     default_provider_settings_for_edition(&current_product_edition())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn animus_media_provider_names() -> &'static [&'static str] {
-    &[
-        "yts",
-        "tpb_movies",
-        "tpb_tv",
-        "x1337_movies",
-        "x1337_tv",
-    ]
+    &["yts", "tpb_movies", "tpb_tv", "x1337_movies", "x1337_tv"]
 }
 
 pub fn media_provider_priority(name: &str) -> u8 {
@@ -296,6 +335,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "internet_archive".to_string(),
@@ -304,6 +346,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "internet_archive_software".to_string(),
@@ -312,6 +357,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "open_content".to_string(),
@@ -320,6 +368,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "yts".to_string(),
@@ -328,6 +379,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "tpb_movies".to_string(),
@@ -336,6 +390,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "x1337_movies".to_string(),
@@ -344,6 +401,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "tpb_tv".to_string(),
@@ -352,6 +412,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
         SearchProviderSetting {
             name: "x1337_tv".to_string(),
@@ -360,6 +423,9 @@ pub fn default_provider_settings_for_edition(edition: &str) -> Vec<SearchProvide
             feed_url: None,
             format: SearchProviderFormat::OpenContentJson,
             categories: Vec::new(),
+            credential_ref: None,
+            allow_private_url: false,
+            timeout_seconds: None,
         },
     ]
 }
@@ -513,14 +579,31 @@ impl SearchSettings {
                     SOURCE_NAME_MAX_LEN
                 ));
             }
+            let mut provider = provider.clone();
+            if provider.format == SearchProviderFormat::Torznab {
+                if provider.credential_ref.is_none() {
+                    provider.credential_ref = Some(credential_ref_for_provider(&provider.name));
+                }
+                if let Some(timeout) = provider.timeout_seconds {
+                    provider.timeout_seconds = Some(clamp_provider_timeout_seconds(timeout));
+                }
+            } else if provider.allow_private_url {
+                return Err(anyhow!(
+                    "allow_private_url is only valid for Torznab providers"
+                ));
+            }
             if let Some(feed_url) = provider.feed_url.as_deref() {
-                validate_provider_feed_url(feed_url)?;
+                validate_provider_feed_url(feed_url, provider.allow_private_url)?;
             }
             if let Some(label) = provider.label.as_deref() {
                 validate_provider_label(label)?;
             }
             for category in &provider.categories {
-                validate_category_value(category)?;
+                if provider.format == SearchProviderFormat::Torznab {
+                    validate_torznab_category(category)?;
+                } else {
+                    validate_category_value(category)?;
+                }
             }
             if !is_known_provider_name(&provider.name) {
                 if provider.feed_url.is_none() {
@@ -542,13 +625,13 @@ impl SearchSettings {
                     ));
                 }
             }
-            merged.insert(provider.name.clone(), provider.clone());
+            merged.insert(provider.name.clone(), provider);
         }
 
         Ok(merged)
     }
 
-    fn provider_setting(&self, name: &str) -> Result<SearchProviderSetting> {
+    pub(crate) fn provider_setting(&self, name: &str) -> Result<SearchProviderSetting> {
         let providers = self.provider_map()?;
         providers
             .get(name)
@@ -594,7 +677,10 @@ impl SearchSettingsPatchRequest {
                     return Err(anyhow!("duplicate provider setting for {}", provider.name));
                 }
                 if let Some(feed_url) = provider.feed_url.as_deref() {
-                    validate_provider_feed_url(feed_url)?;
+                    validate_provider_feed_url(feed_url, provider.allow_private_url)?;
+                }
+                if let Some(timeout) = provider.timeout_seconds {
+                    let _ = clamp_provider_timeout_seconds(timeout);
                 }
             }
         }
@@ -617,7 +703,21 @@ impl SearchSettingsPatchRequest {
             next.allow_private_remote_urls = allow_private_remote_urls;
         }
         if let Some(providers) = self.providers.as_ref() {
-            next.providers = providers.clone();
+            next.providers = providers
+                .iter()
+                .map(|provider| {
+                    let mut provider = provider.clone();
+                    if provider.format == SearchProviderFormat::Torznab
+                        && provider.credential_ref.is_none()
+                    {
+                        provider.credential_ref = Some(credential_ref_for_provider(&provider.name));
+                    }
+                    if let Some(timeout) = provider.timeout_seconds {
+                        provider.timeout_seconds = Some(clamp_provider_timeout_seconds(timeout));
+                    }
+                    provider
+                })
+                .collect();
         }
         next.validate()?;
         Ok(next)
@@ -721,9 +821,27 @@ pub fn search_settings_response(settings: &SearchSettings) -> Result<SearchSetti
     })
 }
 
+pub async fn search_settings_response_with_secrets(
+    settings: &SearchSettings,
+    secrets: &dyn SearchSecretStore,
+) -> Result<SearchSettingsResponse> {
+    let mut response = search_settings_response(settings)?;
+    for provider in &mut response.providers {
+        if provider.provider_format == Some(SearchProviderFormat::Torznab) {
+            let reference = settings
+                .provider_setting(&provider.name)
+                .ok()
+                .and_then(|setting| setting.credential_ref)
+                .unwrap_or_else(|| credential_ref_for_provider(&provider.name));
+            provider.has_credentials = secrets.has_secret(&reference).await.unwrap_or(false);
+        }
+    }
+    Ok(response)
+}
+
 pub fn available_providers(settings: &SearchSettings) -> Result<Vec<SearchProviderInfo>> {
     settings.validate()?;
-    let registry = SearchRegistry::new(settings);
+    let registry = SearchRegistry::new(settings, Arc::new(InMemorySearchSecretStore::new()));
     let mut providers = registry.describe(settings);
     if is_animus_edition(&current_product_edition()) {
         providers.retain(|provider| !is_animus_blocked_provider(&provider.name));
@@ -731,20 +849,84 @@ pub fn available_providers(settings: &SearchSettings) -> Result<Vec<SearchProvid
     Ok(providers)
 }
 
-pub async fn execute_search(settings: &SearchSettings, query: SearchQuery) -> Result<SearchResponse> {
+pub async fn available_providers_with_secrets(
+    settings: &SearchSettings,
+    secrets: Arc<dyn SearchSecretStore>,
+) -> Result<Vec<SearchProviderInfo>> {
+    settings.validate()?;
+    let registry = SearchRegistry::new(settings, secrets.clone());
+    let mut providers = registry.describe(settings);
+    if is_animus_edition(&current_product_edition()) {
+        providers.retain(|provider| !is_animus_blocked_provider(&provider.name));
+    }
+    for provider in &mut providers {
+        if provider.provider_format == Some(SearchProviderFormat::Torznab) {
+            let reference = settings
+                .provider_setting(&provider.name)
+                .ok()
+                .and_then(|setting| setting.credential_ref)
+                .unwrap_or_else(|| credential_ref_for_provider(&provider.name));
+            provider.has_credentials = secrets.has_secret(&reference).await.unwrap_or(false);
+        }
+    }
+    Ok(providers)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub async fn execute_search(
+    settings: &SearchSettings,
+    query: SearchQuery,
+) -> Result<SearchResponse> {
+    execute_search_with_secrets(settings, query, Arc::new(InMemorySearchSecretStore::new())).await
+}
+
+pub async fn execute_search_with_secrets(
+    settings: &SearchSettings,
+    query: SearchQuery,
+    secrets: Arc<dyn SearchSecretStore>,
+) -> Result<SearchResponse> {
     settings.validate()?;
     if !settings.enabled {
         return Err(anyhow!("search is disabled in settings"));
     }
 
     let resolved = query.resolve(settings)?;
-    let registry = SearchRegistry::new(settings);
+    let registry = SearchRegistry::new(settings, secrets.clone());
     let ctx = SearchExecutionContext {
         http: SearchHttpClient::new()?,
         allow_private_remote_urls: settings.allow_private_remote_urls,
+        secrets,
     };
 
     registry.search(&resolved, settings, &ctx).await
+}
+
+pub fn clamp_provider_timeout_seconds(value: u64) -> u64 {
+    value.clamp(MIN_PROVIDER_TIMEOUT_SECS, MAX_PROVIDER_TIMEOUT_SECS)
+}
+
+pub fn removed_provider_credential_refs(
+    before: &SearchSettings,
+    after: &SearchSettings,
+) -> Vec<String> {
+    let before_map = before.provider_map().unwrap_or_default();
+    let after_map = after.provider_map().unwrap_or_default();
+    before_map
+        .into_iter()
+        .filter_map(|(name, setting)| {
+            if after_map.contains_key(&name) {
+                return None;
+            }
+            if setting.format != SearchProviderFormat::Torznab {
+                return None;
+            }
+            Some(
+                setting
+                    .credential_ref
+                    .unwrap_or_else(|| credential_ref_for_provider(&name)),
+            )
+        })
+        .collect()
 }
 
 fn validate_provider_name(value: &str) -> Result<()> {
@@ -769,14 +951,34 @@ fn validate_provider_name(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_provider_feed_url(value: &str) -> Result<()> {
+fn validate_provider_feed_url(value: &str, allow_private_url: bool) -> Result<()> {
     if value.len() > PROVIDER_URL_MAX_LEN {
         return Err(anyhow!(
             "feed_url cannot exceed {} characters",
             PROVIDER_URL_MAX_LEN
         ));
     }
-    let _ = validate_remote_url(value, false)?;
+    let _ = validate_remote_url(value, allow_private_url)?;
+    Ok(())
+}
+
+fn validate_torznab_category(value: &str) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("provider categories cannot be empty"));
+    }
+    if trimmed.eq_ignore_ascii_case("all") {
+        return Ok(());
+    }
+    if !trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(anyhow!("Torznab categories must be numeric category IDs"));
+    }
+    if trimmed.len() > CATEGORY_MAX_LEN {
+        return Err(anyhow!(
+            "category cannot exceed {} characters",
+            CATEGORY_MAX_LEN
+        ));
+    }
     Ok(())
 }
 
@@ -823,14 +1025,14 @@ fn is_known_provider_name(name: &str) -> bool {
     )
 }
 
-fn validate_remote_url(raw: &str, allow_private_remote_urls: bool) -> Result<Url> {
+pub(crate) fn validate_remote_url(raw: &str, allow_private_remote_urls: bool) -> Result<Url> {
     let url = Url::parse(raw).context("invalid URL")?;
     match url.scheme() {
         "http" | "https" => {}
         _ => return Err(anyhow!("URL scheme must be http or https")),
     }
 
-    if url.username().len() > 0 || url.password().is_some() {
+    if !url.username().is_empty() || url.password().is_some() {
         return Err(anyhow!(
             "URLs containing embedded credentials are not allowed"
         ));
@@ -927,14 +1129,18 @@ fn is_private_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn redact_url_for_log(url: &Url) -> String {
+pub(crate) fn redact_url_for_log(url: &Url) -> String {
+    // Strip the query string entirely so API keys never appear in diagnostics.
     let mut cloned = url.clone();
     cloned.set_query(None);
     cloned.set_fragment(None);
     cloned.to_string()
 }
 
-fn sanitize_result(result: SearchResult, allow_private_remote_urls: bool) -> Result<SearchResult> {
+pub(crate) fn sanitize_result(
+    result: SearchResult,
+    allow_private_remote_urls: bool,
+) -> Result<SearchResult> {
     let name = result.name.trim();
     if name.is_empty() {
         return Err(anyhow!("search results must include a name"));
@@ -976,6 +1182,12 @@ fn sanitize_result(result: SearchResult, allow_private_remote_urls: bool) -> Res
         None => None,
     };
 
+    let sources = if result.sources.is_empty() {
+        vec![result.source.clone()]
+    } else {
+        result.sources
+    };
+
     Ok(SearchResult {
         id: result.id,
         source: result.source,
@@ -988,6 +1200,7 @@ fn sanitize_result(result: SearchResult, allow_private_remote_urls: bool) -> Res
         description_url,
         published_at: result.published_at,
         category: result.category.filter(|value| !value.trim().is_empty()),
+        sources,
     })
 }
 
@@ -1014,10 +1227,12 @@ impl SearchExecutionContext {
 }
 
 impl SearchHttpClient {
-    fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
+        // Manual redirect handling is applied in fetch helpers so each hop can be
+        // re-validated (SSRF / private-host pinning).
         let client = Client::builder()
             .timeout(SEARCH_HTTP_TIMEOUT)
-            .redirect(Policy::limited(5))
+            .redirect(Policy::none())
             .build()
             .context("failed to build search HTTP client")?;
         Ok(Self { client })
@@ -1028,86 +1243,189 @@ impl SearchHttpClient {
         raw_url: &str,
         allow_private_remote_urls: bool,
     ) -> Result<T> {
-        let url = validate_remote_url(raw_url, allow_private_remote_urls)?;
-        let redacted = redact_url_for_log(&url);
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .with_context(|| format!("failed to fetch {}", redacted))?
-            .error_for_status()
-            .with_context(|| format!("provider responded with an error for {}", redacted))?;
-
-        response
-            .json::<T>()
-            .await
-            .with_context(|| format!("provider returned invalid JSON for {}", redacted))
+        let body = self
+            .get_text_limited(
+                raw_url,
+                allow_private_remote_urls,
+                None,
+                MAX_SEARCH_RESPONSE_BYTES,
+                None,
+                None,
+            )
+            .await?;
+        serde_json::from_str(&body).context("provider returned invalid JSON")
     }
 
     async fn get_text(&self, raw_url: &str, allow_private_remote_urls: bool) -> Result<String> {
-        let url = validate_remote_url(raw_url, allow_private_remote_urls)?;
-        let redacted = redact_url_for_log(&url);
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .with_context(|| format!("failed to fetch {}", redacted))?
-            .error_for_status()
-            .with_context(|| format!("provider responded with an error for {}", redacted))?;
-
-        response
-            .text()
-            .await
-            .with_context(|| format!("provider returned invalid text for {}", redacted))
+        self.get_text_limited(
+            raw_url,
+            allow_private_remote_urls,
+            None,
+            MAX_SEARCH_RESPONSE_BYTES,
+            None,
+            None,
+        )
+        .await
     }
 
-    async fn get_json_with_user_agent<T: DeserializeOwned>(
+    pub(crate) async fn get_json_with_user_agent<T: DeserializeOwned>(
         &self,
         raw_url: &str,
         allow_private_remote_urls: bool,
     ) -> Result<T> {
-        let url = validate_remote_url(raw_url, allow_private_remote_urls)?;
-        let redacted = redact_url_for_log(&url);
-        let response = self
-            .client
-            .get(url)
-            .header("User-Agent", SEARCH_USER_AGENT)
-            .send()
-            .await
-            .with_context(|| format!("failed to fetch {}", redacted))?
-            .error_for_status()
-            .with_context(|| format!("provider responded with an error for {}", redacted))?;
-
-        response
-            .json::<T>()
-            .await
-            .with_context(|| format!("provider returned invalid JSON for {}", redacted))
+        let body = self
+            .get_text_limited(
+                raw_url,
+                allow_private_remote_urls,
+                None,
+                MAX_SEARCH_RESPONSE_BYTES,
+                Some(SEARCH_USER_AGENT),
+                None,
+            )
+            .await?;
+        serde_json::from_str(&body).context("provider returned invalid JSON")
     }
 
-    async fn get_text_with_user_agent(
+    pub(crate) async fn get_text_with_user_agent(
         &self,
         raw_url: &str,
         allow_private_remote_urls: bool,
     ) -> Result<String> {
-        let url = validate_remote_url(raw_url, allow_private_remote_urls)?;
-        let redacted = redact_url_for_log(&url);
-        let response = self
-            .client
-            .get(url)
-            .header("User-Agent", SEARCH_USER_AGENT)
-            .send()
-            .await
-            .with_context(|| format!("failed to fetch {}", redacted))?
-            .error_for_status()
-            .with_context(|| format!("provider responded with an error for {}", redacted))?;
-
-        response
-            .text()
-            .await
-            .with_context(|| format!("provider returned invalid text for {}", redacted))
+        self.get_text_limited(
+            raw_url,
+            allow_private_remote_urls,
+            None,
+            MAX_SEARCH_RESPONSE_BYTES,
+            Some(SEARCH_USER_AGENT),
+            None,
+        )
+        .await
     }
+
+    /// Fetch text with optional timeout, body limit, UA, and private-redirect host pinning.
+    pub(crate) async fn get_text_limited(
+        &self,
+        raw_url: &str,
+        allow_private_remote_urls: bool,
+        timeout: Option<Duration>,
+        max_bytes: u64,
+        user_agent: Option<&str>,
+        approved_private_origin: Option<&str>,
+    ) -> Result<String> {
+        let approved_host = approved_private_origin
+            .and_then(|value| Url::parse(value).ok())
+            .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()));
+
+        let mut current = validate_remote_url(raw_url, allow_private_remote_urls)?;
+        let timeout = timeout.unwrap_or(SEARCH_HTTP_TIMEOUT);
+
+        for _ in 0..6 {
+            let redacted = redact_url_for_log(&current);
+            let mut request = self.client.get(current.clone()).timeout(timeout);
+            if let Some(user_agent) = user_agent {
+                request = request.header("User-Agent", user_agent);
+            }
+
+            let response = request
+                .send()
+                .await
+                .with_context(|| format!("failed to fetch {}", redacted))?;
+
+            let status = response.status();
+            if status.is_redirection() {
+                let location = response
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .ok_or_else(|| anyhow!("provider returned a redirect without Location"))?;
+                let next = current
+                    .join(location)
+                    .context("provider returned an invalid redirect URL")?;
+                validate_redirect_url(
+                    &current,
+                    &next,
+                    allow_private_remote_urls,
+                    approved_host.as_deref(),
+                )?;
+                current = next;
+                continue;
+            }
+
+            let response = response
+                .error_for_status()
+                .with_context(|| format!("provider responded with an error for {}", redacted))?;
+
+            let bytes = response
+                .bytes()
+                .await
+                .with_context(|| format!("provider returned invalid text for {}", redacted))?;
+            if bytes.len() as u64 > max_bytes {
+                return Err(anyhow!(
+                    "response_too_large: provider response exceeded size limit"
+                ));
+            }
+            return String::from_utf8(bytes.to_vec())
+                .context("provider returned invalid UTF-8 text");
+        }
+
+        Err(anyhow!("provider exceeded redirect limit"))
+    }
+}
+
+fn validate_redirect_url(
+    from: &Url,
+    to: &Url,
+    allow_private_remote_urls: bool,
+    approved_private_host: Option<&str>,
+) -> Result<()> {
+    match to.scheme() {
+        "http" | "https" => {}
+        _ => return Err(anyhow!("URL scheme must be http or https")),
+    }
+    if !to.username().is_empty() || to.password().is_some() {
+        return Err(anyhow!(
+            "URLs containing embedded credentials are not allowed"
+        ));
+    }
+
+    let host = to
+        .host_str()
+        .ok_or_else(|| anyhow!("URL must include a host"))?
+        .to_ascii_lowercase();
+
+    let host_is_private = host_looks_private(&host);
+    if host_is_private {
+        if !allow_private_remote_urls {
+            return Err(anyhow!("private or localhost hosts are blocked"));
+        }
+        // Private redirects must stay on the provider's approved host.
+        if let Some(approved) = approved_private_host {
+            if host != approved {
+                return Err(anyhow!("redirect to unrelated private host is not allowed"));
+            }
+        } else if let Some(from_host) = from.host_str() {
+            if !host.eq_ignore_ascii_case(from_host) {
+                return Err(anyhow!("redirect to unrelated private host is not allowed"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn host_looks_private(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost")
+        || host.eq_ignore_ascii_case("localhost.localdomain")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+        || host.ends_with(".localhost")
+    {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return is_private_ip(ip);
+    }
+    false
 }
 
 #[derive(Debug, Default)]
@@ -1369,6 +1687,7 @@ fn xml_item_to_search_result(item: XmlFeedItem, source: &str) -> Option<SearchRe
         description_url: item.link,
         published_at: item.published_at,
         category: item.category,
+        sources: Vec::new(),
     })
 }
 
@@ -1381,7 +1700,7 @@ struct SearchRegistry {
 }
 
 impl SearchRegistry {
-    fn new(settings: &SearchSettings) -> Self {
+    fn new(settings: &SearchSettings, secrets: Arc<dyn SearchSecretStore>) -> Self {
         let mut providers: BTreeMap<String, Box<dyn SearchProvider>> = BTreeMap::new();
         providers.insert("mock".to_string(), Box::new(MockSearchProvider));
         providers.insert(
@@ -1446,15 +1765,27 @@ impl SearchRegistry {
                     );
                     categories
                 };
-                providers.insert(
-                    provider.name.clone(),
-                    Box::new(CustomFeedProvider {
-                        name: provider.name.clone(),
-                        label,
-                        categories,
-                        format: provider.format,
-                    }),
-                );
+                if provider.format == SearchProviderFormat::Torznab {
+                    providers.insert(
+                        provider.name.clone(),
+                        Box::new(TorznabProvider {
+                            name: provider.name.clone(),
+                            label,
+                            categories,
+                            secrets: secrets.clone(),
+                        }),
+                    );
+                } else {
+                    providers.insert(
+                        provider.name.clone(),
+                        Box::new(CustomFeedProvider {
+                            name: provider.name.clone(),
+                            label,
+                            categories,
+                            format: provider.format,
+                        }),
+                    );
+                }
             }
         }
         Self { providers }
@@ -1473,11 +1804,20 @@ impl SearchRegistry {
                     configured: provider.configured(settings),
                     is_custom: !is_known_provider_name(provider.name()),
                     supports_browse: provider.supports_browse(),
-                    feed_url: setting.and_then(|item| item.feed_url),
+                    feed_url: setting.as_ref().and_then(|item| item.feed_url.clone()),
                     provider_format: provider.provider_format(),
                     categories: provider.categories(),
                     requires_feed_url: provider.requires_feed_url(),
                     description: provider.description().to_string(),
+                    has_credentials: false,
+                    allow_private_url: setting
+                        .as_ref()
+                        .map(|item| item.allow_private_url)
+                        .unwrap_or(false),
+                    timeout_seconds: setting.as_ref().and_then(|item| item.timeout_seconds),
+                    connection_status: None,
+                    last_tested_at: None,
+                    last_error: None,
                 }
             })
             .collect::<Vec<_>>();
@@ -1494,64 +1834,203 @@ impl SearchRegistry {
         settings: &SearchSettings,
         ctx: &SearchExecutionContext,
     ) -> Result<SearchResponse> {
-        let mut provider_statuses = Vec::new();
-        let mut merged_results = Vec::new();
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDERS));
+        let mut join_set = tokio::task::JoinSet::new();
 
-        for source in &query.sources {
+        for source in query.sources.clone() {
             let provider = self
                 .providers
-                .get(source)
+                .get(&source)
                 .ok_or_else(|| anyhow!("unknown provider {}", source))?;
+            let name = provider.name().to_string();
+            let label = provider.label().to_string();
+            let configured = provider.configured(settings);
+            let supports_browse = provider.supports_browse();
 
-            if query.browse_mode && !provider.supports_browse() {
-                provider_statuses.push(SearchProviderStatus {
-                    name: provider.name().to_string(),
-                    label: provider.label().to_string(),
-                    configured: provider.configured(settings),
-                    ok: false,
-                    result_count: 0,
-                    error: Some("Browse mode is not supported by this provider".to_string()),
+            if query.browse_mode && !supports_browse {
+                // Record synchronously; no network work.
+                // Collected after the concurrent fan-out below.
+                join_set.spawn(async move {
+                    (
+                        source,
+                        SearchProviderStatus {
+                            name,
+                            label,
+                            configured,
+                            ok: false,
+                            result_count: 0,
+                            error: Some(
+                                "Browse mode is not supported by this provider".to_string(),
+                            ),
+                            latency_ms: None,
+                            timed_out: false,
+                        },
+                        Vec::new(),
+                    )
                 });
                 continue;
             }
 
-            match provider.search(query, settings, ctx).await {
-                Ok(provider_results) => {
-                    let mut sanitized = Vec::new();
-                    for result in provider_results {
-                        match sanitize_result(result, ctx.allow_private_remote_urls) {
-                            Ok(result) => sanitized.push(result),
-                            Err(err) => {
-                                warn!("dropping invalid search result from {}: {}", source, err)
+            // SearchProvider is not dyn-cloneable; run sequentially-named lookups on the
+            // shared registry by re-entering through a per-source closure that captures
+            // cloned settings/query/context and calls the boxed provider via a local match
+            // on source name after spawning. Because trait objects cannot move into tasks
+            // easily without Arc, wrap provider invocation in an async block using
+            // references that are 'static via Arc settings clones.
+            let settings = settings.clone();
+            let query = query.clone();
+            let ctx = ctx.clone();
+            let permit_semaphore = semaphore.clone();
+            // We need the provider callable inside the task. Reconstruct a one-off registry
+            // for this source only would be expensive; instead call through a helper that
+            // uses the concrete dispatch already registered. Use Arc of the provider map
+            // by searching again via execute_single_provider.
+            let provider_name = source.clone();
+            join_set.spawn(async move {
+                let _permit = match permit_semaphore.acquire_owned().await {
+                    Ok(permit) => permit,
+                    Err(_) => {
+                        return (
+                            provider_name.clone(),
+                            SearchProviderStatus {
+                                name: provider_name.clone(),
+                                label: provider_name.clone(),
+                                configured: false,
+                                ok: false,
+                                result_count: 0,
+                                error: Some("Search concurrency limiter closed".to_string()),
+                                latency_ms: None,
+                                timed_out: false,
+                            },
+                            Vec::new(),
+                        );
+                    }
+                };
+
+                let started = Instant::now();
+                let registry = SearchRegistry::new(&settings, ctx.secrets.clone());
+                let Some(provider) = registry.providers.get(&provider_name) else {
+                    return (
+                        provider_name.clone(),
+                        SearchProviderStatus {
+                            name: provider_name.clone(),
+                            label: provider_name.clone(),
+                            configured: false,
+                            ok: false,
+                            result_count: 0,
+                            error: Some("unknown provider".to_string()),
+                            latency_ms: None,
+                            timed_out: false,
+                        },
+                        Vec::new(),
+                    );
+                };
+
+                let provider_timeout = settings
+                    .provider_setting(&provider_name)
+                    .ok()
+                    .and_then(|setting| setting.timeout_seconds)
+                    .map(clamp_provider_timeout_seconds)
+                    .unwrap_or(DEFAULT_PROVIDER_TIMEOUT_SECS);
+                let timeout = Duration::from_secs(provider_timeout);
+
+                let search_future = provider.search(&query, &settings, &ctx);
+                let outcome = tokio::time::timeout(timeout, search_future).await;
+                let latency_ms = started.elapsed().as_millis() as u64;
+
+                match outcome {
+                    Ok(Ok(provider_results)) => {
+                        let allow_private = settings
+                            .provider_setting(&provider_name)
+                            .map(|setting| {
+                                ctx.allow_private_remote_urls || setting.allow_private_url
+                            })
+                            .unwrap_or(ctx.allow_private_remote_urls);
+                        let mut sanitized = Vec::new();
+                        for result in provider_results {
+                            match sanitize_result(result, allow_private) {
+                                Ok(result) => sanitized.push(result),
+                                Err(err) => {
+                                    warn!(
+                                        "dropping invalid search result from {}: {}",
+                                        provider_name, err
+                                    )
+                                }
                             }
                         }
+                        (
+                            provider_name.clone(),
+                            SearchProviderStatus {
+                                name: provider.name().to_string(),
+                                label: provider.label().to_string(),
+                                configured: provider.configured(&settings),
+                                ok: true,
+                                result_count: sanitized.len(),
+                                error: None,
+                                latency_ms: Some(latency_ms),
+                                timed_out: false,
+                            },
+                            sanitized,
+                        )
                     }
+                    Ok(Err(err)) => {
+                        let message = sanitise_provider_status_error(&err);
+                        (
+                            provider_name.clone(),
+                            SearchProviderStatus {
+                                name: provider.name().to_string(),
+                                label: provider.label().to_string(),
+                                configured: provider.configured(&settings),
+                                ok: false,
+                                result_count: 0,
+                                error: Some(message),
+                                latency_ms: Some(latency_ms),
+                                timed_out: false,
+                            },
+                            Vec::new(),
+                        )
+                    }
+                    Err(_) => (
+                        provider_name.clone(),
+                        SearchProviderStatus {
+                            name: provider.name().to_string(),
+                            label: provider.label().to_string(),
+                            configured: provider.configured(&settings),
+                            ok: false,
+                            result_count: 0,
+                            error: Some(format!(
+                                "Connection timed out after {provider_timeout} seconds"
+                            )),
+                            latency_ms: Some(latency_ms),
+                            timed_out: true,
+                        },
+                        Vec::new(),
+                    ),
+                }
+            });
+        }
 
-                    provider_statuses.push(SearchProviderStatus {
-                        name: provider.name().to_string(),
-                        label: provider.label().to_string(),
-                        configured: provider.configured(settings),
-                        ok: true,
-                        result_count: sanitized.len(),
-                        error: None,
-                    });
-                    merged_results.extend(sanitized);
+        let mut provider_statuses = Vec::new();
+        let mut merged_results = Vec::new();
+        while let Some(joined) = join_set.join_next().await {
+            match joined {
+                Ok((_source, status, results)) => {
+                    merged_results.extend(results);
+                    provider_statuses.push(status);
                 }
                 Err(err) => {
-                    provider_statuses.push(SearchProviderStatus {
-                        name: provider.name().to_string(),
-                        label: provider.label().to_string(),
-                        configured: provider.configured(settings),
-                        ok: false,
-                        result_count: 0,
-                        error: Some(err.to_string()),
-                    });
+                    warn!("search provider task failed: {err}");
                 }
             }
         }
 
-        let mut deduped = dedupe_results(merged_results);
-        deduped.sort_by(compare_search_results);
+        provider_statuses.sort_by(|left, right| {
+            compare_media_provider_priority(&left.name, &right.name)
+                .then_with(|| left.name.cmp(&right.name))
+        });
+
+        let mut deduped = dedup::dedupe_results(merged_results);
+        deduped.sort_by(dedup::compare_search_results);
         deduped.truncate(query.limit as usize);
 
         Ok(SearchResponse {
@@ -1559,6 +2038,23 @@ impl SearchRegistry {
             providers: provider_statuses,
             browse_mode: query.browse_mode,
         })
+    }
+}
+
+fn sanitise_provider_status_error(err: &anyhow::Error) -> String {
+    let text = err.to_string();
+    if let Some((_, message)) = text.split_once(": ") {
+        if message.len() <= 160 {
+            return message.to_string();
+        }
+    }
+    if text.to_ascii_lowercase().contains("timed out") {
+        return "Connection timed out".to_string();
+    }
+    if text.len() > 160 {
+        "Provider request failed".to_string()
+    } else {
+        text
     }
 }
 
@@ -1615,6 +2111,7 @@ impl SearchProvider for MockSearchProvider {
                 description_url: Some("https://example.com/open-content/ubuntu-archive".to_string()),
                 published_at: Some("2026-01-01T00:00:00Z".to_string()),
                 category: Some("linux".to_string()),
+                sources: Vec::new(),
             },
             SearchResult {
                 id: "mock-book-1".to_string(),
@@ -1628,6 +2125,7 @@ impl SearchProvider for MockSearchProvider {
                 description_url: Some("https://example.com/open-content/books".to_string()),
                 published_at: Some("2026-02-14T00:00:00Z".to_string()),
                 category: Some("books".to_string()),
+                sources: Vec::new(),
             },
             SearchResult {
                 id: "mock-music-1".to_string(),
@@ -1641,6 +2139,7 @@ impl SearchProvider for MockSearchProvider {
                 description_url: Some("https://example.com/open-content/audio".to_string()),
                 published_at: Some("2026-03-20T00:00:00Z".to_string()),
                 category: Some("music".to_string()),
+                sources: Vec::new(),
             },
         ];
 
@@ -1754,6 +2253,7 @@ impl SearchProvider for OpenContentProvider {
                 description_url: item.description_url,
                 published_at: item.published_at,
                 category: item.category,
+                sources: Vec::new(),
             })
             .take(query.limit as usize)
             .collect())
@@ -1901,6 +2401,7 @@ impl SearchProvider for InternetArchiveProvider {
                     )),
                     published_at: doc.publicdate,
                     category,
+                    sources: Vec::new(),
                 }
             })
             .collect())
@@ -1924,6 +2425,9 @@ impl SearchProvider for CustomFeedProvider {
             }
             SearchProviderFormat::RssAtom => {
                 "Custom RSS or Atom torrent feed for legal and open-content catalogs."
+            }
+            SearchProviderFormat::Torznab => {
+                "Torznab-compatible indexer endpoint (Jackett, Prowlarr, or similar)."
             }
         }
     }
@@ -2002,6 +2506,7 @@ impl SearchProvider for CustomFeedProvider {
                         description_url: item.description_url,
                         published_at: item.published_at,
                         category: item.category,
+                        sources: Vec::new(),
                     })
                     .take(query.limit as usize)
                     .collect())
@@ -2029,73 +2534,11 @@ impl SearchProvider for CustomFeedProvider {
                     .take(query.limit as usize)
                     .collect())
             }
+            SearchProviderFormat::Torznab => Err(anyhow!(
+                "Torznab providers must use the native Torznab implementation"
+            )),
         }
     }
-}
-
-fn dedupe_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
-    let mut deduped = BTreeMap::new();
-    for result in results {
-        let key = search_result_dedupe_key(&result);
-        match deduped.get(&key) {
-            Some(existing) if compare_search_results(&result, existing) != Ordering::Less => {}
-            _ => {
-                deduped.insert(key, result);
-            }
-        }
-    }
-    deduped.into_values().collect()
-}
-
-fn search_result_dedupe_key(result: &SearchResult) -> String {
-    if let Some(magnet_uri) = result.magnet_uri.as_deref() {
-        if let Some(info_hash) = extract_btih_from_magnet(magnet_uri) {
-            return format!("btih:{info_hash}");
-        }
-    }
-    if let Some(torrent_url) = result.torrent_url.as_deref() {
-        return format!("torrent:{}", torrent_url.to_ascii_lowercase());
-    }
-    format!(
-        "name:{}:{}",
-        result.name.to_ascii_lowercase(),
-        result.size_bytes.unwrap_or_default()
-    )
-}
-
-fn extract_btih_from_magnet(raw: &str) -> Option<String> {
-    let url = Url::parse(raw).ok()?;
-    url.query_pairs().find_map(|(key, value)| {
-        if key != "xt" {
-            return None;
-        }
-        value
-            .strip_prefix("urn:btih:")
-            .map(|hash| hash.to_ascii_lowercase())
-    })
-}
-
-fn compare_option_desc<T: Ord>(left: Option<T>, right: Option<T>) -> Ordering {
-    match (left, right) {
-        (Some(left), Some(right)) => right.cmp(&left),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => Ordering::Equal,
-    }
-}
-
-fn compare_search_results(left: &SearchResult, right: &SearchResult) -> Ordering {
-    compare_option_desc(left.seeders, right.seeders)
-        .then_with(|| compare_media_provider_priority(&left.source, &right.source))
-        .then_with(|| compare_option_desc(left.leechers, right.leechers))
-        .then_with(|| {
-            compare_option_desc(
-                left.published_at.as_deref().map(str::to_string),
-                right.published_at.as_deref().map(str::to_string),
-            )
-        })
-        .then_with(|| compare_option_desc(left.size_bytes, right.size_bytes))
-        .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase()))
 }
 
 fn slugify(value: &str) -> String {
@@ -2116,15 +2559,19 @@ fn slugify(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::cmp::Ordering;
+    use std::sync::Mutex;
 
+    use super::dedup::compare_search_results;
     use super::{
         animus_excluded_provider_names, animus_media_provider_names,
-        apply_edition_search_defaults_for_edition, available_providers, compare_search_results,
-        default_provider_settings, default_provider_settings_for_edition, execute_search,
-        media_provider_priority, parse_custom_xml_feed, validate_magnet_uri, validate_remote_url,
-        SearchProviderFormat, SearchProviderSetting, SearchQuery, SearchResult, SearchSettings,
+        apply_edition_search_defaults_for_edition, available_providers, default_provider_settings,
+        default_provider_settings_for_edition, execute_search, media_provider_priority,
+        parse_custom_xml_feed, validate_magnet_uri, validate_remote_url, SearchProviderFormat,
+        SearchProviderSetting, SearchQuery, SearchResult, SearchSettings,
         SearchSettingsPatchRequest, MAX_RESULT_LIMIT,
     };
+
+    static EDITION_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn magnet_validation_accepts_btih_hex() {
@@ -2157,11 +2604,13 @@ mod tests {
     fn media_provider_priority_orders_movie_and_tv_first() {
         assert!(media_provider_priority("yts") < media_provider_priority("tpb_tv"));
         assert!(media_provider_priority("tpb_movies") < media_provider_priority("x1337_tv"));
-        assert!(media_provider_priority("x1337_movies") < media_provider_priority("internet_archive"));
+        assert!(
+            media_provider_priority("x1337_movies") < media_provider_priority("internet_archive")
+        );
     }
 
     #[test]
-    fn compare_search_results_prefers_media_providers_at_equal_seeders() {
+    fn compare_search_results_orders_by_name_when_seeders_equal() {
         let movie = SearchResult {
             id: "yts-1".to_string(),
             source: "yts".to_string(),
@@ -2174,6 +2623,7 @@ mod tests {
             description_url: None,
             published_at: None,
             category: Some("movies".to_string()),
+            sources: Vec::new(),
         };
         let archive = SearchResult {
             id: "ia-1".to_string(),
@@ -2187,8 +2637,10 @@ mod tests {
             description_url: None,
             published_at: None,
             category: None,
+            sources: Vec::new(),
         };
-        assert_eq!(compare_search_results(&movie, &archive), Ordering::Less);
+        // Seeders equal and no magnets: deterministic name ascending.
+        assert_eq!(compare_search_results(&archive, &movie), Ordering::Less);
     }
 
     #[test]
@@ -2240,6 +2692,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 SearchProviderSetting {
                     name: "tpb_movies".to_string(),
@@ -2248,6 +2703,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 SearchProviderSetting {
                     name: "internet_archive".to_string(),
@@ -2256,6 +2714,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
             ],
         };
@@ -2268,14 +2729,18 @@ mod tests {
         let providers = settings.provider_map().unwrap();
         for name in animus_media_provider_names() {
             assert!(
-                providers.get(*name).is_some_and(|provider| provider.enabled),
+                providers
+                    .get(*name)
+                    .is_some_and(|provider| provider.enabled),
                 "{name} should be enabled after animus migration"
             );
         }
 
         for name in animus_excluded_provider_names() {
             assert!(
-                providers.get(*name).is_some_and(|provider| !provider.enabled),
+                providers
+                    .get(*name)
+                    .is_some_and(|provider| !provider.enabled),
                 "{name} should be disabled after animus migration"
             );
         }
@@ -2283,20 +2748,17 @@ mod tests {
 
     #[test]
     fn animus_internet_archive_is_fully_blocked() {
+        let _guard = EDITION_ENV_LOCK.lock().unwrap();
         std::env::set_var("ORC_TORRENT_EDITION", "animus");
 
         let settings = SearchSettings::default();
         let providers = available_providers(&settings).expect("animus providers");
-        assert!(
-            !providers
-                .iter()
-                .any(|provider| provider.name == "internet_archive")
-        );
-        assert!(
-            !providers
-                .iter()
-                .any(|provider| provider.name == "internet_archive_software")
-        );
+        assert!(!providers
+            .iter()
+            .any(|provider| provider.name == "internet_archive"));
+        assert!(!providers
+            .iter()
+            .any(|provider| provider.name == "internet_archive_software"));
 
         let query = SearchQuery {
             query: "ubuntu".to_string(),
@@ -2304,10 +2766,10 @@ mod tests {
             limit: Some(10),
             source: Some("internet_archive".to_string()),
         };
-        let err = query.resolve(&settings).expect_err("internet_archive blocked");
-        assert!(err
-            .to_string()
-            .contains("not available in AnimUS edition"));
+        let err = query
+            .resolve(&settings)
+            .expect_err("internet_archive blocked");
+        assert!(err.to_string().contains("not available in AnimUS edition"));
 
         let mut invalid_settings = settings.clone();
         if let Some(provider) = invalid_settings
@@ -2320,9 +2782,7 @@ mod tests {
         let err = invalid_settings
             .validate()
             .expect_err("enabled internet_archive rejected");
-        assert!(err
-            .to_string()
-            .contains("not available in AnimUS edition"));
+        assert!(err.to_string().contains("not available in AnimUS edition"));
 
         std::env::remove_var("ORC_TORRENT_EDITION");
     }
@@ -2337,7 +2797,10 @@ mod tests {
             providers: Vec::new(),
         };
 
-        assert!(!apply_edition_search_defaults_for_edition(&mut settings, "standard"));
+        assert!(!apply_edition_search_defaults_for_edition(
+            &mut settings,
+            "standard"
+        ));
         assert!(!settings.enabled);
     }
 
@@ -2368,6 +2831,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "mock".to_string(),
@@ -2376,6 +2842,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
             ]),
         };
@@ -2397,6 +2866,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "open_content".to_string(),
@@ -2405,6 +2877,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
             ],
         };
@@ -2414,9 +2889,7 @@ mod tests {
             limit: Some(10),
             source: Some("mock".to_string()),
         };
-        assert!(execute_search(&settings, query)
-            .await
-            .is_err());
+        assert!(execute_search(&settings, query).await.is_err());
     }
 
     #[tokio::test]
@@ -2434,6 +2907,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "internet_archive".to_string(),
@@ -2442,6 +2918,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "internet_archive_software".to_string(),
@@ -2450,6 +2929,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "open_content".to_string(),
@@ -2458,6 +2940,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
             ],
         };
@@ -2467,24 +2952,24 @@ mod tests {
             limit: Some(MAX_RESULT_LIMIT + 25),
             source: Some("mock".to_string()),
         };
-        let results = execute_search(&settings, query)
-            .await
-            .unwrap();
+        let results = execute_search(&settings, query).await.unwrap();
         assert!(results.results.len() <= MAX_RESULT_LIMIT as usize);
     }
 
     #[tokio::test]
     async fn empty_query_browse_mode_returns_provider_status() {
-        let settings = SearchSettings::default();
+        let settings = {
+            let _guard = EDITION_ENV_LOCK.lock().unwrap();
+            std::env::remove_var("ORC_TORRENT_EDITION");
+            SearchSettings::default()
+        };
         let query = SearchQuery {
             query: "".to_string(),
             category: None,
             limit: Some(10),
             source: Some("all".to_string()),
         };
-        let response = execute_search(&settings, query)
-            .await
-            .unwrap();
+        let response = execute_search(&settings, query).await.unwrap();
         assert!(response.browse_mode);
         assert!(!response.providers.is_empty());
     }
@@ -2504,6 +2989,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "internet_archive".to_string(),
@@ -2512,6 +3000,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "internet_archive_software".to_string(),
@@ -2520,6 +3011,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
                 super::SearchProviderSetting {
                     name: "open_content".to_string(),
@@ -2528,6 +3022,9 @@ mod tests {
                     feed_url: None,
                     format: SearchProviderFormat::OpenContentJson,
                     categories: Vec::new(),
+                    credential_ref: None,
+                    allow_private_url: false,
+                    timeout_seconds: None,
                 },
             ],
         };
@@ -2537,9 +3034,7 @@ mod tests {
             limit: Some(10),
             source: None,
         };
-        let response = execute_search(&settings, query)
-            .await
-            .unwrap();
+        let response = execute_search(&settings, query).await.unwrap();
         assert_eq!(response.providers.len(), 1);
         assert_eq!(response.providers[0].name, "mock");
     }
@@ -2599,5 +3094,68 @@ mod tests {
             Some("https://catalog.example/items/film-pack")
         );
         assert_eq!(results[0].category.as_deref(), Some("video"));
+    }
+
+    #[test]
+    fn legacy_provider_settings_deserialize_without_torznab_fields() {
+        let json = r#"{
+            "enabled": true,
+            "default_provider": "internet_archive",
+            "default_result_limit": 25,
+            "allow_private_remote_urls": false,
+            "providers": [
+                {
+                    "name": "custom_feed_1",
+                    "enabled": true,
+                    "label": "Legacy feed",
+                    "feed_url": "https://example.com/feed.json",
+                    "format": "open_content_json",
+                    "categories": ["books"]
+                }
+            ]
+        }"#;
+        let settings: SearchSettings = serde_json::from_str(json).unwrap();
+        let provider = &settings.providers[0];
+        assert_eq!(provider.format, SearchProviderFormat::OpenContentJson);
+        assert!(!provider.allow_private_url);
+        assert!(provider.credential_ref.is_none());
+        assert!(provider.timeout_seconds.is_none());
+        let encoded = serde_json::to_string(provider).unwrap();
+        assert!(!encoded.contains("api_key"));
+        assert!(!encoded.contains("secret"));
+    }
+
+    #[test]
+    fn loopback_feed_url_requires_explicit_private_consent() {
+        assert!(validate_remote_url("http://127.0.0.1:9117/torznab", false).is_err());
+        assert!(validate_remote_url("http://127.0.0.1:9117/torznab", true).is_ok());
+    }
+
+    #[test]
+    fn torznab_provider_settings_assign_credential_ref() {
+        let settings = SearchSettings {
+            enabled: true,
+            default_provider: None,
+            default_result_limit: 25,
+            allow_private_remote_urls: false,
+            providers: vec![SearchProviderSetting {
+                name: "local_jackett".to_string(),
+                enabled: false,
+                label: Some("Local Jackett".to_string()),
+                feed_url: Some("https://indexer.example/torznab".to_string()),
+                format: SearchProviderFormat::Torznab,
+                categories: vec!["2000".to_string()],
+                credential_ref: None,
+                allow_private_url: false,
+                timeout_seconds: Some(120),
+            }],
+        };
+        let mapped = settings.provider_map().unwrap();
+        let provider = mapped.get("local_jackett").unwrap();
+        assert_eq!(
+            provider.credential_ref.as_deref(),
+            Some("search-provider:local_jackett")
+        );
+        assert_eq!(provider.timeout_seconds, Some(60));
     }
 }
