@@ -81,11 +81,25 @@ dependencies {
 }
 
 def repoRoot = file('../../../..')
+def rustAndroidTargets = (System.getenv('ORC_ANDROID_RUST_TARGETS') ?: 'arm64-v8a,x86_64')
+        .split(',')
+        .collect { it.trim() }
+        .findAll { !it.isEmpty() }
+def supportedRustAndroidTargets = ['arm64-v8a', 'x86_64']
+if (rustAndroidTargets.isEmpty() || !supportedRustAndroidTargets.containsAll(rustAndroidTargets)) {
+    throw new GradleException("ORC_ANDROID_RUST_TARGETS must contain only: ${supportedRustAndroidTargets.join(', ')}")
+}
+def rustAndroidCommand = ['cargo', 'ndk']
+rustAndroidTargets.each { target ->
+    rustAndroidCommand.addAll(['-t', target])
+}
+rustAndroidCommand.addAll([
+        '-o', new File(projectDir, 'src/main/jniLibs').absolutePath,
+        'build', '-p', 'orc-android', '--release'
+])
 tasks.register('buildRustAndroid', Exec) {
     workingDir new File(repoRoot, 'crates')
-    commandLine 'cargo', 'ndk', '-t', 'arm64-v8a', '-t', 'x86_64', '-o',
-            new File(projectDir, 'src/main/jniLibs').absolutePath,
-            'build', '-p', 'orc-android', '--release'
+    commandLine rustAndroidCommand
     onlyIf { System.getenv('ORC_SKIP_RUST_ANDROID') != '1' }
 }
 preBuild.dependsOn tasks.named('buildRustAndroid')

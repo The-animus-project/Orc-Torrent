@@ -38,7 +38,10 @@ object TransferScheduler {
             val job = JobInfo.Builder(JOB_ID, ComponentName(appContext, OrcTransferJobService::class.java))
                 .setUserInitiated(true)
                 .setRequiredNetwork(network)
-                .setEstimatedNetworkBytes(JobInfo.NETWORK_BYTES_UNKNOWN, JobInfo.NETWORK_BYTES_UNKNOWN)
+                .setEstimatedNetworkBytes(
+                    JobInfo.NETWORK_BYTES_UNKNOWN.toLong(),
+                    JobInfo.NETWORK_BYTES_UNKNOWN.toLong(),
+                )
                 .build()
             appContext.getSystemService(JobScheduler::class.java).schedule(job)
         } else {

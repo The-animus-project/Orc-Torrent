@@ -15,9 +15,9 @@ import androidx.documentfile.provider.DocumentFile
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
+import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
-import com.getcapacitor.annotation.PluginMethod
 import com.orc.torrent.engine.EngineHost
 import com.orc.torrent.engine.SafDocumentBroker
 import com.orc.torrent.net.NativeApi
@@ -53,6 +53,10 @@ class OrcAndroidPlugin : Plugin() {
     }
 
     private fun rootUri(): Uri? = preferences.getString(KEY_TREE_URI, null)?.let(Uri::parse)
+
+    private fun PluginCall.rejectWithCause(message: String, cause: Throwable) {
+        reject(message, cause as? Exception ?: RuntimeException(cause))
+    }
 
     private fun hasPersistedGrant(uri: Uri): Boolean =
         context.contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission && it.isWritePermission }
@@ -107,7 +111,7 @@ class OrcAndroidPlugin : Plugin() {
     fun bootstrap(call: PluginCall) {
         runCatching { bootstrapPayload() }
             .onSuccess(call::resolve)
-            .onFailure { call.reject("Unable to start the ORC engine", it) }
+            .onFailure { call.rejectWithCause("Unable to start the ORC engine", it) }
     }
 
     @PluginMethod
@@ -171,7 +175,7 @@ class OrcAndroidPlugin : Plugin() {
         }
         runCatching { torrentPayload(uri) }
             .onSuccess(call::resolve)
-            .onFailure { call.reject("Unable to read the torrent file", it) }
+            .onFailure { call.rejectWithCause("Unable to read the torrent file", it) }
     }
 
     private fun torrentPayload(uri: Uri): JSObject {
@@ -211,7 +215,7 @@ class OrcAndroidPlugin : Plugin() {
         Thread {
             runCatching { NativeApi.pauseAll(context) }
                 .onSuccess { call.resolve() }
-                .onFailure { call.reject("Unable to pause transfers", it) }
+                .onFailure { call.rejectWithCause("Unable to pause transfers", it) }
         }.start()
     }
 
@@ -248,7 +252,7 @@ class OrcAndroidPlugin : Plugin() {
             }.onSuccess {
                 call.resolve(JSObject().put(if (share) "shared" else "opened", true))
             }.onFailure {
-                call.reject("Unable to ${if (share) "share" else "open"} the downloaded file", it)
+                call.rejectWithCause("Unable to ${if (share) "share" else "open"} the downloaded file", it)
             }
         }.start()
     }

@@ -114,6 +114,7 @@ jobs:
         api-level: [29, 33, 34, 36]
     env:
       ANDROID_NDK_VERSION: '28.2.13676358'
+      ORC_ANDROID_RUST_TARGETS: x86_64
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
