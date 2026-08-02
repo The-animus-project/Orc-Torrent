@@ -47,6 +47,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 - **Capacitor 8 Kotlin compatibility** — Use Capacitor's current `PluginMethod` package, pass `Exception` causes to plugin rejections, and provide long-valued UIDT network estimates.
 - **Android instrumentation identity** — Assert the production `com.orc.torrent` application ID instead of Capacitor's generated template package in emulator tests.
 - **Android test dependency alignment** — Keep Capacitor and Cordova instrumentation APKs on Kotlin 2.2.20, preventing duplicate standard-library classes from older transitive dependencies.
+- **Android API 36 emulator stability** — Enable KVM acceleration in CI so current Android images remain responsive to ADB during connected tests.
 
 ### Tests
 
