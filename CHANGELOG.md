@@ -27,10 +27,12 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 - **Transfer defaults** — Default Android transfers and ratio-1.0 seeding to unmetered Wi-Fi; cellular use, VPN kill switch, seed ratio, and seed time limits remain explicit user settings.
 - **Platform bridge** — Introduce shared Electron and Capacitor implementations for bootstrap, storage selection, torrent picking, file actions, lifecycle events, transfer policy, and deep links.
 - **Removal API** — Extend `POST /torrents/:id/remove` with optional `{ "delete_data": true }`; an omitted body continues to forget the torrent while keeping downloaded files.
+- **Build dependencies** — Update `electron-builder` to 26.15.3 and `quinn-proto` to 0.11.16 before producing the cross-platform packages.
 
 ### Security
 
 - **Native Android signing** — Release APKs are signed with the repository's protected Android keystore, while distributables and release checksums receive detached PGP signatures in CI.
+- **Patched HTTP tooling** — Resolve the current Axios advisories in the desktop build toolchain by locking Axios 1.19.0; `npm audit` reports no known vulnerabilities.
 - **Scoped storage** — Request no broad storage permission; reject traversal, read-only destinations, non-seekable providers, revoked grants, and insufficient-capacity destinations before transfer I/O.
 - **VPN-aware kill switch** — Detect Android VPN transport through `ConnectivityManager`, bind the process before creating Rust sockets, pause real rqbit transfers immediately on VPN loss, prevent fallback to a clear network, and require manual resume after reconnection.
 - **Network policy** — Block metered/cellular transfers by default and reschedule active Android work when the user changes the policy.
