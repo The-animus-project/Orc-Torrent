@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#D98652</color>
+    <color name="colorPrimaryDark">#1C1714</color>
+    <color name="colorAccent">#E9A06F</color>
+    <color name="orc_surface">#15110F</color>
+    <color name="orc_mark">#E39A69</color>
+</resources>

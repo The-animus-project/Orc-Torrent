@@ -8,6 +8,52 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.4.0] — 2026-08-03
+
+### Added
+
+- **Android 10+ application** — Ship a standalone, signed `arm64-v8a` APK with the shared Rust torrent engine running on-device through JNI and the React interface packaged with Capacitor.
+- **Phone-first interface** — Add onboarding, bottom navigation, torrent cards, an Add sheet, torrent overview and file-priority views, Privacy and Settings screens, safe-area handling, Android back navigation, and system light/dark theme support.
+- **Android import and file actions** — Accept magnet links and `.torrent` document intents, provide native file and folder pickers, and open or share completed files through Android content URIs.
+- **Persistent shared storage** — Use Android's Storage Access Framework with a persisted user-selected ORC folder, positional descriptor I/O, path-traversal protection, and recovery when a grant or removable volume becomes unavailable.
+- **Background transfers** — Use user-initiated data-transfer jobs on Android 14+ and a `dataSync` foreground service on Android 10–13, with aggregate progress, Pause All and Open notification actions, and persisted retry state.
+- **Android release automation** — Build and test API 29, 33, 34, and 36 emulator targets, produce the production APK, sign it with the Android release keystore, and publish PGP signatures and a signed checksum manifest with the cross-platform release.
+
+### Changed
+
+- **Reusable daemon runtime** — Refactor `orc-daemon` into a library plus desktop binary with explicit runtime directories, authentication policy, network provider, storage factory, graceful shutdown handle, and preserved desktop environment-variable behavior.
+- **Authenticated mobile API** — Bind the Android daemon to a random loopback port, require a per-install admin token on every route except health/version, restrict CORS to the Capacitor origin, and bootstrap the URL and token through the native bridge.
+- **Durable queue restoration** — Persist torrent identity, metadata, file priorities, pause state, seeding progress, catalog data, and rqbit fast-resume state so process and device restarts do not redownload completed pieces.
+- **Transfer defaults** — Default Android transfers and ratio-1.0 seeding to unmetered Wi-Fi; cellular use, VPN kill switch, seed ratio, and seed time limits remain explicit user settings.
+- **Platform bridge** — Introduce shared Electron and Capacitor implementations for bootstrap, storage selection, torrent picking, file actions, lifecycle events, transfer policy, and deep links.
+- **Removal API** — Extend `POST /torrents/:id/remove` with optional `{ "delete_data": true }`; an omitted body continues to forget the torrent while keeping downloaded files.
+
+### Security
+
+- **Native Android signing** — Release APKs are signed with the repository's protected Android keystore, while distributables and release checksums receive detached PGP signatures in CI.
+- **Scoped storage** — Request no broad storage permission; reject traversal, read-only destinations, non-seekable providers, revoked grants, and insufficient-capacity destinations before transfer I/O.
+- **VPN-aware kill switch** — Detect Android VPN transport through `ConnectivityManager`, bind the process before creating Rust sockets, pause real rqbit transfers immediately on VPN loss, prevent fallback to a clear network, and require manual resume after reconnection.
+- **Network policy** — Block metered/cellular transfers by default and reschedule active Android work when the user changes the policy.
+
+### Fixed
+
+- **Reliable shutdown and restoration** — Persist the catalog and fast-resume state during lifecycle stops and operating-system interruptions, then restore pause state and priorities on the next host start.
+- **Storage deletion errors** — Surface failed SAF deletion and revoked-storage errors instead of reporting a successful remove.
+- **Loopback startup races** — Reserve the selected random port through server startup and handle authenticated CORS preflight requests without exposing the daemon to the LAN.
+- **VPN reconnection** — Rebind to the newly available VPN network and recreate transfer sockets only when the user explicitly resumes.
+
+### Tests
+
+- Add Rust coverage for Android storage-path validation and keep the expanded core and daemon regression suites running against the reusable runtime.
+- Add React coverage for runtime API configuration and authenticated requests used by the Capacitor bridge.
+- Add Kotlin unit coverage for SAF path policy and Wi-Fi/cellular/VPN transfer-policy decisions, plus the API 29, 33, 34, and 36 emulator CI matrix.
+
+### Credit
+
+- **Vurzum**
+
+---
+
 ## [2.3.4] — 2026-08-02
 
 ### Added
@@ -305,6 +351,8 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+[Unreleased]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.4...v2.4.0
 [2.3.4]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.1...v2.3.2

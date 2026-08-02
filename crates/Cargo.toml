@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "orc-core",
   "orc-daemon",
+  "orc-android",
 ]
 
 [workspace.package]
@@ -21,7 +22,7 @@ anyhow = "1.0"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 base64 = "0.22"
 async-trait = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "charset", "http2", "macos-system-configuration", "native-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "charset", "http2"] }
 url = "2.5"
 quick-xml = "0.37"
 regex = "1.11"

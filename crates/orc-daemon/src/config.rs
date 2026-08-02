@@ -127,6 +127,13 @@ impl Default for DaemonConfig {
 
 /// Get the config file path using platform-specific directories.
 pub fn config_path() -> Result<PathBuf> {
+    if let Ok(explicit_dir) = std::env::var("ORC_CONFIG_DIR") {
+        let trimmed = explicit_dir.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed).join("config.json"));
+        }
+    }
+
     let folder_name = config_folder_name();
     let config_dir = if cfg!(target_os = "windows") {
         let appdata = std::env::var("APPDATA").context("APPDATA environment variable not set")?;
@@ -157,11 +164,14 @@ fn config_folder_name() -> String {
 /// Load configuration from file, or return default if file doesn't exist
 pub async fn load_config() -> Result<DaemonConfig> {
     let config_file = config_path()?;
+    load_config_from(&config_file).await
+}
 
+pub async fn load_config_from(config_file: &Path) -> Result<DaemonConfig> {
     if !config_file.exists() {
         let mut config = DaemonConfig::default();
         apply_edition_search_defaults(&mut config.search);
-        save_config(&config).await?;
+        save_config_to(&config, config_file).await?;
         return Ok(config);
     }
 
@@ -174,7 +184,7 @@ pub async fn load_config() -> Result<DaemonConfig> {
 
     if apply_edition_search_defaults(&mut config.search) {
         validate_config(&config)?;
-        save_config(&config).await?;
+        save_config_to(&config, config_file).await?;
         return Ok(config);
     }
 
@@ -186,6 +196,10 @@ pub async fn load_config() -> Result<DaemonConfig> {
 /// Save configuration to file
 pub async fn save_config(config: &DaemonConfig) -> Result<()> {
     let config_file = config_path()?;
+    save_config_to(config, &config_file).await
+}
+
+pub async fn save_config_to(config: &DaemonConfig, config_file: &Path) -> Result<()> {
     if let Some(parent) = config_file.parent() {
         tokio::fs::create_dir_all(parent)
             .await

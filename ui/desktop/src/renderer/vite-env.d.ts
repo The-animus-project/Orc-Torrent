@@ -2,6 +2,12 @@
 
 declare global {
   interface Window {
+    Capacitor?: {
+      getPlatform?: () => string;
+      Plugins?: {
+        OrcAndroid?: import("./platform/bridge").AndroidPlugin;
+      };
+    };
     orc?: {
       platform: string;
       netifs?: () => Promise<string[]>;

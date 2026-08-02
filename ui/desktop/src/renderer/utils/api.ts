@@ -3,7 +3,31 @@
 import { logger } from "./logger";
 import type { ApiError } from "./errorHandling";
 
-const DAEMON_BASE = "http://127.0.0.1:8733";
+export interface DaemonApiConfiguration {
+  baseUrl: string;
+  adminToken?: string | null;
+}
+
+let daemonConfiguration: DaemonApiConfiguration = {
+  baseUrl: "http://127.0.0.1:8733",
+  adminToken: null,
+};
+
+export function configureDaemonApi(configuration: DaemonApiConfiguration): void {
+  const baseUrl = configuration.baseUrl.trim().replace(/\/$/, "");
+  if (!/^https?:\/\//.test(baseUrl)) {
+    throw new Error("Daemon API base URL must use HTTP or HTTPS");
+  }
+  daemonConfiguration = {
+    baseUrl,
+    adminToken: configuration.adminToken?.trim() || null,
+  };
+  inflightRequests.clear();
+}
+
+export function getDaemonApiConfiguration(): Readonly<DaemonApiConfiguration> {
+  return { ...daemonConfiguration };
+}
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 500;
 
@@ -85,8 +109,13 @@ async function fetchWithRetry(
       lastConnectionAttempt = Date.now();
     }
 
+    const headers = new Headers(options.headers);
+    if (daemonConfiguration.adminToken) {
+      headers.set("x-admin-token", daemonConfiguration.adminToken);
+    }
     const response = await fetch(url, {
       ...options,
+      headers,
       signal: controller.signal,
     });
 
@@ -189,7 +218,7 @@ export async function getJson<T>(path: string): Promise<T> {
   // Create new request with deduplication tracking
   const request = (async (): Promise<T> => {
     try {
-      const r = await fetchWithRetry(`${DAEMON_BASE}${path}`);
+      const r = await fetchWithRetry(`${daemonConfiguration.baseUrl}${path}`);
       if (!r.ok) {
         const errorText = await r.text().catch(() => r.statusText);
         throw createApiError(`Request failed: ${errorText || r.statusText}`, r.status, r.statusText);
@@ -231,7 +260,7 @@ export async function postJson<T>(path: string, body?: unknown, timeoutMs?: numb
     const uploadTimeout = timeoutMs ?? (isAddTorrent ? 60000 : 30000); // 60s for add_torrent, 30s for other POST
 
     const r = await fetchWithRetry(
-      `${DAEMON_BASE}${path}`,
+      `${daemonConfiguration.baseUrl}${path}`,
       {
         method: "POST",
         headers: body ? { "content-type": "application/json" } : undefined,
@@ -266,7 +295,7 @@ export async function postJson<T>(path: string, body?: unknown, timeoutMs?: numb
  */
 export async function putJson<T>(path: string, body: unknown): Promise<T> {
   try {
-    const r = await fetchWithRetry(`${DAEMON_BASE}${path}`, {
+    const r = await fetchWithRetry(`${daemonConfiguration.baseUrl}${path}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -287,7 +316,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
 
 export async function patchJson<T>(path: string, body: unknown): Promise<T> {
   try {
-    const r = await fetchWithRetry(`${DAEMON_BASE}${path}`, {
+    const r = await fetchWithRetry(`${daemonConfiguration.baseUrl}${path}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -315,7 +344,7 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
  */
 export async function deleteJson<T>(path: string): Promise<T> {
   try {
-    const r = await fetchWithRetry(`${DAEMON_BASE}${path}`, {
+    const r = await fetchWithRetry(`${daemonConfiguration.baseUrl}${path}`, {
       method: "DELETE",
     });
     if (!r.ok) {

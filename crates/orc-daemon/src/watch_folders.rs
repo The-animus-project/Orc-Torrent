@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
+#[cfg(not(target_os = "android"))]
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use orc_core::{
     build_add_torrent_options, extract_info_hash_from_torrent_bytes, find_torrent_by_info_hash,
@@ -133,6 +134,7 @@ impl WatchFolderManager {
         }
     }
 
+    #[cfg(not(target_os = "android"))]
     pub async fn restart_watchers(&self, state: SharedState, download_dir: PathBuf) -> Result<()> {
         {
             let mut inner = self.inner.write().await;
@@ -169,6 +171,16 @@ impl WatchFolderManager {
 
         Ok(())
     }
+
+    #[cfg(target_os = "android")]
+    pub async fn restart_watchers(
+        &self,
+        _state: SharedState,
+        _download_dir: PathBuf,
+    ) -> Result<()> {
+        // Android uses SAF documents, which cannot be watched with desktop filesystem APIs.
+        Ok(())
+    }
 }
 
 impl Clone for WatchFolderManager {
@@ -179,6 +191,7 @@ impl Clone for WatchFolderManager {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 async fn run_folder_watcher(
     entry: WatchFolderEntry,
     state: SharedState,
@@ -317,6 +330,7 @@ async fn import_torrent_file(
             .and_then(|s| s.to_str())
             .map(|s| s.to_string()),
         save_path: entry.default_save_path.clone(),
+        start_paused: !entry.auto_start,
     };
 
     let input = match prepare_add_input(&req) {
@@ -353,6 +367,7 @@ async fn import_torrent_file(
     };
 
     let mut opts = build_add_torrent_options(output_folder);
+    opts.paused = req.start_paused;
 
     let rqbit_resp = match &input {
         orc_core::AddTorrentInput::Url(u) => {
@@ -525,15 +540,17 @@ mod tests {
 
     #[tokio::test]
     async fn is_duplicate_false_on_empty_library() {
-        let dir = std::env::temp_dir().join(format!("orc-wf-test-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let state = new_state(
-            dir.to_string_lossy().to_string(),
-            19876 + (std::process::id() as u16 % 1000),
-            None,
-        )
-        .await
-        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let reservation = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
+            Ok(reservation) => reservation,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => return,
+            Err(error) => panic!("failed to reserve test port: {error}"),
+        };
+        let port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        let state = new_state(dir.path().to_string_lossy().to_string(), port, None)
+            .await
+            .unwrap();
         let guard = state.lock().await;
         assert!(!is_duplicate_info_hash(
             &guard,

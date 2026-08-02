@@ -1,15 +1,17 @@
 [package]
 name = "orc-daemon"
-version = "2.3.4"
+version = "2.4.0"
 edition.workspace = true
 license.workspace = true
 
 authors = ["ORC Torrent / The ANIMUS PROJECT"]
 
 [features]
-default = ["with-native-tls"]
-with-native-tls = ["librqbit/default-tls", "orc-core/native-tls"]
-tls-rustls = ["librqbit/rust-tls", "orc-core/tls-rustls"]
+default = ["with-native-tls", "desktop-search", "desktop-watch-folders"]
+with-native-tls = ["librqbit/default-tls", "orc-core/native-tls", "reqwest/native-tls", "reqwest/macos-system-configuration"]
+tls-rustls = ["librqbit/rust-tls", "orc-core/tls-rustls", "reqwest/rustls-tls"]
+desktop-search = []
+desktop-watch-folders = []
 
 [dependencies]
 axum.workspace = true
@@ -31,9 +33,11 @@ librqbit = { workspace = true, default-features = false, features = ["http-api-c
 orc-core = { path = "../orc-core", default-features = false }
 subtle.workspace = true
 tower.workspace = true
-keyring.workspace = true
 aes-gcm.workspace = true
 rand.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+keyring.workspace = true
 notify = "8.0"
 
 [dev-dependencies]

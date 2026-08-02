@@ -7,7 +7,7 @@ use std::{
     net::IpAddr,
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{Arc, OnceLock, RwLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -24,7 +24,10 @@ use url::form_urlencoded;
 use uuid::Uuid;
 
 use librqbit::api::{Api as RqbitApi, ApiAddTorrentResponse, TorrentIdOrHash};
-use librqbit::{AddTorrent, AddTorrentOptions, Session, SessionOptions};
+use librqbit::{
+    storage::BoxStorageFactory, AddTorrent, AddTorrentOptions, Session, SessionOptions,
+    SessionPersistenceConfig,
+};
 
 mod bandwidth;
 mod media_download_policy;
@@ -41,6 +44,57 @@ pub use network::{
     default_route_info, dns_config, list_network_adapters, tor_status, DefaultRoute, DnsConfig,
     NetworkAdapter, NetworkAdaptersResponse, TorSource, TorState, TorStatusState,
 };
+
+/// Supplies platform-native connectivity state to embedded daemon runtimes.
+/// Desktop builds leave this unset and retain their existing adapter probing.
+pub trait NetworkStatusProvider: Send + Sync {
+    fn vpn_connected(&self) -> bool;
+
+    /// Whether the native host currently permits peer traffic. Desktop providers
+    /// default to true; Android also accounts for its Wi-Fi/cellular policy.
+    fn transfers_allowed(&self) -> bool {
+        true
+    }
+
+    /// Consume a platform signal indicating that sockets must be recreated on a
+    /// newly bound network before transfers resume.
+    fn take_rebind_required(&self) -> bool {
+        false
+    }
+
+    fn vpn_interface(&self) -> Option<String> {
+        None
+    }
+}
+
+fn network_status_provider_slot() -> &'static RwLock<Option<Arc<dyn NetworkStatusProvider>>> {
+    static PROVIDER: OnceLock<RwLock<Option<Arc<dyn NetworkStatusProvider>>>> = OnceLock::new();
+    PROVIDER.get_or_init(|| RwLock::new(None))
+}
+
+pub fn set_network_status_provider(provider: Option<Arc<dyn NetworkStatusProvider>>) {
+    if let Ok(mut slot) = network_status_provider_slot().write() {
+        *slot = provider;
+    }
+}
+
+pub fn network_transfers_allowed() -> bool {
+    network_status_provider_slot()
+        .read()
+        .ok()
+        .and_then(|provider| provider.clone())
+        .map(|provider| provider.transfers_allowed())
+        .unwrap_or(true)
+}
+
+pub fn take_network_rebind_required() -> bool {
+    network_status_provider_slot()
+        .read()
+        .ok()
+        .and_then(|provider| provider.clone())
+        .map(|provider| provider.take_rebind_required())
+        .unwrap_or(false)
+}
 
 pub use bandwidth::*;
 pub use privacy::*;
@@ -539,6 +593,237 @@ struct TorrentRecord {
     runtime: TorrentRuntime,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedTorrentRecord {
+    torrent: Torrent,
+    file_priorities: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct TorrentCatalog {
+    torrents: Vec<PersistedTorrentRecord>,
+}
+
+fn file_priority_key(path: &[String]) -> String {
+    path.join("/")
+}
+
+fn load_torrent_catalog(path: Option<&Path>) -> HashMap<String, PersistedTorrentRecord> {
+    let Some(path) = path else {
+        return HashMap::new();
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return HashMap::new();
+    };
+    match serde_json::from_slice::<TorrentCatalog>(&bytes) {
+        Ok(catalog) => catalog
+            .torrents
+            .into_iter()
+            .map(|record| (record.torrent.id.clone(), record))
+            .collect(),
+        Err(error) => {
+            warn!(
+                "Ignoring invalid torrent catalog {}: {error}",
+                path.display()
+            );
+            HashMap::new()
+        }
+    }
+}
+
+fn persist_torrent_catalog(state: &OrcState) {
+    let Some(path) = state.catalog_path.as_ref() else {
+        return;
+    };
+    let catalog = TorrentCatalog {
+        torrents: state
+            .torrents
+            .values()
+            .map(|record| PersistedTorrentRecord {
+                torrent: record.torrent.clone(),
+                file_priorities: record
+                    .runtime
+                    .files
+                    .iter()
+                    .map(|file| (file_priority_key(&file.path), file.priority.clone()))
+                    .collect(),
+            })
+            .collect(),
+    };
+    let result = (|| -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let bytes = serde_json::to_vec_pretty(&catalog)?;
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(&temporary, bytes)?;
+        std::fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        warn!(
+            "Failed to persist torrent catalog {}: {error}",
+            path.display()
+        );
+    }
+}
+
+fn stable_torrent_id(info_hash: &str) -> String {
+    let normalized = info_hash.trim().to_ascii_lowercase();
+    if normalized.len() >= 32 && normalized[..32].chars().all(|c| c.is_ascii_hexdigit()) {
+        return format!(
+            "{}-{}-{}-{}-{}",
+            &normalized[0..8],
+            &normalized[8..12],
+            &normalized[12..16],
+            &normalized[16..20],
+            &normalized[20..32]
+        );
+    }
+    Uuid::new_v4().to_string()
+}
+
+fn restored_torrent_records(
+    rqbit: &RqbitApi,
+    mut catalog: HashMap<String, PersistedTorrentRecord>,
+) -> HashMap<String, TorrentRecord> {
+    let now = Instant::now();
+    let mut restored = HashMap::new();
+    for listed in rqbit.api_torrent_list().torrents {
+        let Some(rqbit_id) = listed.id else { continue };
+        let details = rqbit
+            .api_torrent_details(TorrentIdOrHash::Id(rqbit_id))
+            .unwrap_or(listed);
+        let id = stable_torrent_id(&details.info_hash);
+        let persisted = catalog.remove(&id).filter(|record| {
+            record.torrent.info_hash_hex.as_deref() == Some(details.info_hash.as_str())
+        });
+        let files = details
+            .files
+            .unwrap_or_default()
+            .into_iter()
+            .map(|file| {
+                let path = if file.components.is_empty() {
+                    split_path_components(&file.name)
+                } else {
+                    file.components
+                };
+                let priority = persisted
+                    .as_ref()
+                    .and_then(|record| record.file_priorities.get(&file_priority_key(&path)))
+                    .cloned()
+                    .unwrap_or_else(|| if file.included { "normal" } else { "skip" }.to_string());
+                TorrentFileEntry {
+                    path,
+                    size: file.length,
+                    priority,
+                    downloaded: false,
+                }
+            })
+            .collect::<Vec<_>>();
+        let total_bytes = files.iter().map(|file| file.size).sum::<u64>();
+        let stats_value = rqbit
+            .api_stats_v1(TorrentIdOrHash::Id(rqbit_id))
+            .ok()
+            .and_then(|stats| serde_json::to_value(stats).ok())
+            .unwrap_or_default();
+        let downloaded_bytes = stats_value
+            .get("progress_bytes")
+            .and_then(|value| value.as_u64())
+            .or_else(|| {
+                stats_value
+                    .get("downloaded_bytes")
+                    .and_then(|value| value.as_u64())
+            })
+            .unwrap_or_default();
+        let uploaded_bytes = stats_value
+            .get("uploaded_bytes")
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default();
+        let finished = stats_value
+            .get("finished")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(total_bytes > 0 && downloaded_bytes >= total_bytes);
+        let state_name = stats_value
+            .get("state")
+            .and_then(|value| value.as_str())
+            .unwrap_or("downloading");
+        let running = persisted
+            .as_ref()
+            .map(|record| record.torrent.running)
+            .unwrap_or_else(|| !matches!(state_name, "paused" | "stopped" | "error"));
+        let state = if !running {
+            TorrentState::Stopped
+        } else if finished {
+            TorrentState::Seeding
+        } else {
+            TorrentState::Downloading
+        };
+        let total_pieces_estimate =
+            ((total_bytes / (256 * 1024)).max(1)).min(u32::MAX as u64) as u32;
+        let name = details.name.unwrap_or_else(|| {
+            format!(
+                "Torrent {}",
+                &details.info_hash[..details.info_hash.len().min(12)]
+            )
+        });
+        let mut torrent = Torrent {
+            id: id.clone(),
+            name,
+            added_at_ms: now_ms(),
+            running,
+            profile: TorrentProfile {
+                mode: TorrentMode::Standard,
+                hops: 0,
+            },
+            info_hash_hex: Some(details.info_hash),
+            save_path: Some(details.output_folder),
+            seeding_override: None,
+        };
+        if let Some(persisted) = persisted {
+            torrent.name = persisted.torrent.name;
+            torrent.added_at_ms = persisted.torrent.added_at_ms;
+            torrent.profile = persisted.torrent.profile;
+            torrent.seeding_override = persisted.torrent.seeding_override;
+        }
+        let runtime = TorrentRuntime {
+            rqbit_id,
+            total_bytes,
+            downloaded_bytes,
+            uploaded_bytes,
+            running,
+            state,
+            down_rate_bps: 0,
+            up_rate_bps: 0,
+            peers_seen: 0,
+            files,
+            last_error: None,
+            trackers: Vec::new(),
+            tracker_state: HashMap::new(),
+            peer_samples: HashMap::new(),
+            state_override: None,
+            last_sample: now,
+            last_downloaded_bytes: downloaded_bytes,
+            last_uploaded_bytes: uploaded_bytes,
+            heartbeat_samples: Vec::new(),
+            heartbeat_last_sample: now,
+            heartbeat_last_bytes: downloaded_bytes,
+            total_pieces_estimate,
+            piece_availability: vec![0; total_pieces_estimate as usize],
+            peer_progress_cache: HashMap::new(),
+            seeding_started_at_ms: finished.then(now_ms),
+        };
+        restored.insert(id, TorrentRecord { torrent, runtime });
+    }
+    if !restored.is_empty() {
+        info!(
+            "Restored {} torrents from rqbit persistence",
+            restored.len()
+        );
+    }
+    restored
+}
+
 pub const MAX_TORRENTS: usize = 10000;
 pub const MAX_PEER_SAMPLES_PER_TORRENT: usize = 1000;
 
@@ -550,6 +835,10 @@ pub struct OrcState {
     download_dir_path: PathBuf,
     rqbit: RqbitApi,
     torrents: HashMap<String, TorrentRecord>,
+    catalog_path: Option<PathBuf>,
+    persistence_dir: Option<PathBuf>,
+    storage_factory: Option<BoxStorageFactory>,
+    network_disabled: bool,
     policy: PolicyState,
     kill_switch: KillSwitchConfig,
     bind_interface: Option<String>,
@@ -648,10 +937,23 @@ async fn create_session_with_dht_fallback(
     download_dir: PathBuf,
     listen_port: u16,
     bind_ipv4: Option<std::net::Ipv4Addr>,
+    persistence_dir: Option<PathBuf>,
+    storage_factory: Option<&BoxStorageFactory>,
+    network_disabled: bool,
 ) -> Result<Arc<Session>> {
     let base_opts = || SessionOptions {
-        listen_port_range: Some(listen_port..listen_port.saturating_add(1)),
+        listen_port_range: (!network_disabled)
+            .then_some(listen_port..listen_port.saturating_add(1)),
         bind_ipv4,
+        disable_dht: network_disabled,
+        force_paused_on_restore: network_disabled,
+        persistence: persistence_dir
+            .as_ref()
+            .map(|folder| SessionPersistenceConfig::Json {
+                folder: Some(folder.clone()),
+            }),
+        fastresume: persistence_dir.is_some(),
+        default_storage_factory: storage_factory.map(|factory| factory.clone_box()),
         ..Default::default()
     };
 
@@ -670,8 +972,18 @@ async fn create_session_with_dht_fallback(
 
             let no_persistence_opts = SessionOptions {
                 disable_dht_persistence: true,
-                listen_port_range: Some(listen_port..listen_port.saturating_add(1)),
+                listen_port_range: (!network_disabled)
+                    .then_some(listen_port..listen_port.saturating_add(1)),
                 bind_ipv4,
+                disable_dht: network_disabled,
+                force_paused_on_restore: network_disabled,
+                persistence: persistence_dir.as_ref().map(|folder| {
+                    SessionPersistenceConfig::Json {
+                        folder: Some(folder.clone()),
+                    }
+                }),
+                fastresume: persistence_dir.is_some(),
+                default_storage_factory: storage_factory.map(|factory| factory.clone_box()),
                 ..Default::default()
             };
 
@@ -698,6 +1010,12 @@ async fn create_session_with_dht_fallback(
                         disable_dht_persistence: true,
                         listen_port_range: Some(listen_port..listen_port.saturating_add(1)),
                         bind_ipv4,
+                        force_paused_on_restore: network_disabled,
+                        persistence: persistence_dir.map(|folder| SessionPersistenceConfig::Json {
+                            folder: Some(folder),
+                        }),
+                        fastresume: true,
+                        default_storage_factory: storage_factory.map(|factory| factory.clone_box()),
                         ..Default::default()
                     };
 
@@ -741,6 +1059,36 @@ pub async fn new_state(
     listen_port: u16,
     bind_interface: Option<String>,
 ) -> Result<SharedState> {
+    new_state_with_runtime(download_dir, listen_port, bind_interface, None, None).await
+}
+
+/// Initialize ORC with optional embedded-runtime persistence and storage.
+pub async fn new_state_with_runtime(
+    download_dir: String,
+    listen_port: u16,
+    bind_interface: Option<String>,
+    persistence_dir: Option<PathBuf>,
+    storage_factory: Option<BoxStorageFactory>,
+) -> Result<SharedState> {
+    new_state_with_runtime_policy(
+        download_dir,
+        listen_port,
+        bind_interface,
+        persistence_dir,
+        storage_factory,
+        false,
+    )
+    .await
+}
+
+pub async fn new_state_with_runtime_policy(
+    download_dir: String,
+    listen_port: u16,
+    bind_interface: Option<String>,
+    persistence_dir: Option<PathBuf>,
+    storage_factory: Option<BoxStorageFactory>,
+    network_disabled: bool,
+) -> Result<SharedState> {
     let download_path = PathBuf::from(download_dir.clone());
     let download_dir_canonical = download_path
         .canonicalize()
@@ -762,10 +1110,21 @@ pub async fn new_state(
         }
     }
 
-    let session =
-        create_session_with_dht_fallback(download_dir_canonical.clone(), listen_port, bind_ipv4)
-            .await
-            .context("Failed to initialize rqbit session")?;
+    let catalog_path = persistence_dir
+        .as_ref()
+        .and_then(|directory| directory.parent())
+        .map(|directory| directory.join("torrent-catalog.json"));
+    let catalog = load_torrent_catalog(catalog_path.as_deref());
+    let session = create_session_with_dht_fallback(
+        download_dir_canonical.clone(),
+        listen_port,
+        bind_ipv4,
+        persistence_dir.clone(),
+        storage_factory.as_ref(),
+        network_disabled,
+    )
+    .await
+    .context("Failed to initialize rqbit session")?;
     let rqbit = RqbitApi::new(session, None);
 
     let desired = DesiredPolicy {
@@ -873,12 +1232,30 @@ pub async fn new_state(
     let geoip_reader = load_geoip_database();
     let net_last_change_ms = now_ms();
 
-    Ok(Arc::new(tokio::sync::Mutex::new(OrcState {
+    let mut torrents = restored_torrent_records(&rqbit, catalog);
+    if network_disabled {
+        for record in torrents.values_mut() {
+            record.torrent.running = false;
+            record.runtime.running = false;
+            record.runtime.state = TorrentState::Stopped;
+        }
+    }
+    for record in torrents.values().filter(|record| !record.torrent.running) {
+        let _ = rqbit
+            .api_torrent_action_pause(TorrentIdOrHash::Id(record.runtime.rqbit_id))
+            .await;
+    }
+
+    let state = OrcState {
         started_at: Instant::now(),
         download_dir,
         download_dir_path: download_dir_canonical,
         rqbit,
-        torrents: HashMap::new(),
+        torrents,
+        catalog_path,
+        persistence_dir,
+        storage_factory,
+        network_disabled,
         policy,
         kill_switch,
         bind_interface: bind_interface.clone(),
@@ -890,7 +1267,11 @@ pub async fn new_state(
         bandwidth_settings: BandwidthSettings::default(),
         bandwidth_active_profile: BandwidthProfile::Normal,
         seeding_stop_pending: Vec::new(),
-    })))
+    };
+    if network_disabled {
+        persist_torrent_catalog(&state);
+    }
+    Ok(Arc::new(tokio::sync::Mutex::new(state)))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -901,6 +1282,8 @@ pub struct AddTorrentRequest {
     /// Optional save path (folder) for this torrent. Use for seeding from an existing folder
     /// or to choose where to download. Must be an absolute path. If omitted, uses default download folder.
     pub save_path: Option<String>,
+    #[serde(default)]
+    pub start_paused: bool,
 }
 
 impl AddTorrentRequest {
@@ -1111,10 +1494,9 @@ pub fn patch_torrent_seeding_override(
         .get_mut(id)
         .ok_or_else(|| anyhow!("Not found"))?;
     rec.torrent.seeding_override = override_settings;
-    Ok(effective_seeding_policy(
-        &rec.torrent,
-        &state.seeding_settings,
-    ))
+    let effective = effective_seeding_policy(&rec.torrent, &state.seeding_settings);
+    persist_torrent_catalog(state);
+    Ok(effective)
 }
 
 pub fn patch_bandwidth_settings(
@@ -1420,6 +1802,39 @@ fn interface_name_matches_vpn(
 
 pub fn vpn_status() -> VpnStatus {
     let now = now_ms();
+    if let Some(provider) = network_status_provider_slot()
+        .read()
+        .ok()
+        .and_then(|provider| provider.clone())
+    {
+        let connected = provider.vpn_connected();
+        let interface_name = provider.vpn_interface();
+        return VpnStatus {
+            posture: if connected {
+                VpnPostureState::Connected
+            } else {
+                VpnPostureState::Disconnected
+            },
+            interface_name: interface_name.clone(),
+            default_route_interface: interface_name.clone(),
+            dns_servers: vec![],
+            signals: VpnSignals {
+                adapter_match: connected,
+                default_route_match: connected,
+                dns_match: false,
+                public_ip_match: None,
+            },
+            last_check_ms: now,
+            connection_type: if connected {
+                ConnectionType::Vpn
+            } else {
+                ConnectionType::NonVpn
+            },
+            public_ip: None,
+            detected: Some(connected),
+            interface_name_legacy: interface_name,
+        };
+    }
     if let Some((interface_name, connection_type)) = detect_vpn_interface() {
         VpnStatus {
             posture: VpnPostureState::Connected,
@@ -1506,6 +1921,7 @@ pub fn patch_net_posture(state: &mut OrcState, req: PatchNetPostureRequest) -> N
 
 /// Recreate the rqbit session with the current bind interface and re-attach torrents.
 pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
+    state.network_disabled = true;
     struct TorrentRebindInfo {
         orc_id: String,
         info_hash: String,
@@ -1516,6 +1932,7 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
     let download_dir = state.download_dir_path().clone();
     let listen_port = state.listen_port;
     let bind_interface = state.bind_interface.clone();
+    let persistence_dir = state.persistence_dir.clone();
 
     let torrents: Vec<TorrentRebindInfo> = state
         .torrents
@@ -1561,9 +1978,50 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
         }
     }
 
-    let new_session =
-        create_session_with_dht_fallback(download_dir, listen_port, bind_ipv4).await?;
+    let new_session = create_session_with_dht_fallback(
+        download_dir,
+        listen_port,
+        bind_ipv4,
+        persistence_dir.clone(),
+        state.storage_factory.as_ref(),
+        false,
+    )
+    .await?;
     state.rqbit = RqbitApi::new(new_session, None);
+
+    if persistence_dir.is_some() {
+        let restored_ids = state
+            .rqbit
+            .api_torrent_list()
+            .torrents
+            .into_iter()
+            .filter_map(|torrent| torrent.id.map(|id| (torrent.info_hash, id)))
+            .collect::<HashMap<_, _>>();
+        for torrent in torrents {
+            let rqbit_id = *restored_ids.get(&torrent.info_hash).with_context(|| {
+                format!(
+                    "persisted torrent {} was not restored after network rebind",
+                    torrent.orc_id
+                )
+            })?;
+            if let Some(record) = state.torrents.get_mut(&torrent.orc_id) {
+                record.runtime.rqbit_id = rqbit_id;
+            }
+            let api = rqbit_api(state);
+            if torrent.running {
+                api.api_torrent_action_start(TorrentIdOrHash::Id(rqbit_id))
+                    .await
+                    .with_context(|| format!("failed to resume torrent {}", torrent.orc_id))?;
+            } else {
+                let _ = api
+                    .api_torrent_action_pause(TorrentIdOrHash::Id(rqbit_id))
+                    .await;
+            }
+            let _ = set_running(state, &torrent.orc_id, torrent.running);
+        }
+        state.network_disabled = false;
+        return Ok(());
+    }
 
     for t in torrents {
         if t.info_hash.len() != 40 {
@@ -1576,6 +2034,7 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
         let mut opts = AddTorrentOptions::default();
         opts.output_folder = Some(t.output_folder);
         opts.overwrite = true;
+        opts.paused = !t.running;
         let api = rqbit_api(state);
         let resp = api
             .api_add_torrent(AddTorrent::from_url(t.info_hash.as_str()), Some(opts))
@@ -1602,7 +2061,12 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
         }
     }
 
+    state.network_disabled = false;
     Ok(())
+}
+
+pub fn network_session_disabled(state: &OrcState) -> bool {
+    state.network_disabled
 }
 
 pub fn list_torrents(state: &OrcState) -> TorrentListResponse {
@@ -2082,7 +2546,7 @@ pub fn integrate_added_torrent(
 
     let details = rqbit_resp.details;
 
-    let id = Uuid::new_v4().to_string();
+    let id = stable_torrent_id(&details.info_hash);
     let added_at_ms = now_ms();
 
     let name = resolve_torrent_name(req, details.name.as_deref(), &details.info_hash);
@@ -2190,6 +2654,7 @@ pub fn integrate_added_torrent(
     state
         .torrents
         .insert(id.clone(), TorrentRecord { torrent, runtime });
+    persist_torrent_catalog(state);
 
     info!(
         "Added torrent id={} name=\"{}\" rqbit_id={}",
@@ -2199,23 +2664,26 @@ pub fn integrate_added_torrent(
 }
 
 pub fn set_running(state: &mut OrcState, id: &str, running: bool) -> Result<()> {
-    let rec = state
-        .torrents
-        .get_mut(id)
-        .ok_or_else(|| anyhow!("Not found"))?;
-    rec.torrent.running = running;
-    rec.runtime.running = running;
-    rec.runtime.state = if running {
-        if rec.runtime.downloaded_bytes >= rec.runtime.total_bytes {
-            TorrentState::Seeding
+    {
+        let rec = state
+            .torrents
+            .get_mut(id)
+            .ok_or_else(|| anyhow!("Not found"))?;
+        rec.torrent.running = running;
+        rec.runtime.running = running;
+        rec.runtime.state = if running {
+            if rec.runtime.downloaded_bytes >= rec.runtime.total_bytes {
+                TorrentState::Seeding
+            } else {
+                TorrentState::Downloading
+            }
         } else {
-            TorrentState::Downloading
-        }
-    } else {
-        rec.runtime.down_rate_bps = 0;
-        rec.runtime.up_rate_bps = 0;
-        TorrentState::Stopped
-    };
+            rec.runtime.down_rate_bps = 0;
+            rec.runtime.up_rate_bps = 0;
+            TorrentState::Stopped
+        };
+    }
+    persist_torrent_catalog(state);
     Ok(())
 }
 
@@ -2224,16 +2692,21 @@ pub fn remove_torrent(state: &mut OrcState, id: &str) -> Result<()> {
         .torrents
         .remove(id)
         .ok_or_else(|| anyhow!("Not found"))?;
+    persist_torrent_catalog(state);
     Ok(())
 }
 
 pub fn set_profile(state: &mut OrcState, id: &str, profile: TorrentProfile) -> Result<Torrent> {
-    let rec = state
-        .torrents
-        .get_mut(id)
-        .ok_or_else(|| anyhow!("Not found"))?;
-    rec.torrent.profile = profile;
-    Ok(rec.torrent.clone())
+    let torrent = {
+        let rec = state
+            .torrents
+            .get_mut(id)
+            .ok_or_else(|| anyhow!("Not found"))?;
+        rec.torrent.profile = profile;
+        rec.torrent.clone()
+    };
+    persist_torrent_catalog(state);
+    Ok(torrent)
 }
 
 pub fn set_file_priority(
@@ -2241,24 +2714,27 @@ pub fn set_file_priority(
     id: &str,
     req: PatchFilePriorityRequest,
 ) -> Result<()> {
-    let rec = state
-        .torrents
-        .get_mut(id)
-        .ok_or_else(|| anyhow!("Not found"))?;
-    if rec.runtime.files.is_empty() {
-        return Ok(());
-    }
-
-    for path in req.resolved_paths() {
-        if req.priority != "skip" {
-            validate_file_download_priority(&path, &req.priority)?;
+    {
+        let rec = state
+            .torrents
+            .get_mut(id)
+            .ok_or_else(|| anyhow!("Not found"))?;
+        if rec.runtime.files.is_empty() {
+            return Ok(());
         }
-        for f in rec.runtime.files.iter_mut() {
-            if f.path == path {
-                f.priority = req.priority.clone();
+
+        for path in req.resolved_paths() {
+            if req.priority != "skip" {
+                validate_file_download_priority(&path, &req.priority)?;
+            }
+            for f in rec.runtime.files.iter_mut() {
+                if f.path == path {
+                    f.priority = req.priority.clone();
+                }
             }
         }
     }
+    persist_torrent_catalog(state);
     Ok(())
 }
 
@@ -2444,15 +2920,23 @@ pub fn tick(state: &mut OrcState) {
                     state.kill_switch.enforcement_state = KillSwitchState::Engaged;
                     state.kill_switch.last_enforcement_ms = Some(now_ms());
                     info!("Kill switch engaged: VPN disconnected");
-                    for rec in state.torrents.values_mut() {
+                    let mut to_pause = Vec::new();
+                    for (id, rec) in state.torrents.iter_mut() {
                         if rec.runtime.running {
                             rec.runtime.running = false;
                             rec.torrent.running = false;
                             rec.runtime.state = TorrentState::Stopped;
                             rec.runtime.down_rate_bps = 0;
                             rec.runtime.up_rate_bps = 0;
+                            to_pause.push(id.clone());
                         }
                     }
+                    for id in to_pause {
+                        if !state.seeding_stop_pending.contains(&id) {
+                            state.seeding_stop_pending.push(id);
+                        }
+                    }
+                    persist_torrent_catalog(state);
                 }
             }
             KillSwitchState::Engaged => {
@@ -2626,6 +3110,7 @@ pub fn tick(state: &mut OrcState) {
             to_stop.push(id.clone());
         }
     }
+    let stopped_any = !to_stop.is_empty();
     for id in to_stop {
         if let Some(rec) = state.torrents.get_mut(&id) {
             rec.runtime.running = false;
@@ -2638,6 +3123,9 @@ pub fn tick(state: &mut OrcState) {
             info!("Seeding limit reached for torrent {id}, queued stop");
             state.seeding_stop_pending.push(id);
         }
+    }
+    if stopped_any {
+        persist_torrent_catalog(state);
     }
 }
 
@@ -3488,6 +3976,7 @@ mod tests {
             torrent_b64: Some("Zg==".to_string()),
             name_hint: Some("ubuntu-24.04.torrent".to_string()),
             save_path: None,
+            start_paused: false,
         };
         assert_eq!(
             resolve_torrent_name(&req, None, "0123456789abcdef0123456789abcdef01234567"),
@@ -3505,6 +3994,7 @@ mod tests {
             torrent_b64: None,
             name_hint: None,
             save_path: None,
+            start_paused: false,
         };
         assert!(has_meaningful_pre_metadata_name(&req));
     }
@@ -3518,6 +4008,7 @@ mod tests {
             torrent_b64: None,
             name_hint: None,
             save_path: None,
+            start_paused: false,
         };
         assert!(!has_meaningful_pre_metadata_name(&req));
     }
@@ -3531,6 +4022,7 @@ mod tests {
             torrent_b64: None,
             name_hint: None,
             save_path: None,
+            start_paused: false,
         };
         let dir = std::env::temp_dir().join("orc-torrent-test-empty-folder");
         assert_eq!(
@@ -3549,6 +4041,7 @@ mod tests {
             torrent_b64: None,
             name_hint: None,
             save_path: None,
+            start_paused: false,
         };
         let dir = std::env::temp_dir();
         let folder =
@@ -3567,6 +4060,7 @@ mod tests {
             torrent_b64: None,
             name_hint: Some("Movie Title".to_string()),
             save_path: None,
+            start_paused: false,
         };
         assert_eq!(
             resolve_torrent_name(&req, Some("Metadata Name"), "abc"),
@@ -3584,6 +4078,7 @@ mod tests {
             torrent_b64: None,
             name_hint: Some("magnet".to_string()),
             save_path: None,
+            start_paused: false,
         };
         assert_eq!(
             resolve_torrent_name(
@@ -3605,6 +4100,7 @@ mod tests {
             torrent_b64: None,
             name_hint: Some("magnet".to_string()),
             save_path: None,
+            start_paused: false,
         };
         assert_eq!(
             resolve_torrent_name(&req, None, "0123456789abcdef0123456789abcdef01234567"),
@@ -3621,6 +4117,7 @@ mod tests {
             torrent_b64: None,
             name_hint: None,
             save_path: None,
+            start_paused: false,
         };
         assert_eq!(
             resolve_torrent_name(&req, None, "0123456789abcdef0123456789abcdef01234567"),

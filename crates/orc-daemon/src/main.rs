@@ -5,12 +5,14 @@ mod watch_folders;
 use std::path::{Component, Path as StdPath, PathBuf};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+#[cfg(feature = "desktop-search")]
+use axum::routing::{delete, put};
 use axum::{
     extract::{Path, Request, State},
     http::{HeaderMap, Method, StatusCode},
     middleware::Next,
     response::IntoResponse,
-    routing::{delete, get, patch, post, put},
+    routing::{get, patch, post},
     Json, Router,
 };
 use subtle::ConstantTimeEq;
@@ -31,14 +33,15 @@ use orc_core::{
     extract_info_hash_from_torrent_bytes, find_torrent_by_info_hash, get_content, get_kill_switch,
     get_policy, get_row_snapshot, get_status, get_torrent, health, integrate_added_torrent,
     list_torrents, mark_announce, media_download_policy_enabled, net_bind_interface, net_posture,
-    net_posture_stored_from_state, new_state, only_files_for, overlay_status,
-    patch_bandwidth_settings, patch_kill_switch, patch_net_posture, patch_policy,
-    patch_seeding_settings, patch_torrent_seeding_override, peers_for, policy_stored_from_state,
-    prepare_add_input, privacy_status, rebind_rqbit_session, remove_torrent,
-    resolve_torrent_output_folder, rqbit_api, rqbit_id_for, session_rate_limits_response,
-    set_file_priority, set_profile, set_running, set_session_rate_limits, tick, trackers_for,
-    version, wallet_status, AddTorrentInput, AddTorrentRequest, BandwidthSettings,
-    KillSwitchStoredSettings, PatchFilePriorityRequest, PatchKillSwitchRequest,
+    net_posture_stored_from_state, network_session_disabled, network_transfers_allowed,
+    new_state_with_runtime_policy, only_files_for, overlay_status, patch_bandwidth_settings,
+    patch_kill_switch, patch_net_posture, patch_policy, patch_seeding_settings,
+    patch_torrent_seeding_override, peers_for, policy_stored_from_state, prepare_add_input,
+    privacy_status, rebind_rqbit_session, remove_torrent, resolve_torrent_output_folder, rqbit_api,
+    rqbit_id_for, session_rate_limits_response, set_file_priority, set_profile, set_running,
+    set_session_rate_limits, take_network_rebind_required, tick, trackers_for, version,
+    wallet_status, AddTorrentInput, AddTorrentRequest, BandwidthSettings, KillSwitchStoredSettings,
+    NetworkStatusProvider, PatchFilePriorityRequest, PatchKillSwitchRequest,
     PatchNetPostureRequest, PatchPolicyRequest, PatchTorrentProfileRequest, SeedingSettings,
     SharedState,
 };
@@ -57,10 +60,13 @@ use watch_folders::{PatchWatchFoldersRequest, TestWatchFolderRequest, WatchFolde
 struct AppCtx {
     state: SharedState,
     config: Arc<tokio::sync::RwLock<config::DaemonConfig>>,
+    config_file: PathBuf,
     admin_token: String,
     shutdown: std::sync::Arc<tokio::sync::Notify>,
     /// When false, mutating HTTP methods require `x-admin-token` (same as shutdown).
     bind_is_loopback: bool,
+    /// Android enables this because localhost is shared by every app on the device.
+    auth_all_requests: bool,
     watch_manager: Arc<WatchFolderManager>,
     download_dir: PathBuf,
     secrets: Arc<dyn SearchSecretStore>,
@@ -92,7 +98,22 @@ fn admin_token_authorized(headers: &HeaderMap, expected: &str) -> bool {
         && provided_bytes.ct_eq(expected_bytes).unwrap_u8() == 1
 }
 
-fn build_cors_layer(bind_is_loopback: bool) -> CorsLayer {
+fn build_cors_layer(bind_is_loopback: bool, allowed_origin: Option<&str>) -> CorsLayer {
+    if let Some(origin) = allowed_origin {
+        if let Ok(origin) = origin.parse::<axum::http::HeaderValue>() {
+            return CorsLayer::new()
+                .allow_origin(origin)
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PATCH,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
+                .allow_headers(Any)
+                .max_age(Duration::from_secs(3600));
+        }
+    }
     if bind_is_loopback {
         CorsLayer::new()
             .allow_origin(Any)
@@ -259,21 +280,27 @@ async fn validate_content_type(request: Request, next: Next) -> impl IntoRespons
     next.run(request).await
 }
 
-/// When bound beyond loopback, require admin token for POST/PATCH/DELETE (renderer stays loopback-only).
+/// Protect remote mutations on desktop and all non-public Android API routes.
 async fn require_auth_non_loopback_mutations(
     State(ctx): State<AppCtx>,
     request: Request,
     next: Next,
 ) -> axum::response::Response {
-    if ctx.bind_is_loopback {
-        return next.run(request).await;
-    }
-    if matches!(
-        *request.method(),
-        Method::POST | Method::PATCH | Method::DELETE
-    ) && !admin_token_authorized(request.headers(), &ctx.admin_token)
-    {
-        warn!("Mutating request rejected: invalid or missing x-admin-token (non-loopback bind)");
+    // Browser preflight requests cannot include the admin token. CORS still validates
+    // their origin and requested headers before the authenticated request is sent.
+    let public_route = request.method() == Method::OPTIONS
+        || matches!(request.uri().path(), "/health" | "/version");
+    let requires_auth = if ctx.auth_all_requests {
+        !public_route
+    } else {
+        !ctx.bind_is_loopback
+            && matches!(
+                *request.method(),
+                Method::POST | Method::PATCH | Method::DELETE
+            )
+    };
+    if requires_auth && !admin_token_authorized(request.headers(), &ctx.admin_token) {
+        warn!("Request rejected: invalid or missing x-admin-token");
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({"error": "unauthorized"})),
@@ -281,6 +308,131 @@ async fn require_auth_non_loopback_mutations(
             .into_response();
     }
     next.run(request).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthenticationPolicy {
+    RemoteMutations,
+    AllExceptPublic,
+}
+
+pub struct DaemonRuntimeConfig {
+    pub bind_addr: SocketAddr,
+    pub admin_token: String,
+    pub download_dir: PathBuf,
+    pub config_dir: Option<PathBuf>,
+    pub state_dir: Option<PathBuf>,
+    pub authentication_policy: AuthenticationPolicy,
+    pub cors_origin: Option<String>,
+    pub install_signal_handlers: bool,
+    pub shutdown: Option<Arc<tokio::sync::Notify>>,
+    pub storage_factory: Option<librqbit::storage::BoxStorageFactory>,
+    pub network_status_provider: Option<Arc<dyn NetworkStatusProvider>>,
+    pub network_disabled_at_start: bool,
+    prebound_listener: Option<std::net::TcpListener>,
+}
+
+impl DaemonRuntimeConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let bind = std::env::var("DAEMON_BIND").unwrap_or_else(|_| "127.0.0.1:8733".to_string());
+        let bind_addr = bind
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid DAEMON_BIND '{}': {}", bind, e))?;
+        Ok(Self {
+            bind_addr,
+            admin_token: std::env::var("DAEMON_ADMIN_TOKEN").unwrap_or_default(),
+            download_dir: PathBuf::from(
+                std::env::var("ORC_DOWNLOAD_DIR").unwrap_or_else(|_| default_download_dir()),
+            ),
+            config_dir: std::env::var_os("ORC_CONFIG_DIR").map(PathBuf::from),
+            state_dir: std::env::var_os("ORC_STATE_DIR").map(PathBuf::from),
+            authentication_policy: AuthenticationPolicy::RemoteMutations,
+            cors_origin: None,
+            install_signal_handlers: true,
+            shutdown: None,
+            storage_factory: None,
+            network_status_provider: None,
+            network_disabled_at_start: false,
+            prebound_listener: None,
+        })
+    }
+
+    pub fn android(
+        bind_addr: SocketAddr,
+        admin_token: String,
+        download_dir: PathBuf,
+        config_dir: PathBuf,
+        state_dir: PathBuf,
+    ) -> Self {
+        Self {
+            bind_addr,
+            admin_token,
+            download_dir,
+            config_dir: Some(config_dir),
+            state_dir: Some(state_dir),
+            authentication_policy: AuthenticationPolicy::AllExceptPublic,
+            cors_origin: Some("https://localhost".to_string()),
+            install_signal_handlers: false,
+            shutdown: None,
+            storage_factory: None,
+            network_status_provider: None,
+            network_disabled_at_start: false,
+            prebound_listener: None,
+        }
+    }
+}
+
+pub struct DaemonHandle {
+    pub local_addr: SocketAddr,
+    shutdown: Arc<tokio::sync::Notify>,
+    thread: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
+}
+
+impl DaemonHandle {
+    pub fn shutdown(&self) {
+        self.shutdown.notify_one();
+    }
+
+    pub fn join(mut self) -> anyhow::Result<()> {
+        self.shutdown();
+        match self.thread.take().expect("daemon thread missing").join() {
+            Ok(result) => result,
+            Err(_) => Err(anyhow::anyhow!("daemon thread panicked")),
+        }
+    }
+}
+
+impl Drop for DaemonHandle {
+    fn drop(&mut self) {
+        self.shutdown.notify_one();
+    }
+}
+
+/// Start the daemon on a dedicated Tokio runtime. A port of zero selects an available loopback port.
+pub fn spawn_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<DaemonHandle> {
+    let reservation = std::net::TcpListener::bind(runtime.bind_addr)?;
+    reservation.set_nonblocking(true)?;
+    runtime.bind_addr = reservation.local_addr()?;
+    runtime.prebound_listener = Some(reservation);
+    let local_addr = runtime.bind_addr;
+    let shutdown = runtime
+        .shutdown
+        .clone()
+        .unwrap_or_else(|| Arc::new(tokio::sync::Notify::new()));
+    runtime.shutdown = Some(shutdown.clone());
+    let thread = std::thread::Builder::new()
+        .name("orc-daemon".to_string())
+        .spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(run_daemon(runtime))
+        })?;
+    Ok(DaemonHandle {
+        local_addr,
+        shutdown,
+        thread: Some(thread),
+    })
 }
 
 fn sanitize_error(e: &anyhow::Error, context: &str) -> String {
@@ -364,14 +516,21 @@ async fn main() -> anyhow::Result<()> {
         .with_thread_ids(false)
         .init();
 
-    let admin_token = std::env::var("DAEMON_ADMIN_TOKEN").unwrap_or_else(|_| "".to_string());
+    run_daemon(DaemonRuntimeConfig::from_env()?).await
+}
+
+pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> {
+    orc_core::set_network_status_provider(runtime.network_status_provider.take());
+    let config_file = match runtime.config_dir.as_ref() {
+        Some(directory) => directory.join("config.json"),
+        None => config::config_path()?,
+    };
+
+    let admin_token = runtime.admin_token.clone();
     if !admin_token.is_empty() && admin_token.len() < 32 {
         warn!("DAEMON_ADMIN_TOKEN is shorter than recommended 32 characters. Consider using a longer token for better security.");
     }
-    let bind = std::env::var("DAEMON_BIND").unwrap_or_else(|_| "127.0.0.1:8733".to_string());
-    let addr: SocketAddr = bind
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid DAEMON_BIND '{}': {}", bind, e))?;
+    let addr = runtime.bind_addr;
     let bind_is_loopback = addr.ip().is_loopback();
 
     if !bind_is_loopback && admin_token.is_empty() {
@@ -382,20 +541,31 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
-    let download_dir = std::env::var("ORC_DOWNLOAD_DIR").unwrap_or_else(|_| default_download_dir());
+    let download_dir = runtime.download_dir.to_string_lossy().into_owned();
     tracing::info!("Download directory: {}", download_dir);
-    let config = config::load_config().await.unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config, using defaults: {e}");
-        let mut config = config::DaemonConfig::default();
-        search::apply_edition_search_defaults(&mut config.search);
-        config
-    });
+    let config = config::load_config_from(&config_file)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to load config, using defaults: {e}");
+            let mut config = config::DaemonConfig::default();
+            search::apply_edition_search_defaults(&mut config.search);
+            config
+        });
 
     tracing::info!("Using listen port: {}", config.listen_port);
     tokio::fs::create_dir_all(&download_dir).await?;
 
     let bind_iface = config.net_posture.bind_interface.clone();
-    let state = new_state(download_dir.clone(), config.listen_port, bind_iface).await?;
+    let persistence_dir = runtime.state_dir.as_ref().map(|dir| dir.join("rqbit"));
+    let state = new_state_with_runtime_policy(
+        download_dir.clone(),
+        config.listen_port,
+        bind_iface,
+        persistence_dir,
+        runtime.storage_factory.take(),
+        runtime.network_disabled_at_start,
+    )
+    .await?;
     if let Some(ref ks) = config.kill_switch {
         let mut guard = state.lock().await;
         apply_stored_kill_switch(&mut guard, ks);
@@ -413,7 +583,10 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     let watch_manager = Arc::new(WatchFolderManager::new(config.watch_folders.clone()));
-    let shutdown_notify = Arc::new(tokio::sync::Notify::new());
+    let shutdown_notify = runtime
+        .shutdown
+        .clone()
+        .unwrap_or_else(|| Arc::new(tokio::sync::Notify::new()));
     {
         let s = state.clone();
         let wm = watch_manager.clone();
@@ -456,7 +629,7 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     }
-    let cors = build_cors_layer(bind_is_loopback);
+    let cors = build_cors_layer(bind_is_loopback, runtime.cors_origin.as_deref());
     use axum::http::HeaderValue;
     let security_headers = (
         SetResponseHeaderLayer::overriding(
@@ -479,9 +652,9 @@ async fn main() -> anyhow::Result<()> {
     const MAX_CONCURRENT_REQUESTS: usize = 100;
     let config_state = Arc::new(tokio::sync::RwLock::new(config.clone()));
     let secrets = {
-        let config_dir = config::config_path()
-            .ok()
-            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        let config_dir = config_file
+            .parent()
+            .map(|parent| parent.to_path_buf())
             .unwrap_or_else(|| PathBuf::from(&download_dir));
         create_default_secret_store(&config_dir)
     };
@@ -489,9 +662,14 @@ async fn main() -> anyhow::Result<()> {
     let app_ctx = AppCtx {
         state,
         config: config_state,
+        config_file,
         admin_token,
         shutdown: shutdown_notify.clone(),
         bind_is_loopback,
+        auth_all_requests: matches!(
+            runtime.authentication_policy,
+            AuthenticationPolicy::AllExceptPublic
+        ),
         watch_manager,
         download_dir: PathBuf::from(download_dir),
         secrets,
@@ -520,12 +698,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/net/kill-switch/test", post(h_kill_switch_test))
         .route("/net/privacy-status", get(h_privacy_status))
         .route("/net/privacy/preset/vpn-safety", post(h_vpn_safety_preset))
-        .route(
-            "/watch-folders",
-            get(h_watch_folders).patch(h_patch_watch_folders),
-        )
-        .route("/watch-folders/test", post(h_watch_folders_test))
-        .route("/watch-folders/events", get(h_watch_folders_events))
         .route("/seeding", get(h_seeding).patch(h_patch_seeding))
         .route("/torrents/limits", get(h_get_limits).post(h_post_limits))
         .route("/bandwidth/schedule", patch(h_patch_bandwidth_schedule))
@@ -533,18 +705,6 @@ async fn main() -> anyhow::Result<()> {
             "/torrents/:id/seeding",
             get(h_get_torrent_seeding).patch(h_patch_torrent_seeding),
         )
-        .route("/search/providers", get(h_search_providers))
-        .route(
-            "/search/settings",
-            get(h_search_settings).patch(h_patch_search_settings),
-        )
-        .route(
-            "/search/providers/:name/credentials",
-            put(h_put_search_credentials).delete(h_delete_search_credentials),
-        )
-        .route("/search/providers/:name/test", post(h_test_search_provider))
-        .route("/search/providers/:name", delete(h_delete_search_provider))
-        .route("/search", post(h_search))
         .route("/v1/policy", get(h_policy).patch(h_patch_policy))
         .route("/torrents", get(h_list_torrents).post(h_add_torrent))
         .route("/torrents/:id", get(h_get_torrent))
@@ -560,7 +720,33 @@ async fn main() -> anyhow::Result<()> {
         .route("/torrents/:id/peers", get(h_peers))
         .route("/torrents/:id/trackers", get(h_trackers))
         .route("/torrents/:id/row-snapshot", get(h_get_row_snapshot))
-        .route("/admin/shutdown", post(h_admin_shutdown))
+        .route("/admin/shutdown", post(h_admin_shutdown));
+
+    #[cfg(feature = "desktop-watch-folders")]
+    let app = app
+        .route(
+            "/watch-folders",
+            get(h_watch_folders).patch(h_patch_watch_folders),
+        )
+        .route("/watch-folders/test", post(h_watch_folders_test))
+        .route("/watch-folders/events", get(h_watch_folders_events));
+
+    #[cfg(feature = "desktop-search")]
+    let app = app
+        .route("/search/providers", get(h_search_providers))
+        .route(
+            "/search/settings",
+            get(h_search_settings).patch(h_patch_search_settings),
+        )
+        .route(
+            "/search/providers/:name/credentials",
+            put(h_put_search_credentials).delete(h_delete_search_credentials),
+        )
+        .route("/search/providers/:name/test", post(h_test_search_provider))
+        .route("/search/providers/:name", delete(h_delete_search_provider))
+        .route("/search", post(h_search));
+
+    let app = app
         .with_state(app_ctx.clone())
         .layer(axum::middleware::from_fn_with_state(
             app_ctx.clone(),
@@ -580,19 +766,28 @@ async fn main() -> anyhow::Result<()> {
 
     let shutdown_signal = {
         let shutdown_notify = shutdown_notify.clone();
+        let install_signal_handlers = runtime.install_signal_handlers;
         async move {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    info!("ctrl-c received; shutting down");
+            if install_signal_handlers {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        info!("ctrl-c received; shutting down");
+                    }
+                    _ = shutdown_notify.notified() => {
+                        info!("admin shutdown requested");
+                    }
                 }
-                _ = shutdown_notify.notified() => {
-                    info!("admin shutdown requested");
-                }
+            } else {
+                shutdown_notify.notified().await;
+                info!("embedded shutdown requested");
             }
         }
     };
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = match runtime.prebound_listener.take() {
+        Some(listener) => tokio::net::TcpListener::from_std(listener)?,
+        None => tokio::net::TcpListener::bind(addr).await?,
+    };
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal)
         .await?;
@@ -662,7 +857,7 @@ async fn h_patch_net_posture(
         config.policy = Some(policy_stored);
         config.clone()
     };
-    if let Err(e) = config::save_config(&updated).await {
+    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
         warn!("Failed to persist net posture config: {e}");
     }
 
@@ -725,7 +920,7 @@ async fn h_patch_kill_switch(
         config.policy = Some(policy_stored);
         config.clone()
     };
-    if let Err(e) = config::save_config(&updated).await {
+    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
         warn!("Failed to persist kill switch config: {e}");
     }
 
@@ -768,7 +963,7 @@ async fn h_patch_policy(
         config.policy = Some(policy_stored);
         config.clone()
     };
-    if let Err(e) = config::save_config(&updated).await {
+    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
         warn!("Failed to persist policy config: {e}");
     }
     Json(out).into_response()
@@ -838,7 +1033,7 @@ async fn h_patch_search_settings(
         }
     }
 
-    if let Err(e) = config::save_config(&updated).await {
+    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
         let sanitized = sanitize_error(&e, "Failed to persist search settings");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1144,7 +1339,7 @@ async fn h_delete_search_provider(
         status.remove(&name);
     }
 
-    if let Err(e) = config::save_config(&updated).await {
+    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
         let sanitized = sanitize_error(&e, "Failed to persist search settings");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1192,6 +1387,7 @@ async fn h_add_torrent(
         )
             .into_response();
     }
+    let transfers_allowed = network_transfers_allowed();
 
     let input = match prepare_add_input(&req) {
         Ok(i) => i,
@@ -1226,7 +1422,7 @@ async fn h_add_torrent(
                 rqbit_id_for(&guard, &id)
             };
             if let Some(rqbit_id) = rqbit_id {
-                if !is_running {
+                if !is_running && transfers_allowed && !req.start_paused {
                     if let Err(e) = api
                         .api_torrent_action_start(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
                         .await
@@ -1246,6 +1442,15 @@ async fn h_add_torrent(
             )
                 .into_response();
         }
+    }
+    if !transfers_allowed && matches!(&input, AddTorrentInput::Url(_)) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Network blocked by the active Android transfer policy. Connect to an allowed network before resolving a magnet link."
+            })),
+        )
+            .into_response();
     }
     let (api, default_download_path) = {
         let guard = ctx.state.lock().await;
@@ -1277,7 +1482,8 @@ async fn h_add_torrent(
                 .map(|p| p.to_string_lossy().to_string())
         })
     });
-    let opts = build_add_torrent_options(output_folder.clone());
+    let mut opts = build_add_torrent_options(output_folder.clone());
+    opts.paused = req.start_paused || !transfers_allowed;
     let rqbit_resp = match &input {
         AddTorrentInput::Url(u) => {
             api.api_add_torrent(librqbit::AddTorrent::from_url(u.as_str()), Some(opts))
@@ -1302,7 +1508,8 @@ async fn h_add_torrent(
                 || error_lower.contains("file already exists");
             if is_file_exists_error {
                 info!("Files exist on disk but torrent not in state, retrying with overwrite to resume: {error_str}");
-                let retry_opts = build_add_torrent_options(output_folder.clone());
+                let mut retry_opts = build_add_torrent_options(output_folder.clone());
+                retry_opts.paused = req.start_paused || !transfers_allowed;
                 match &input {
                     AddTorrentInput::Url(u) => {
                         api.api_add_torrent(
@@ -1348,7 +1555,12 @@ async fn h_add_torrent(
     let out = {
         let mut guard = ctx.state.lock().await;
         match integrate_added_torrent(&mut guard, &req, rqbit_resp) {
-            Ok(r) => r,
+            Ok(r) => {
+                if req.start_paused || !transfers_allowed {
+                    let _ = set_running(&mut guard, &r.id, false);
+                }
+                r
+            }
             Err(e) => {
                 let sanitized = sanitize_error(&e, "Failed to integrate torrent");
                 return (
@@ -1525,6 +1737,29 @@ async fn h_start(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl Into
         )
             .into_response();
     }
+    if !network_transfers_allowed() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Network blocked by the active Android transfer policy. Connect to an allowed network and resume manually."
+            })),
+        )
+            .into_response();
+    }
+    {
+        let rebind_requested = take_network_rebind_required();
+        let mut guard = ctx.state.lock().await;
+        if network_session_disabled(&guard) || rebind_requested {
+            if let Err(error) = rebind_rqbit_session(&mut guard).await {
+                let sanitized = sanitize_error(&error, "Failed to enable the torrent network");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": sanitized})),
+                )
+                    .into_response();
+            }
+        }
+    }
     {
         let guard = ctx.state.lock().await;
         let policy = get_policy(&guard);
@@ -1599,7 +1834,17 @@ async fn h_stop(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl IntoR
     StatusCode::OK.into_response()
 }
 
-async fn h_remove(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl IntoResponse {
+#[derive(Debug, Default, Deserialize)]
+struct RemoveTorrentBody {
+    #[serde(default)]
+    delete_data: bool,
+}
+
+async fn h_remove(
+    State(ctx): State<AppCtx>,
+    Path(id): Path<String>,
+    body: Option<Json<RemoveTorrentBody>>,
+) -> impl IntoResponse {
     if !validate_torrent_id(&id) {
         return (
             StatusCode::BAD_REQUEST,
@@ -1619,10 +1864,25 @@ async fn h_remove(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl Int
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    if let Err(e) = api
-        .api_torrent_action_forget(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
-        .await
-    {
+    let delete_data = body.map(|Json(body)| body.delete_data).unwrap_or(false);
+    let result = if delete_data {
+        api.api_torrent_action_delete(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+            .await
+    } else {
+        api.api_torrent_action_forget(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+            .await
+    };
+    if let Err(e) = result {
+        // rqbit removes the in-memory/persisted torrent before asking custom storage
+        // to delete files. Keep ORC's catalog synchronized even when SAF reports a
+        // partial deletion (for example after a URI grant is revoked).
+        if api
+            .mgr_handle(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+            .is_err()
+        {
+            let mut guard = ctx.state.lock().await;
+            let _ = remove_torrent(&mut guard, &id);
+        }
         let sanitized = sanitize_error(&anyhow::Error::from(e), "Failed to remove torrent");
         return (
             StatusCode::BAD_REQUEST,
@@ -1791,7 +2051,7 @@ async fn h_admin_shutdown(State(ctx): State<AppCtx>, headers: HeaderMap) -> impl
     }
 
     info!("admin shutdown accepted");
-    ctx.shutdown.notify_waiters();
+    ctx.shutdown.notify_one();
     (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
 }
 
@@ -1828,7 +2088,7 @@ async fn h_vpn_safety_preset(State(ctx): State<AppCtx>) -> impl IntoResponse {
         config.policy = Some(result.3);
         config.clone()
     };
-    if let Err(e) = config::save_config(&updated).await {
+    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
         warn!("Failed to persist VPN safety preset config: {e}");
     }
     Json(result.0).into_response()
@@ -1853,7 +2113,7 @@ async fn h_patch_watch_folders(
                 config.watch_folders = resp.settings.clone();
                 config.clone()
             };
-            if let Err(e) = config::save_config(&updated).await {
+            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
                 warn!("Failed to persist watch folder config: {e}");
             }
             Json(resp).into_response()
@@ -1900,7 +2160,7 @@ async fn h_patch_seeding(
                 config.seeding = settings.clone();
                 config.clone()
             };
-            if let Err(e) = config::save_config(&updated).await {
+            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
                 warn!("Failed to persist seeding config: {e}");
             }
             Json(settings).into_response()
@@ -1943,7 +2203,7 @@ async fn h_post_limits(
                 config.bandwidth = guard.bandwidth_settings.clone();
                 config.clone()
             };
-            if let Err(e) = config::save_config(&updated).await {
+            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
                 warn!("Failed to persist bandwidth config: {e}");
             }
             let guard = ctx.state.lock().await;
@@ -1975,7 +2235,7 @@ async fn h_patch_bandwidth_schedule(
                 config.bandwidth = settings.clone();
                 config.clone()
             };
-            if let Err(e) = config::save_config(&updated).await {
+            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
                 warn!("Failed to persist bandwidth config: {e}");
             }
             Json(settings).into_response()

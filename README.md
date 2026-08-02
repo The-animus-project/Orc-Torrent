@@ -4,27 +4,34 @@
 
 **Repository:** [github.com/The-animus-project/Orc-Torrent](https://github.com/The-animus-project/Orc-Torrent)
 
-ORC Torrent is a decentralized BitTorrent client built with privacy in mind. We use a Rust backend for the engine and API, and an Electron + React desktop app for the interface—so you get a secure, maintainable client that we can keep improving over time.
+ORC Torrent is a decentralized BitTorrent client built with privacy in mind. A shared Rust engine powers the Electron desktop app and the native Android shell, with React providing adaptive desktop and phone interfaces.
 
-**ORC Torrent is compatible with Windows, macOS, and Linux.** You can build and run it on any of these platforms.
+**ORC Torrent is compatible with Android 10+, Windows, macOS, and Linux.**
 
-**Latest release: [v2.3.4](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.3.4)** — Torznab search integrations, protected provider credentials, Intel macOS packages, and PGP-signed builds for every supported platform.
+**Latest release: [v2.4.0](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.4.0)** — the first Android release, with on-device torrenting, shared-folder storage, background transfers, Wi-Fi-first networking, and VPN-aware protection.
+
+**Android is here.** Phones and tablets running Android 10+ can install ORC from the signed `arm64-v8a` APK. See the [Android installation guide](Install-Instructions/Android.md) for download, verification, sideloading, and first-run setup.
 
 <p align="center">
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.3.4.exe">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.4.0.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-0078D6?style=for-the-badge&logo=windows&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.4-mac-arm64.dmg">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.4.0-mac-arm64.dmg">
     <img alt="Download for macOS" src="https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.3.4-linux-x86_64.AppImage">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.4.0-linux-x86_64.AppImage">
     <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   </a>
 </p>
 <p align="center">
-  <sub>Windows installer · macOS DMG (Apple Silicon and Intel) · Linux AppImage — <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest">portable zips &amp; other formats</a></sub>
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.4.0-android-arm64-v8a.apk">
+    <img alt="Download for Android" src="https://img.shields.io/badge/Android%2010%2B-Download-3DDC84?style=for-the-badge&logo=android&logoColor=white">
+  </a>
+</p>
+<p align="center">
+  <sub>Windows installer · macOS DMG (Apple Silicon and Intel) · Linux AppImage · Android APK — <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest">portable zips &amp; other formats</a></sub>
 </p>
 <p align="center">
   <a href="https://github.com/The-animus-project/Orc-Torrent">
@@ -45,6 +52,7 @@ Pre-built installers and portable archives are published on **[GitHub Releases](
 | **Windows** (x64) | `ORC-TORRENT-<version>-win-x64.zip` | `ORC-TORRENT-Setup-<version>.exe` |
 | **macOS** (arm64 / x64) | `ORC-TORRENT-<version>-mac-<arch>.zip` | `.dmg`, `.pkg` |
 | **Linux** (x64) | `ORC-TORRENT-<version>-linux-x86_64.AppImage` | `.deb` |
+| **Android** (arm64, Android 10+) | `ORC-TORRENT-<version>-android-arm64-v8a.apk` | Sideload the signed APK |
 
 **Portable** builds run without an installer — extract or make executable, then launch the app. **Installers** register shortcuts, menu entries, and (on Windows/macOS) magnet / `.torrent` file associations.
 
@@ -68,7 +76,7 @@ The fingerprint must be:
 Verify the downloaded build before opening or extracting it. For example:
 
 ```sh
-gpg --verify ORC-TORRENT-2.3.4-linux-x86_64.AppImage.asc ORC-TORRENT-2.3.4-linux-x86_64.AppImage
+gpg --verify ORC-TORRENT-2.4.0-linux-x86_64.AppImage.asc ORC-TORRENT-2.4.0-linux-x86_64.AppImage
 ```
 
 You can also verify the signed checksum manifest and then check all downloaded builds in it:
@@ -84,7 +92,7 @@ A valid result reports a good signature made by the key above. A good signature 
 
 ## Installation
 
-Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.3.4`).
+Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.4.0`).
 
 ### Windows
 
@@ -114,11 +122,19 @@ macOS may block the app on first open (unverified developer). Use **right-click 
 
 AppImages need [FUSE](https://github.com/AppImage/AppImageKit/wiki/FUSE) on some distributions (`libfuse2` on Ubuntu/Debian).
 
+### Android 10+
+
+Download `ORC-TORRENT-<version>-android-arm64-v8a.apk` from GitHub Releases, verify the signed checksum manifest, and allow your browser or file manager to install that APK. On first launch, create or select a dedicated ORC subfolder with Android's system folder picker. The app does not request broad storage access, and completed files remain in that shared folder after uninstall.
+
+Transfers use unmetered Wi-Fi by default. Cellular data and the VPN kill switch are explicit opt-ins in Settings and Privacy.
+
+For complete download-verification, sideloading, onboarding, updating, and troubleshooting steps, read **[Install ORC Torrent on Android](Install-Instructions/Android.md)**.
+
 ### After install
 
-1. Start **ORC TORRENT** — the desktop app launches the daemon and waits until it is healthy before showing the UI.
-2. Add torrents via drag-and-drop, file picker, or associated magnet links (installers register associations; portable builds may not).
-3. Enable **Settings → Updates** to receive new releases from GitHub automatically.
+1. Start **ORC TORRENT**. Desktop launches its local daemon automatically; Android starts the same Rust engine on-device.
+2. Add torrents via drag-and-drop or file picker on desktop, or the Add sheet and Android Open With/Share flows on mobile. Both platforms accept magnet links and `.torrent` files.
+3. Desktop can use **Settings → Updates**. Android updates are installed by downloading the next signed APK from GitHub Releases and installing it over the existing app.
 
 To compile from source instead of using a release build, see [Building from source](#building-from-source) and [Install-Instructions](Install-Instructions/).
 
@@ -283,7 +299,9 @@ npm run dist
 
 **Linux via Docker** (from macOS or Windows hosts): `./scripts/build-linux-docker.sh` from the repo root.
 
-**Publishing a release:** push a `v*` tag (e.g. `v2.3.0`) or run the [Build release](.github/workflows/build-release.yml) workflow manually. Artifacts are attached to the matching GitHub Release.
+**Android build:** install Java 21, Android SDK 36, NDK `28.2.13676358`, Rust targets `aarch64-linux-android` and `x86_64-linux-android`, and `cargo-ndk`. Then run `npm ci` in `ui/desktop` and `ui/android`, followed by `npm run sync:web` in `ui/android` and `./gradlew assembleDebug` in `ui/android/android`.
+
+**Publishing a release:** push a `v*` tag (e.g. `v2.3.0`) or run the [Build release](.github/workflows/build-release.yml) workflow manually. Android release signing uses `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`; checksum signatures use `RELEASE_GPG_PRIVATE_KEY` and `RELEASE_GPG_PASSPHRASE`. Secrets are never committed.
 
 To run in development without packaging:
 
@@ -349,7 +367,8 @@ We welcome contributions. The codebase is organized so the daemon and desktop ca
 
 - **Rust**: From `crates/`, run `cargo build --release -p orc-daemon`; run tests with `cargo test`.
 - **Desktop**: From `ui/desktop/`, run `npm run dev` for development; `npm run build` then `npm run dist` for a full package.
-- **CI**: The workflow in [.github/workflows/build-release.yml](.github/workflows/build-release.yml) runs on `workflow_dispatch` or tags `v*`, builds macOS, Linux, and Windows installers, and attaches them to the GitHub Release.
+- **Android**: The developer build and architecture are documented in [docs/ANDROID.md](docs/ANDROID.md); the user installation guide is [Install-Instructions/Android.md](Install-Instructions/Android.md).
+- **CI**: The workflow in [.github/workflows/build-release.yml](.github/workflows/build-release.yml) runs on `workflow_dispatch` or tags `v*`, tests Android APIs 29/33/34/36, builds Android, macOS, Linux, and Windows packages, signs release assets, and publishes them together on GitHub Releases.
 
 If you’re not sure where to start, check the [roadmap](#roadmap) and open issues—we’re happy to point you to a good first task.
 
@@ -361,15 +380,11 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
+| **2.4.0** | First Android 10+ build: signed APK, on-device Rust engine, mobile UI, SAF storage, background transfers, Wi-Fi-first policy, durable resume, and VPN-aware kill switch. |
 | **2.3.4** | Torznab providers, protected API-key storage, search deduplication and UI polish, Intel macOS packages, and PGP signatures for every distributable. |
 | **2.3.3** | Patch bump after v2.3.2 (next valid semver after the security release). |
 | **2.3.2** | Dependabot security patches (npm + Rust openssl/webpki/serde_with/rand), Animus boot/splash polish, daemon-gated startup. |
 | **2.3.1** | Portable builds for Windows (zip), macOS (zip), and Linux (AppImage) on every release; CodeQL security fixes; `shell-quote` dependency bump. |
-| **2.3.0** | Watch folders, privacy dashboard, VPN Safety Mode, GitHub auto-update, network introspection, seeding/bandwidth limits, kill-switch fixes, and honest trust copy. |
-| **2.2.17** | Security dependency patches and CodeQL build-script fixes. |
-| **2.2.16** | Animated notification themes, notification sound playback fixes, upgrade uninstall flow, and enforced app icon in installers. |
-| **2.2.15** | XSS hardening, firewall IPC, log watcher OOM fix, and torrent-table performance improvements. |
-| **2.2.14** | Install instructions for Windows, macOS, and Linux; notification sound preview and settings UI refresh. |
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**.
 

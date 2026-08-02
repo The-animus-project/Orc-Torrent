@@ -1,0 +1,19 @@
+[package]
+name = "orc-android"
+version = "2.4.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow.workspace = true
+jni = "0.21"
+libc = "0.2"
+librqbit = { workspace = true, default-features = false, features = ["rust-tls"] }
+orc-daemon = { path = "../orc-daemon", default-features = false, features = ["tls-rustls"] }
+orc-core = { path = "../orc-core", default-features = false, features = ["tls-rustls"] }
+serde.workspace = true
+serde_json.workspace = true
+parking_lot = "0.12"

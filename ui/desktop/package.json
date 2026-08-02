@@ -1,7 +1,7 @@
 {
   "name": "orc-desktop",
   "private": true,
-  "version": "2.3.4",
+  "version": "2.4.0",
   "description": "ORC Torrent Client - A decentralized BitTorrent client with privacy features",
   "author": "ORC Torrent / The ANIMUS PROJECT <animustech36@gmail.com>",
   "license": "AGPL-3.0",
@@ -16,6 +16,7 @@
     "build": "npx tsx ./scripts/build.ts",
     "build:daemon": "cd ../.. && cargo build --release -p orc-daemon && cd ui/desktop",
     "build:electron": "npx vite build && npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json",
+    "build:android-web": "npx vite build --mode android --outDir dist/android",
     "pack": "electron-builder --dir",
     "clean": "npx tsx ./scripts/clean.ts",
     "clean:deep": "npx tsx ./scripts/clean.ts --deep",

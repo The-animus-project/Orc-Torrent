@@ -396,6 +396,10 @@ pub struct SessionOptions {
     /// all remembered torrents will continue where they left off.
     pub persistence: Option<SessionPersistenceConfig>,
 
+    /// Force persisted torrents to restore paused. Embedded mobile hosts use this when
+    /// their required network (for example a VPN) is unavailable at process start.
+    pub force_paused_on_restore: bool,
+
     /// The peer ID to use. If not specified, a random one will be generated.
     pub peer_id: Option<Id20>,
     /// Configure default peer connection options. Can be overriden per torrent.
@@ -503,6 +507,7 @@ impl Session {
         mut opts: SessionOptions,
     ) -> BoxFuture<'static, anyhow::Result<Arc<Self>>> {
         async move {
+            let force_paused_on_restore = opts.force_paused_on_restore;
             let peer_id = opts
                 .peer_id
                 .unwrap_or_else(|| generate_azereus_style(*b"rQ", crate_version!()));
@@ -740,6 +745,9 @@ impl Session {
                                     let (id, st) = st?;
                                     let span = add_torrent_span(st.info_hash());
                                     let (add_torrent, mut opts) = st.into_add_torrent()?;
+                                    if force_paused_on_restore {
+                                        opts.paused = true;
+                                    }
                                     opts.preferred_id = Some(id);
                                     let fut = session.add_torrent(add_torrent, Some(opts));
                                     let fut = fut.instrument(span);
@@ -1319,7 +1327,8 @@ impl Session {
             (Err(e), true) => return Err(e).context("torrent deleted, but could not delete files"),
             (Ok(storage), true) => {
                 debug!("will delete files");
-                remove_files_and_dirs(&metadata.file_infos, &storage);
+                remove_files_and_dirs(&metadata.file_infos, &storage)
+                    .context("torrent removed, but one or more files could not be deleted")?;
                 if removed.shared().options.output_folder != self.output_folder {
                     if let Err(e) = storage.remove_directory_if_empty(Path::new("")) {
                         warn!(
@@ -1494,8 +1503,9 @@ pub(crate) struct ResolveMagnetResult {
     pub seen_peers: Vec<SocketAddr>,
 }
 
-fn remove_files_and_dirs(infos: &FileInfos, files: &dyn TorrentStorage) {
+fn remove_files_and_dirs(infos: &FileInfos, files: &dyn TorrentStorage) -> anyhow::Result<()> {
     let mut all_dirs = HashSet::new();
+    let mut first_error = None;
     for (id, fi) in infos.iter().enumerate() {
         if fi.attrs.padding {
             continue;
@@ -1503,6 +1513,12 @@ fn remove_files_and_dirs(infos: &FileInfos, files: &dyn TorrentStorage) {
         let mut fname = &*fi.relative_filename;
         if let Err(e) = files.remove_file(id, fname) {
             warn!(?fi.relative_filename, error=?e, "could not delete file");
+            if first_error.is_none() {
+                first_error = Some(e.context(format!(
+                    "could not delete {}",
+                    fi.relative_filename.display()
+                )));
+            }
         } else {
             debug!(?fi.relative_filename, "deleted the file")
         }
@@ -1526,6 +1542,7 @@ fn remove_files_and_dirs(infos: &FileInfos, files: &dyn TorrentStorage) {
             debug!("removed {dir:?}")
         }
     }
+    first_error.map_or(Ok(()), Err)
 }
 
 // Ad adapter for converting stats into the format that tracker_comms accepts.

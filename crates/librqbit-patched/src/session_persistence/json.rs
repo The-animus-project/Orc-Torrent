@@ -1,11 +1,10 @@
-use std::{any::TypeId, collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::{
     api::TorrentIdOrHash,
     bitv::{BitV, MmapBitV},
     bitv_factory::BitVFactory,
     session::TorrentId,
-    storage::filesystem::FilesystemStorageFactory,
     torrent_state::ManagedTorrentHandle,
     type_aliases::BF,
 };
@@ -127,14 +126,6 @@ impl JsonSessionPersistenceStore {
         torrent: &ManagedTorrentHandle,
         write_torrent_file: bool,
     ) -> anyhow::Result<()> {
-        if !torrent
-            .shared
-            .storage_factory
-            .is_type_id(TypeId::of::<FilesystemStorageFactory>())
-        {
-            bail!("storages other than FilesystemStorageFactory are not supported");
-        }
-
         let st = SerializedTorrent {
             trackers: torrent
                 .shared()

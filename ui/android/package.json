@@ -1,0 +1,20 @@
+{
+  "name": "orc-android-shell",
+  "private": true,
+  "version": "2.4.0",
+  "type": "module",
+  "scripts": {
+    "sync:web": "npm --prefix ../desktop run build:android-web && npx cap sync android",
+    "open": "npx cap open android",
+    "build:debug": "npm run sync:web && ./android/gradlew -p android assembleDebug",
+    "build:release": "npm run sync:web && ./android/gradlew -p android assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "typescript": "^7.0.2"
+  }
+}

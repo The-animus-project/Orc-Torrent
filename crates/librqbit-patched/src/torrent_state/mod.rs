@@ -200,6 +200,18 @@ pub struct ManagedTorrentShared {
     pub(crate) magnet_name: Option<String>,
 }
 
+impl ManagedTorrentShared {
+    /// Storage integrations use this logical path to resolve a torrent beneath their root.
+    pub fn output_folder(&self) -> &PathBuf {
+        &self.options.output_folder
+    }
+
+    /// Whether an existing file may be reopened for resume.
+    pub fn allow_overwrite(&self) -> bool {
+        self.options.allow_overwrite
+    }
+}
+
 pub struct ManagedTorrent {
     // Static torrent configuration that doesn't change.
     pub shared: Arc<ManagedTorrentShared>,

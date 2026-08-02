@@ -79,10 +79,12 @@ impl SearchSecretStore for InMemorySearchSecretStore {
 }
 
 /// OS credential-store backend (macOS Keychain, Windows Credential Manager, Linux Secret Service).
+#[cfg(not(target_os = "android"))]
 pub struct OsKeyringSearchSecretStore {
     service: String,
 }
 
+#[cfg(not(target_os = "android"))]
 impl OsKeyringSearchSecretStore {
     pub fn new() -> Self {
         Self {
@@ -109,6 +111,7 @@ impl OsKeyringSearchSecretStore {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl std::fmt::Debug for OsKeyringSearchSecretStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OsKeyringSearchSecretStore")
@@ -118,6 +121,7 @@ impl std::fmt::Debug for OsKeyringSearchSecretStore {
 }
 
 #[async_trait]
+#[cfg(not(target_os = "android"))]
 impl SearchSecretStore for OsKeyringSearchSecretStore {
     async fn set_secret(&self, reference: &str, value: &str) -> Result<()> {
         validate_reference(reference)?;
@@ -242,12 +246,16 @@ impl SearchSecretStore for EncryptedFileSearchSecretStore {
 
 /// Prefer OS keyring; fall back to encrypted file store when keyring is unusable.
 pub fn create_default_secret_store(config_dir: &Path) -> Arc<dyn SearchSecretStore> {
-    let keyring = OsKeyringSearchSecretStore::new();
-    if keyring.is_usable() {
-        Arc::new(keyring)
-    } else {
+    #[cfg(not(target_os = "android"))]
+    {
+        let keyring = OsKeyringSearchSecretStore::new();
+        if keyring.is_usable() {
+            return Arc::new(keyring);
+        }
+    }
+    {
         warn!(
-            "OS keyring unavailable for search credentials; using encrypted file store under config directory"
+            "OS keyring unavailable on this platform; using encrypted file storage under the app config directory"
         );
         match EncryptedFileSearchSecretStore::open(config_dir) {
             Ok(store) => Arc::new(store),

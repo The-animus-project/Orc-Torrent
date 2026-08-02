@@ -47,7 +47,8 @@ function magnetNameHint(magnetUri: string, nameHint?: string | null): string | u
 export async function addMagnetToDaemon(
   magnetUri: string,
   savePath?: string | null,
-  nameHint?: string | null
+  nameHint?: string | null,
+  startPaused = false
 ): Promise<ImportedTorrentResult> {
   const resolvedName = magnetNameHint(magnetUri, nameHint);
   const response = await postJson<{ id: string }>(
@@ -56,6 +57,7 @@ export async function addMagnetToDaemon(
       magnet: magnetUri,
       ...(resolvedName ? { name_hint: resolvedName } : {}),
       ...(savePath ? { save_path: savePath } : {}),
+      ...(startPaused ? { start_paused: true } : {}),
     },
     30000
   );
@@ -71,7 +73,8 @@ export async function addTorrentB64ToDaemon(
   torrentB64: string,
   savePath?: string | null,
   nameHint?: string | null,
-  torrentUrl?: string | null
+  torrentUrl?: string | null,
+  startPaused = false
 ): Promise<ImportedTorrentResult> {
   const resolvedName = resolveTorrentNameHint(nameHint, torrentUrl ? nameHintFromTorrentUrl(torrentUrl) : undefined);
   const added = await postJson<{ id: string }>(
@@ -80,6 +83,7 @@ export async function addTorrentB64ToDaemon(
       torrent_b64: torrentB64,
       ...(resolvedName ? { name_hint: resolvedName } : {}),
       ...(savePath ? { save_path: savePath } : {}),
+      ...(startPaused ? { start_paused: true } : {}),
     },
     60000
   );

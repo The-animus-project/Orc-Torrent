@@ -128,6 +128,7 @@ function applyBootstrapTheme(theme: BootstrapTheme) {
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./ui/App";
+import MobileApp from "./mobile/MobileApp";
 
 // Import logger after it's defined (will be available after module load)
 // Note: We use console.error here because this runs before React mounts and logger may not be available
@@ -199,12 +200,13 @@ function mountApp() {
     // Only use StrictMode in development to avoid hook order issues in production
     // In production builds, Vite sets import.meta.env.PROD to true
     const isDevelopment = import.meta.env.DEV;
+    const RootApp = window.Capacitor?.getPlatform?.() === "android" ? MobileApp : App;
     const AppWrapper = isDevelopment ? (
       <React.StrictMode>
-        <App />
+        <RootApp />
       </React.StrictMode>
     ) : (
-      <App />
+      <RootApp />
     );
     root.render(AppWrapper);
     requestAnimationFrame(() => {

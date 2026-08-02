@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <path
+        android:fillColor="@color/orc_mark"
+        android:fillType="evenOdd"
+        android:pathData="M48,8a40,40 0,1 0,0 80a40,40 0,1 0,0 -80M48,20a28,28 0,1 1,0 56a28,28 0,1 1,0 -56" />
+    <path
+        android:fillColor="@color/orc_mark"
+        android:pathData="M43,28h10v24h10L48,67 33,52h10z" />
+</vector>

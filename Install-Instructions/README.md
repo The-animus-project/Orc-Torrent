@@ -9,6 +9,7 @@
 | **Windows** | [Windows.md](Windows.md) — one-command build (`build.cmd` / `build.ps1`), NSIS installer, portable zip |
 | **macOS** | [macOS.md](macOS.md) — `.app` bundle, DMG (if configured) |
 | **Linux** | [Linux.md](Linux.md) — AppImage, `.deb` |
+| **Android 10+** | [Android.md](Android.md) — install and verify the signed `arm64-v8a` APK |
 
 ## Shared layout
 

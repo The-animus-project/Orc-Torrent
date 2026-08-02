@@ -1,4 +1,4 @@
-# Production build: installers for macOS, Linux, and Windows; upload artifacts and attach to GitHub Releases on tags.
+# Production build: signed Android, macOS, Linux, and Windows artifacts published together on tags.
 # - Run manually: Actions → Build release → Run workflow
 # - Or push a tag v* (e.g. v2.2.1) to create a GitHub Release with assets
 
@@ -19,6 +19,148 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_VERSION: '36'
+      ANDROID_NDK_VERSION: '28.2.13676358'
+      ORC_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/orc-release.jks
+      ORC_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ORC_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ORC_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Java
+        uses: actions/setup-java@7a445ee88d4e23b52c33c8772d8d4023d01b429b # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            ui/desktop/package-lock.json
+            ui/android/package-lock.json
+
+      - name: Setup Rust Android targets
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install pinned Android SDK and NDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-${ANDROID_SDK_VERSION}" "build-tools;36.0.0" "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Install web dependencies
+        run: |
+          npm ci --prefix ui/desktop
+          npm ci --prefix ui/android
+
+      - name: Check Rust and React
+        run: |
+          cargo check --manifest-path crates/Cargo.toml -p orc-android
+          npm run lint:types --prefix ui/desktop
+
+      - name: Decode Android signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ORC_ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ORC_ANDROID_KEY_ALIAS"
+          test -n "$ORC_ANDROID_KEY_PASSWORD"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ORC_ANDROID_KEYSTORE_PATH"
+
+      - name: Build Android web assets
+        run: npm run sync:web --prefix ui/android
+
+      - name: Assemble signed Android APKs
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
+        run: ./gradlew --no-daemon assembleRelease
+        working-directory: ui/android/android
+
+      - name: Verify Android APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
+            --verbose --print-certs \
+            ui/android/android/app/build/outputs/apk/release/ORC-TORRENT-*-android-arm64-v8a.apk
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ORC-TORRENT-android
+          path: ui/android/android/app/build/outputs/apk/release/ORC-TORRENT-*-android-arm64-v8a.apk
+          if-no-files-found: error
+
+  test-android-emulators:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [29, 33, 34, 36]
+    env:
+      ANDROID_NDK_VERSION: '28.2.13676358'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Java
+        uses: actions/setup-java@7a445ee88d4e23b52c33c8772d8d4023d01b429b # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            ui/desktop/package-lock.json
+            ui/android/package-lock.json
+
+      - name: Setup Rust Android targets
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install Android build dependencies
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;${ANDROID_NDK_VERSION}"
+          cargo install cargo-ndk --locked
+          npm ci --prefix ui/desktop
+          npm ci --prefix ui/android
+          npm run sync:web --prefix ui/android
+
+      - name: Build x86_64 debug APK
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+        working-directory: ui/android/android
+
+      - name: Run API ${{ matrix.api-level }} emulator tests
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: ./ui/android/android/gradlew -p ui/android/android --no-daemon connectedDebugAndroidTest
+
   # macos-latest is Apple Silicon (arm64). Intel artifacts use GitHub's dedicated x64 runner.
   build-macos:
     runs-on: macos-latest
@@ -58,21 +200,6 @@ jobs:
             ui/desktop/release/*.blockmap
           if-no-files-found: error
 
-      - name: Create GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
-        with:
-          files: |
-            ui/desktop/release/*.dmg
-            ui/desktop/release/*.zip
-            ui/desktop/release/*.pkg
-            ui/desktop/release/latest*.yml
-            ui/desktop/release/*.blockmap
-          generate_release_notes: true
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build-macos-intel:
     runs-on: macos-15-intel
     steps:
@@ -110,20 +237,6 @@ jobs:
             ui/desktop/release/latest*.yml
             ui/desktop/release/*.blockmap
           if-no-files-found: error
-
-      - name: Create GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
-        with:
-          files: |
-            ui/desktop/release/*.dmg
-            ui/desktop/release/*.zip
-            ui/desktop/release/*.pkg
-            ui/desktop/release/*.blockmap
-          generate_release_notes: true
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     runs-on: ubuntu-latest
@@ -173,20 +286,6 @@ jobs:
             ui/desktop/release/latest*.yml
             ui/desktop/release/*.blockmap
           if-no-files-found: error
-
-      - name: Create GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
-        with:
-          files: |
-            ui/desktop/release/*.AppImage
-            ui/desktop/release/*.deb
-            ui/desktop/release/latest*.yml
-            ui/desktop/release/*.blockmap
-          generate_release_notes: true
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     runs-on: windows-latest
@@ -238,16 +337,51 @@ jobs:
             ui/desktop/release/*.blockmap
           if-no-files-found: error
 
-      - name: Create GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    needs:
+      - build-android
+      - test-android-emulators
+      - build-macos
+      - build-macos-intel
+      - build-linux
+      - build-windows
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Sign release assets and checksum manifest
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          echo "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+          find . -maxdepth 1 -type f ! -name '*.asc' ! -name 'SHA256SUMS' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+          while IFS= read -r -d '' file; do
+            gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$RELEASE_GPG_PASSPHRASE" \
+              --armor --detach-sign "$file"
+          done < <(find . -maxdepth 1 -type f ! -name '*.asc' ! -name 'SHA256SUMS' -print0)
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$RELEASE_GPG_PASSPHRASE" \
+            --armor --detach-sign SHA256SUMS
+
+      - name: Publish signed GitHub Release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
-          files: |
-            ui/desktop/release/*.exe
-            ui/desktop/release/*.zip
-            ui/desktop/release/latest*.yml
-            ui/desktop/release/*.blockmap
+          files: release-assets/*
           generate_release_notes: true
           draft: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
