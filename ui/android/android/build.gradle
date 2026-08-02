@@ -23,6 +23,16 @@ allprojects {
         google()
         mavenCentral()
     }
+
+    configurations.configureEach {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'org.jetbrains.kotlin' &&
+                    details.requested.name.startsWith('kotlin-stdlib')) {
+                details.useVersion '2.2.20'
+                details.because 'Keep Capacitor and Cordova test APKs on one Kotlin standard library'
+            }
+        }
+    }
 }
 
 task clean(type: Delete) {

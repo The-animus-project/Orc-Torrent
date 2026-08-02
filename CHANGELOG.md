@@ -46,6 +46,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 - **Android ABI packaging** — Let Gradle's APK split configuration own the arm64 and x86_64 filters, avoiding a conflicting duplicate NDK filter during release and emulator builds.
 - **Capacitor 8 Kotlin compatibility** — Use Capacitor's current `PluginMethod` package, pass `Exception` causes to plugin rejections, and provide long-valued UIDT network estimates.
 - **Android instrumentation identity** — Assert the production `com.orc.torrent` application ID instead of Capacitor's generated template package in emulator tests.
+- **Android test dependency alignment** — Keep Capacitor and Cordova instrumentation APKs on Kotlin 2.2.20, preventing duplicate standard-library classes from older transitive dependencies.
 
 ### Tests
 
