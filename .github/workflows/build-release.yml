@@ -44,7 +44,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: |
             ui/desktop/package-lock.json
@@ -74,18 +74,18 @@ jobs:
           cargo check --manifest-path crates/Cargo.toml -p orc-android
           npm run lint:types --prefix ui/desktop
 
+      - name: Build Android web assets
+        run: npm run sync:web --prefix ui/android
+
       - name: Decode Android signing key
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$ORC_ANDROID_KEYSTORE_PASSWORD"
-          test -n "$ORC_ANDROID_KEY_ALIAS"
-          test -n "$ORC_ANDROID_KEY_PASSWORD"
+          : "${ANDROID_KEYSTORE_BASE64:?ANDROID_KEYSTORE_BASE64 repository secret is missing}"
+          : "${ORC_ANDROID_KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD repository secret is missing}"
+          : "${ORC_ANDROID_KEY_ALIAS:?ANDROID_KEY_ALIAS repository secret is missing}"
+          : "${ORC_ANDROID_KEY_PASSWORD:?ANDROID_KEY_PASSWORD repository secret is missing}"
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ORC_ANDROID_KEYSTORE_PATH"
-
-      - name: Build Android web assets
-        run: npm run sync:web --prefix ui/android
 
       - name: Assemble signed Android APKs
         env:
@@ -130,7 +130,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: |
             ui/desktop/package-lock.json

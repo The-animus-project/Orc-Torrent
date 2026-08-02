@@ -9,7 +9,7 @@ For installing the published APK on a phone or tablet, see the [Android installa
 - Android Studio or command-line SDK 36
 - NDK `28.2.13676358`
 - Java 21
-- Node.js 20+
+- Node.js 22+
 - Rust stable, `cargo-ndk`, and the `aarch64-linux-android` and `x86_64-linux-android` targets
 
 ## Local build

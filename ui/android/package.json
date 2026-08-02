@@ -2,6 +2,9 @@
   "name": "orc-android-shell",
   "private": true,
   "version": "2.4.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "type": "module",
   "scripts": {
     "sync:web": "npm --prefix ../desktop run build:android-web && npx cap sync android",
