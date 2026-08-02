@@ -43,6 +43,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 - **Storage deletion errors** — Surface failed SAF deletion and revoked-storage errors instead of reporting a successful remove.
 - **Loopback startup races** — Reserve the selected random port through server startup and handle authenticated CORS preflight requests without exposing the daemon to the LAN.
 - **VPN reconnection** — Rebind to the newly available VPN network and recreate transfer sockets only when the user explicitly resumes.
+- **Android ABI packaging** — Let Gradle's APK split configuration own the arm64 and x86_64 filters, avoiding a conflicting duplicate NDK filter during release and emulator builds.
 
 ### Tests
 
