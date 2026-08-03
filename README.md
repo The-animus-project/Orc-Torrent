@@ -253,7 +253,7 @@ ORC Torrent is split into a backend daemon and a desktop frontend:
 | **Desktop app** | `ui/desktop/` | Electron main process manages daemon lifecycle (start, health checks, restarts); React renderer talks to the daemon over HTTP. |
 | **Daemon** | `crates/orc-daemon/` | Axum REST API (default: `127.0.0.1:8733`). Handles routing, validation, permissive CORS on loopback only, and security headers. |
 | **Core** | `crates/orc-core/` | Shared state (torrents, policy, kill switch), GeoIP, VPN detection, and all logic that uses the BitTorrent engine. |
-| **BitTorrent engine** | `crates/librqbit-patched/` | Patched [rqbit](https://github.com/nicksrandall/rqbit) 8.1.1 for peer stats and full API support. |
+| **BitTorrent engine** | `crates/librqbit-patched/` | Patched [rqbit](https://github.com/ikatson/rqbit) 8.1.1 for peer stats and full API support. |
 
 A more detailed technical overview is in [docs/CODEBASE_OVERVIEW.md](docs/CODEBASE_OVERVIEW.md).
 
