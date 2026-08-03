@@ -148,6 +148,7 @@ To compile from source instead of using a release build, see [Building from sour
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [What makes it different](#what-makes-it-different)
+- [Speed comparison](#speed-comparison)
 - [Roadmap](#roadmap)
 - [Architecture](#architecture)
 - [Requirements](#requirements)
@@ -181,7 +182,7 @@ Screenshots of the ORC Torrent desktop client:
 | **Torrent management** | Add via magnet links or `.torrent` files; list, start, stop, remove, recheck, and announce torrents. |
 | **File control** | Per-file priority and content view; resume from existing downloads. |
 | **Peers and trackers** | Inspect connected peers and tracker status. |
-| **Torrent search** | Search page with Internet Archive, open-content JSON, user-defined RSS/Atom/JSON feeds, and **Torznab** providers (Jackett / Prowlarr compatible). Results are display-only until you manually add a torrent. |
+| **Torrent search** | Search page for user-configured RSS/Atom/JSON feeds and **Torznab** providers (Jackett / Prowlarr compatible). ORC ships without search providers, and results are display-only until you manually add a torrent. |
 | **Watch folders** | Auto-import `.torrent` files dropped into configured folders (debounced, duplicate-safe). |
 | **Seeding controls** | Global ratio and seed-time limits; completed torrents stop automatically when targets are met. |
 | **Bandwidth scheduling** | Normal and limited speed profiles with quiet-hours schedule. |
@@ -209,6 +210,23 @@ Beyond standard BitTorrent behaviour, we’ve added:
 | **Socket-level bind interface** | When a bind interface is set, the engine binds TCP, DHT, and tracker traffic to that address; posture changes hot-rebind without a daemon restart. |
 | **Policy persistence** | Kill switch, net posture, seeding, bandwidth, and watch-folder settings survive daemon restarts via `config.json`. |
 | **Custom notification sounds** | Multiple built-in sounds for download-complete and kill-switch events; pick one in settings or supply your own file. Enable/disable per event in the desktop app. |
+
+---
+
+## Speed comparison
+
+We compared ORC Torrent with qBittorrent, Transmission, and Deluge using the same official Ubuntu torrent on the same Apple Silicon Mac. The controlled suite used an exact 512 MiB target, three runs per client, randomized execution order, fresh client state, unlimited rates, and matching 128-peer limits.
+
+| Client | Controlled result | Median time to 512 MiB | Median target average | ORC throughput advantage |
+|---|---:|---:|---:|---:|
+| **ORC Torrent 2.3.3** | **3/3 completed** | **14.943 s** | **35.929 MB/s** | — |
+| qBittorrent 5.2.3 | 3/3 completed | 41.685 s | 12.879 MB/s | **2.790×** |
+| Transmission 4.1.3 | 3/3 completed | 268.130 s | 2.002 MB/s | **17.944×** |
+| Deluge 2.2.0 | 0/3 before cutoff | >600 s each | 0.0205 MB/s partial-window median | **>40.154× lower bound** |
+
+ORC used **64.15% less time than qBittorrent** and **94.43% less time than Transmission** to reach 512 MiB. It achieved this with a median peak of 46 observed peer rows, versus 127 for qBittorrent, suggesting that productive-peer use and request scheduling mattered more than raw connection count in this test window.
+
+These August 2, 2026 results describe this benchmark window, not guaranteed performance for every torrent or network. Deluge ran in an ARM64 Linux container because its current native macOS setup was incompatible. See the [full multi-client benchmark](docs/benchmarks/torrent-client-comparison-2026-08-02.md) for every run, the earlier full-payload comparison, methodology, environment, machine-readable data, and limitations.
 
 ---
 
@@ -328,9 +346,8 @@ npm run dev
 
 ### Search
 
-- ORC Torrent ships a development `Mock Provider` and a strict `Open Content Feed` provider for legal/public-domain/open-license catalogs.
-- Optional built-in movie search providers (`YTS`, `The Pirate Bay`, `1337x`) are **disabled by default**; enable them in Search Settings if you want movie index results alongside Internet Archive.
-- Custom providers can be added with either the built-in open-content JSON format or standard RSS/Atom torrent feeds for compliant catalogs.
+- ORC Torrent ships without search providers. Add and enable your own provider in Search Settings before using search.
+- Providers can use the open-content JSON format, standard RSS/Atom torrent feeds, or Torznab-compatible endpoints.
 - **Torznab** providers (Jackett, Prowlarr, or compatible) can be added with securely stored API keys and optional local/private endpoint consent. See [docs/SEARCH_PROVIDERS.md](docs/SEARCH_PROVIDERS.md).
 - Search results are display-only until the user manually clicks **Add**; the client never auto-downloads from search.
 - The UI reminder is: *Only use torrents you have the legal right to download.*
