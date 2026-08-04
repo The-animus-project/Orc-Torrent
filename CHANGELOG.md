@@ -9,6 +9,7 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 ### Changed
 
 - **Android release signing** — Production APKs are signed locally; CI compiles an unsigned release APK and runs emulator tests without storing the Android keystore in repository secrets.
+- **CodeQL Java/Kotlin** — Switch from default buildless scanning to an advanced workflow that traces a Gradle debug compile so Kotlin sources and dependencies resolve above CodeQL quality thresholds.
 
 ---
 
