@@ -6,6 +6,10 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ## [Unreleased]
 
+### Fixed
+
+- **Daemon startup on legacy search configs** — Migrate removed built-in search providers before config validation so older `config.json` files (e.g. `yts` without `feed_url`) no longer fail closed with "daemon did not become healthy".
+
 ### Changed
 
 - **Android release signing** — Production APKs are signed locally; CI compiles an unsigned release APK and runs emulator tests without storing the Android keystore in repository secrets.

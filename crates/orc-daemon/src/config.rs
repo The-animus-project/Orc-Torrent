@@ -156,7 +156,7 @@ pub async fn load_config_from(config_file: &Path) -> Result<DaemonConfig> {
     if !config_file.exists() {
         for generation in 1..=CONFIG_BACKUP_GENERATIONS {
             let backup = backup_path(config_file, generation);
-            if let Ok(config) = read_valid_config(&backup).await {
+            if let Ok((config, _)) = read_valid_config(&backup).await {
                 tracing::warn!(
                     "Primary daemon configuration is missing; restoring generation {generation} backup"
                 );
@@ -170,13 +170,13 @@ pub async fn load_config_from(config_file: &Path) -> Result<DaemonConfig> {
         return Ok(config);
     }
 
-    let mut config = match read_valid_config(config_file).await {
-        Ok(config) => config,
+    let (config, migrated) = match read_valid_config(config_file).await {
+        Ok(result) => result,
         Err(primary_error) => {
             let mut recovered = None;
             for generation in 1..=CONFIG_BACKUP_GENERATIONS {
                 let backup = backup_path(config_file, generation);
-                if let Ok(config) = read_valid_config(&backup).await {
+                if let Ok((config, _)) = read_valid_config(&backup).await {
                     recovered = Some((generation, config));
                     break;
                 }
@@ -190,17 +190,15 @@ pub async fn load_config_from(config_file: &Path) -> Result<DaemonConfig> {
                 "Primary daemon configuration is invalid; restoring generation {generation} backup"
             );
             save_config_to(&config, config_file).await?;
-            config
+            return Ok(config);
         }
     };
 
-    if remove_legacy_builtin_providers(&mut config.search) {
-        validate_config(&config)?;
+    // Persist migration (e.g. stripping legacy builtin search providers) so the
+    // next launch does not re-apply the same rewrite.
+    if migrated {
         save_config_to(&config, config_file).await?;
-        return Ok(config);
     }
-
-    validate_config(&config)?;
 
     Ok(config)
 }
@@ -215,15 +213,25 @@ fn backup_path(config_file: &Path, generation: usize) -> PathBuf {
     config_file.with_file_name(format!("{filename}.bak.{generation}"))
 }
 
-async fn read_valid_config(config_file: &Path) -> Result<DaemonConfig> {
+async fn read_config_raw(config_file: &Path) -> Result<DaemonConfig> {
     let content = tokio::fs::read_to_string(config_file)
         .await
         .with_context(|| format!("Failed to read config file {}", config_file.display()))?;
     let config: DaemonConfig = serde_json::from_str(&content)
         .with_context(|| format!("Failed to parse config file {}", config_file.display()))?;
+    Ok(config)
+}
+
+/// Parse config, migrate legacy search providers, then validate.
+/// Returns `(config, migrated)` so callers can persist migration rewrites.
+async fn read_valid_config(config_file: &Path) -> Result<(DaemonConfig, bool)> {
+    let mut config = read_config_raw(config_file).await?;
+    // Must run before validate: older builds stored builtin provider names without
+    // feed_url, which now fails validation as custom providers.
+    let migrated = remove_legacy_builtin_providers(&mut config.search);
     validate_config(&config)
         .with_context(|| format!("Invalid config file {}", config_file.display()))?;
-    Ok(config)
+    Ok((config, migrated))
 }
 
 pub async fn save_config_to(config: &DaemonConfig, config_file: &Path) -> Result<()> {
@@ -534,7 +542,7 @@ mod tests {
 
         let recovered = load_config_from(&path).await.unwrap();
         assert_eq!(recovered.listen_port, first.listen_port);
-        let durable = read_valid_config(&path).await.unwrap();
+        let (durable, _) = read_valid_config(&path).await.unwrap();
         assert_eq!(durable.listen_port, first.listen_port);
     }
 
@@ -561,8 +569,44 @@ mod tests {
         invalid.listen_port = 80;
         assert!(save_config_to(&invalid, &path).await.is_err());
         assert_eq!(
-            read_valid_config(&path).await.unwrap().listen_port,
+            read_valid_config(&path).await.unwrap().0.listen_port,
             valid.listen_port
         );
+    }
+
+    #[tokio::test]
+    async fn legacy_builtin_search_providers_are_migrated_before_validate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        // Mirrors configs written by older builds that auto-bundled providers.
+        tokio::fs::write(
+            &path,
+            r#"{
+              "listen_port": 49000,
+              "search": {
+                "enabled": true,
+                "default_provider": "internet_archive",
+                "default_result_limit": 25,
+                "allow_private_remote_urls": false,
+                "providers": [
+                  { "name": "yts", "enabled": true, "format": "open_content_json" },
+                  { "name": "tpb_movies", "enabled": true, "format": "open_content_json" },
+                  { "name": "x1337_movies", "enabled": true, "format": "open_content_json" }
+                ]
+              }
+            }"#,
+        )
+        .await
+        .unwrap();
+
+        let loaded = load_config_from(&path).await.expect("legacy config should migrate");
+        assert!(!loaded.search.enabled);
+        assert!(loaded.search.default_provider.is_none());
+        assert!(loaded.search.providers.is_empty());
+
+        let durable = tokio::fs::read_to_string(&path).await.unwrap();
+        let persisted: DaemonConfig = serde_json::from_str(&durable).unwrap();
+        assert!(persisted.search.providers.is_empty());
+        assert!(!persisted.search.enabled);
     }
 }
