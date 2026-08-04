@@ -398,7 +398,25 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Require local signing when GPG secrets are absent
+        id: gpg
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_GPG_PRIVATE_KEY}" ] || [ -z "${RELEASE_GPG_PASSPHRASE}" ]; then
+            echo "GPG release secrets are not configured in Actions."
+            echo "Desktop artifacts were built successfully; sign and publish them locally."
+            echo "Android APKs are always signed locally and attached to the GitHub release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sign release assets and checksum manifest
+        if: steps.gpg.outputs.skip != 'true'
         env:
           RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
           RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
@@ -420,6 +438,7 @@ jobs:
             --armor --detach-sign SHA256SUMS
 
       - name: Publish signed GitHub Release
+        if: steps.gpg.outputs.skip != 'true'
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           files: release-assets/*
