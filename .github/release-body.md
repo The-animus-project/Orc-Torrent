@@ -13,7 +13,7 @@ ORC Engine boundary, hardened localhost API isolation, opt-in MSE/PE peer-traffi
 
 ## Signature verification
 
-The Android APK is app-signed with the ORC release certificate. Every uploaded asset also has a matching armored detached PGP signature, and `SHA256SUMS` is PGP-signed.
+The Android APK is app-signed locally with the ORC release certificate (the keystore is not stored in CI). Every uploaded asset also has a matching armored detached PGP signature, and `SHA256SUMS` is PGP-signed.
 
 ORC release-key fingerprint:
 

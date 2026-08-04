@@ -6,6 +6,10 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ## [Unreleased]
 
+### Changed
+
+- **Android release signing** — Production APKs are signed locally; CI compiles an unsigned release APK and runs emulator tests without storing the Android keystore in repository secrets.
+
 ---
 
 ## [2.5.0] — 2026-08-04

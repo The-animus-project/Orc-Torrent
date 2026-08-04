@@ -12,7 +12,7 @@ Only install an APK downloaded from the official `The-animus-project/Orc-Torrent
 
 ## 2. Verify the download (recommended)
 
-The APK is signed with the Android release keystore. The release also includes a detached PGP signature for the APK and a PGP-signed SHA-256 manifest.
+The APK is signed locally with the Android release keystore (not in CI). The release also includes a detached PGP signature for the APK and a PGP-signed SHA-256 manifest.
 
 On a computer with GnuPG, download [`ORC-Torrent-Release-Key.asc`](../ORC-Torrent-Release-Key.asc), import it, and confirm the fingerprint:
 

@@ -32,6 +32,40 @@ The first-run system folder picker persists read/write permission to one user-se
 
 Android 14+ schedules active work as a user-initiated data-transfer job. Android 10–13 use a `dataSync` foreground service. Both default to unmetered networking and share the same authenticated native API. VPN state comes from `ConnectivityManager`; the opt-in VPN transfer-pause control closes ORC networking and pauses transfers after VPN loss. It is not presented as an OS-wide firewall. After reconnection, ORC binds to the new VPN and recreates transfer sockets only when the user resumes manually.
 
-## Release secrets
+## Local release APK (signed)
 
-The release workflow expects `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `RELEASE_GPG_PRIVATE_KEY`, and `RELEASE_GPG_PASSPHRASE`. It publishes the arm64 APK, a detached PGP signature for every release asset, and a PGP-signed SHA-256 manifest. The x86_64 split is built for emulator verification but is not published as the production APK.
+Production Android APKs are **signed on a trusted local machine**. The keystore and passwords are never stored in the repository or in GitHub Actions secrets.
+
+```sh
+rustup target add aarch64-linux-android
+cargo install cargo-ndk --locked
+npm ci --prefix ui/desktop
+npm ci --prefix ui/android
+npm run sync:web --prefix ui/android
+
+export ORC_ANDROID_KEYSTORE_PATH=/absolute/path/to/orc-release.jks
+export ORC_ANDROID_KEYSTORE_PASSWORD='…'
+export ORC_ANDROID_KEY_ALIAS='…'
+export ORC_ANDROID_KEY_PASSWORD='…'
+export ORC_ANDROID_RUST_TARGETS=arm64-v8a
+
+cd ui/android/android
+./gradlew --no-daemon assembleRelease
+```
+
+The signed APK is written to `app/build/outputs/apk/release/ORC-TORRENT-<version>-android-arm64-v8a.apk`.
+
+After CI publishes the desktop release for tag `vX.Y.Z`, attach the APK (and its PGP signature) to that release:
+
+```sh
+VERSION=2.5.0
+APK="ui/android/android/app/build/outputs/apk/release/ORC-TORRENT-${VERSION}-android-arm64-v8a.apk"
+gpg --armor --detach-sign "$APK"
+gh release upload "v${VERSION}" "$APK" "${APK}.asc"
+```
+
+Optionally refresh `SHA256SUMS` / `SHA256SUMS.asc` on the release so the manifest includes the APK. The x86_64 split is for emulator verification only and is not published.
+
+## CI
+
+The release workflow compiles an **unsigned** Android release APK and runs API 29/33/34/36 emulator tests as a gate. It does not receive the Android keystore. Desktop packages are PGP-signed in CI with `RELEASE_GPG_PRIVATE_KEY` and `RELEASE_GPG_PASSPHRASE`.

@@ -1,6 +1,8 @@
-# Production build: signed Android, macOS, Linux, and Windows artifacts published together on tags.
+# Production build: macOS, Linux, and Windows artifacts published on tags.
+# Android release APKs are signed locally (keystore never in CI) and uploaded to the GitHub release afterward.
 # - Run manually: Actions → Build release → Run workflow
-# - Or push a tag v* (e.g. v2.2.1) to create a GitHub Release with assets
+# - Or push a tag v* (e.g. v2.2.1) to create a GitHub Release with desktop assets
+# - CI still compiles Android (unsigned) and runs emulator tests as a gate
 
 name: Build release
 
@@ -73,15 +75,14 @@ jobs:
         working-directory: ui/desktop
 
   build-android:
+    name: Compile Android release (unsigned)
     needs: validate
     runs-on: ubuntu-latest
     env:
       ANDROID_SDK_VERSION: '36'
       ANDROID_NDK_VERSION: '28.2.13676358'
-      ORC_ANDROID_KEYSTORE_PATH: /tmp/orc-release.jks
-      ORC_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ORC_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ORC_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # Production APKs are signed locally; CI never receives the keystore.
+      ORC_ANDROID_RUST_TARGETS: arm64-v8a
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -131,34 +132,17 @@ jobs:
       - name: Build Android web assets
         run: npm run sync:web --prefix ui/android
 
-      - name: Decode Android signing key
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          : "${ANDROID_KEYSTORE_BASE64:?ANDROID_KEYSTORE_BASE64 repository secret is missing}"
-          : "${ORC_ANDROID_KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD repository secret is missing}"
-          : "${ORC_ANDROID_KEY_ALIAS:?ANDROID_KEY_ALIAS repository secret is missing}"
-          : "${ORC_ANDROID_KEY_PASSWORD:?ANDROID_KEY_PASSWORD repository secret is missing}"
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ORC_ANDROID_KEYSTORE_PATH"
-
-      - name: Assemble signed Android APKs
+      - name: Assemble unsigned Android release APK
         env:
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
         run: ./gradlew --no-daemon assembleRelease
         working-directory: ui/android/android
 
-      - name: Verify Android APK signature
+      - name: Confirm arm64 release APK was produced
         run: |
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
-            --verbose --print-certs \
-            ui/android/android/app/build/outputs/apk/release/ORC-TORRENT-*-android-arm64-v8a.apk
-
-      - name: Upload Android artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ORC-TORRENT-android
-          path: ui/android/android/app/build/outputs/apk/release/ORC-TORRENT-*-android-arm64-v8a.apk
-          if-no-files-found: error
+          ls -la ui/android/android/app/build/outputs/apk/release/ORC-TORRENT-*-android-arm64-v8a.apk
+          # Do not upload this APK to the GitHub release — it is unsigned.
+          # Sign locally and attach with: gh release upload <tag> <apk> <apk.asc>
 
   test-android-emulators:
     needs: validate

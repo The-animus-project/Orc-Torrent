@@ -41,7 +41,7 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. A s
   </a>
 </p>
 
-**ORC Torrent is actively developed.** We update the roadmap and documentation as we go. If you’re interested in where we’re headed or how to contribute, read on.
+**ORC Torrent is actively developed.** Current work centers on the **ORC Engine** — the shared transfer boundary for desktop and Android — including modern swarm networking, opt-in MSE/PE, BEP 6, and adaptive request scheduling. We update the roadmap and documentation as we go.
 
 ---
 
@@ -192,8 +192,12 @@ Screenshots of the ORC Torrent desktop client:
 | **Network page** | Adapter list, default route, DNS, VPN signal, and kill-switch enforcement status. |
 | **GitHub auto-update** | Check for updates, download in the background, and restart to install from Settings → Updates. |
 | **VPN transfer pause** | VPN interface detection (e.g. tun/wg); optionally closes ORC transfer/discovery sockets when the VPN disconnects. This is not an OS firewall. |
+| **ORC Engine** | Shared desktop/Android transfer facade (`orc-engine`) with capabilities API, legacy/modern swarm modes, and truthful runtime privacy status. |
+| **Peer traffic obfuscation** | Opt-in MSE/PE (RC4) over TCP via `orc-mse` — `off`, `prefer`, or `require`. Obfuscation only; not anonymity. |
+| **Adaptive scheduling (beta)** | Opt-in `orc-scheduler` with per-peer RTT/goodput pipelines, stalled-block recovery, and bounded endgame. Legacy remains the default. |
+| **BEP 6 Fast Extension** | `suggest piece`, `have all`/`none`, `reject request`, and `allowed fast`. |
 | **Network posture** | Policy, bind interface, and threat presets. |
-| **Security** | Request validation, error sanitization, optional admin token for remote or network use. |
+| **Security** | Required admin token and exact Origin on protected routes, path confinement, and fail-closed configuration. |
 | **Desktop integration** | Magnet and `.torrent` file associations; **custom notification sounds** (multiple built-in sounds for download-complete and kill-switch; choose in settings or use your own). |
 
 ---
@@ -207,9 +211,10 @@ Beyond standard BitTorrent behaviour, we’ve added:
 | **VPN-aware transfer pause** | Detects VPN interfaces and can close ORC sockets and pause transfers when the VPN drops. It does not block other applications. |
 | **GeoIP integration** | Peer and tracker data can be enriched with country info (GeoLite2) for visibility and policy. |
 | **Network posture and policy** | Central policy for when network is allowed, bind-interface control, and threat presets so behaviour fits your setup. |
-| **Hardened daemon API** | Request validation, torrent ID checks, body size and concurrency limits, sanitized errors, constant-time admin token check, and security headers. |
-| **Daemon and desktop split** | The Rust daemon runs the BitTorrent session and REST API; the Electron app manages the daemon and provides the UI. That separation keeps the engine stable and lets us update pieces independently. |
-| **Socket-level bind interface** | When a bind interface is set, the engine binds TCP, DHT, and tracker traffic to that address; posture changes hot-rebind without a daemon restart. |
+| **ORC Engine boundary** | Application code talks only to `orc-engine`. The private rqbit-derived backend, MSE, and scheduler can evolve without changing torrent UUIDs, REST routes, or the existing `state/rqbit` persistence directory. |
+| **Hardened daemon API** | Exact Origin allowlist, required admin token on every protected route (including loopback reads), sanitized errors, and desktop token isolation from the renderer. |
+| **Daemon and desktop split** | The Rust daemon runs the BitTorrent session and REST API; the Electron app manages the daemon and proxies authenticated calls. That separation keeps the engine stable and lets us update pieces independently. |
+| **Socket-level bind interface** | When a bind interface is set, the engine binds TCP, uTP, DHT, tracker, and LSD sockets to that address; strict mode refuses wildcard fallback. |
 | **Policy persistence** | Kill switch, net posture, seeding, bandwidth, and watch-folder settings survive daemon restarts via `config.json`. |
 | **Custom notification sounds** | Multiple built-in sounds for download-complete and kill-switch events; pick one in settings or supply your own file. Enable/disable per event in the desktop app. |
 
@@ -238,26 +243,38 @@ We keep a roadmap here and update it as we progress. A more detailed, living roa
 
 | Phase | Description |
 |-------|-------------|
-| **Stabilization** (current) | Cross-platform polish, CI releases, tests, docs honesty, and reliability fixes after the v2.3.0 feature push. |
-| **Daily driver** (in progress) | Watch folders, privacy dashboard, VPN Safety Mode, seeding/bandwidth automation, and auto-update — shipped in **2.3.0**; ongoing hardening and UX refinement. |
+| **ORC Engine** (current) | Own the transfer stack behind `orc-engine`: promote modern swarm `auto` when the cross-platform gate passes, harden MSE/PE and BEP 6, mature adaptive scheduling, and keep truthful capabilities/privacy status. See [ORC Engine](docs/ORC_ENGINE.md) and [adaptive scheduler](docs/ORC_ADAPTIVE_SCHEDULER.md). |
+| **Cross-platform polish** (in progress) | Signed Android/desktop releases, CI matrix, docs honesty, and reliability after the v2.4.0 / v2.5.0 feature push. |
+| **Daily driver** (shipped, refining) | Watch folders, privacy dashboard, VPN Safety Mode, seeding/bandwidth automation, and auto-update — shipped in **2.3.0**; ongoing UX and hardening. |
 | **Ecosystem** (future) | Integrations and community-driven improvements; generic search provider interface only (no piracy indexers). |
 
-Documentation: [Install](docs/INSTALL.md) · [Development](docs/DEVELOPMENT.md) · [Codebase overview](docs/CODEBASE_OVERVIEW.md) · [Privacy/VPN](docs/PRIVACY_VPN.md) · [Known limitations](docs/KNOWN_LIMITATIONS.md) · [Configuration](docs/CONFIGURATION.md) · [Testing checklist](docs/TESTING_CHECKLIST.md)
+Documentation: [Install](docs/INSTALL.md) · [Development](docs/DEVELOPMENT.md) · [ORC Engine](docs/ORC_ENGINE.md) · [Adaptive scheduler](docs/ORC_ADAPTIVE_SCHEDULER.md) · [Codebase overview](docs/CODEBASE_OVERVIEW.md) · [Privacy/VPN](docs/PRIVACY_VPN.md) · [Known limitations](docs/KNOWN_LIMITATIONS.md) · [Configuration](docs/CONFIGURATION.md) · [Testing checklist](docs/TESTING_CHECKLIST.md)
 
 ---
 
 ## Architecture
 
-ORC Torrent is split into a backend daemon and a desktop frontend:
+ORC Torrent is split into a shared Rust transfer stack, a daemon API, and desktop/Android frontends:
 
 | Component | Location | Role |
 |-----------|----------|------|
 | **Desktop app** | `ui/desktop/` | Electron main process manages daemon lifecycle and proxies authenticated API operations; the React renderer never receives the daemon token or chooses its authority. |
+| **Android app** | `ui/android/` | Capacitor shell with on-device Rust via JNI; same engine contract as desktop. |
 | **Daemon** | `crates/orc-daemon/` | Authenticated Axum REST API on `127.0.0.1:8733`, with an exact Origin allowlist and deny-by-default middleware. |
 | **Core** | `crates/orc-core/` | Shared state (torrents, policy, kill switch), GeoIP, VPN detection, and logic expressed through the ORC Engine contract. |
-| **ORC Engine** | `crates/orc-engine/` | ORC-owned async facade shared by desktop and Android. Its private backend is derived from tagged [rqbit v9.0.0-beta.2](https://github.com/ikatson/rqbit/releases/tag/v9.0.0-beta.2) by Igor Katson (Apache-2.0). |
+| **ORC Engine** | `crates/orc-engine/` | Public async transfer facade for lifecycle, storage, persistence, network policy, capabilities, privacy status, peers, suspension, and reconfiguration. Application crates must not depend on `librqbit` directly. |
+| **MSE / scheduler** | `crates/orc-mse/`, `crates/orc-scheduler/` | Independent peer-traffic obfuscation and adaptive request scheduling owned by ORC. |
+| **Private backend** | `crates/librqbit-v9-patched/`, `crates/rqbit-v9/` | rqbit [v9.0.0-beta.2](https://github.com/ikatson/rqbit/releases/tag/v9.0.0-beta.2)-derived implementation (Apache-2.0), kept behind the engine facade. Attribution: [`crates/orc-engine/NOTICE.md`](crates/orc-engine/NOTICE.md). |
 
-A more detailed technical overview is in [docs/CODEBASE_OVERVIEW.md](docs/CODEBASE_OVERVIEW.md).
+**Developing the ORC Engine.** Treat `orc-engine` as the only public transfer API. Prefer additive capabilities and runtime-truthful status over silent fallbacks. Legacy networking and legacy scheduling stay the safe defaults until promotion gates pass. Local checks:
+
+```bash
+cd crates
+cargo test -p orc-engine -p orc-mse -p orc-scheduler -p orc-core
+cargo run -p orc-scheduler --bin scheduler-bench --release
+```
+
+Details: [docs/ORC_ENGINE.md](docs/ORC_ENGINE.md) · [docs/ORC_ADAPTIVE_SCHEDULER.md](docs/ORC_ADAPTIVE_SCHEDULER.md) · [docs/CODEBASE_OVERVIEW.md](docs/CODEBASE_OVERVIEW.md).
 
 ---
 
@@ -265,7 +282,7 @@ A more detailed technical overview is in [docs/CODEBASE_OVERVIEW.md](docs/CODEBA
 
 - **Rust** (stable) — to build the daemon
 - **Node.js** 20+ and **npm** — to build and run the desktop UI
-- **Platforms**: ORC Torrent runs on **Windows**, **macOS**, and **Linux**. See [Install-Instructions](Install-Instructions/) for step-by-step compiling guides per OS.
+- **Platforms**: ORC Torrent runs on **Android 10+**, **Windows**, **macOS**, and **Linux**. See [Install-Instructions](Install-Instructions/) for step-by-step compiling guides per OS.
 
 ---
 
@@ -321,7 +338,7 @@ npm run dist
 
 **Android build:** install Java 21, Android SDK 36, NDK `28.2.13676358`, Rust targets `aarch64-linux-android` and `x86_64-linux-android`, and `cargo-ndk`. Then run `npm ci` in `ui/desktop` and `ui/android`, followed by `npm run sync:web` in `ui/android` and `./gradlew assembleDebug` in `ui/android/android`.
 
-**Publishing a release:** push a `v*` tag (e.g. `v2.3.0`) or run the [Build release](.github/workflows/build-release.yml) workflow manually. Android release signing uses `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`; checksum signatures use `RELEASE_GPG_PRIVATE_KEY` and `RELEASE_GPG_PASSPHRASE`. Secrets are never committed.
+**Publishing a release:** push a `v*` tag (e.g. `v2.5.0`) or run the [Build release](.github/workflows/build-release.yml) workflow manually. CI publishes signed Windows, macOS, and Linux packages (checksum signatures use `RELEASE_GPG_PRIVATE_KEY` and `RELEASE_GPG_PASSPHRASE`). The production Android APK is **signed locally** with a keystore that never enters the repository or CI, then uploaded to the same GitHub release — see [docs/ANDROID.md](docs/ANDROID.md). Secrets are never committed.
 
 To run in development without packaging:
 
@@ -383,14 +400,15 @@ Packaging in `ui/desktop/package.json` keeps `forceCodeSigning` and `signAndEdit
 
 ## Development
 
-We welcome contributions. The codebase is organized so the daemon and desktop can be worked on independently.
+We welcome contributions. The codebase is organized so the daemon, ORC Engine, and desktop/Android shells can be worked on independently.
 
-- **Rust**: From `crates/`, run `cargo build --release -p orc-daemon`; run tests with `cargo test`.
+- **ORC Engine**: Prefer changes behind `crates/orc-engine/` (plus `orc-mse` / `orc-scheduler` when needed). Do not add direct `librqbit` dependencies in `orc-core`, `orc-daemon`, or Android. See [docs/ORC_ENGINE.md](docs/ORC_ENGINE.md).
+- **Rust**: From `crates/`, run `cargo build --release -p orc-daemon`; engine-focused tests with `cargo test -p orc-engine -p orc-mse -p orc-scheduler -p orc-core`.
 - **Desktop**: From `ui/desktop/`, run `npm run dev` for development; `npm run build` then `npm run dist` for a full package.
 - **Android**: The developer build and architecture are documented in [docs/ANDROID.md](docs/ANDROID.md); the user installation guide is [Install-Instructions/Android.md](Install-Instructions/Android.md).
-- **CI**: The workflow in [.github/workflows/build-release.yml](.github/workflows/build-release.yml) runs on `workflow_dispatch` or tags `v*`, tests Android APIs 29/33/34/36, builds Android, macOS, Linux, and Windows packages, signs release assets, and publishes them together on GitHub Releases.
+- **CI**: The workflow in [.github/workflows/build-release.yml](.github/workflows/build-release.yml) runs on `workflow_dispatch` or tags `v*`, compiles Android (unsigned) and tests APIs 29/33/34/36, builds macOS, Linux, and Windows packages, PGP-signs desktop release assets, and publishes them on GitHub Releases. The signed Android APK is produced locally and attached to the release separately.
 
-If you’re not sure where to start, check the [roadmap](#roadmap) and open issues—we’re happy to point you to a good first task.
+If you’re not sure where to start, check the [roadmap](#roadmap) and open issues—ORC Engine work is the current focus.
 
 ---
 
@@ -412,7 +430,7 @@ Full history: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Author
 
-- **[Vurzum](https://github.com/Animus-exe)** — [GitHub](https://github.com/Animus-exe) · [X @Itsvurzum](https://x.com/Itsvurzum)
+- **[Vurzumm](https://github.com/Animus-exe)** — [GitHub](https://github.com/Animus-exe) · [X @Itsvurzum](https://x.com/Itsvurzum)
 
 ```
   /\_/\  (
