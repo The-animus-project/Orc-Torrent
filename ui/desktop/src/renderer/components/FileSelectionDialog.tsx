@@ -4,10 +4,7 @@ import { fmtBytes } from "../utils/format";
 import { patchJson } from "../utils/api";
 import { fetchTorrentContent } from "../utils/torrentFetcher";
 import { getErrorMessage } from "../utils/errorHandling";
-import {
-  downloadBlockReason,
-  isDownloadAllowedForPath,
-} from "../utils/mediaDownloadPolicy";
+import { downloadBlockReason, isDownloadAllowedForPath } from "../utils/mediaDownloadPolicy";
 
 interface FileEntry {
   path: string[];
@@ -721,8 +718,8 @@ export const FileSelectionDialog = memo<FileSelectionDialogProps>(
             </div>
             {enforceMediaPolicy ? (
               <p className="settingsSummaryNote" style={{ marginTop: "10px" }}>
-                AnimUS only downloads movie, TV, subtitle, and common media archive files. Executables and other
-                file types are blocked.
+                AnimUS only downloads movie, TV, subtitle, and common media archive files. Executables and other file
+                types are blocked.
               </p>
             ) : null}
           </div>

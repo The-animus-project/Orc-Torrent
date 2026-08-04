@@ -69,29 +69,29 @@ function applyBootstrapTheme(theme: BootstrapTheme) {
       <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; color: ${palette.text}; font-family: system-ui, sans-serif; background: ${palette.background}; flex-direction: column; gap: 24px; position: relative; overflow: hidden;">
         <!-- Background glow -->
         <div style="position: absolute; top: 50%; left: 50%; width: 300px; height: 300px; transform: translate(-50%, -50%); background: ${palette.theme === "dark" ? "radial-gradient(circle, rgba(255,255,255,0.16) 0%, transparent 72%)" : "radial-gradient(circle, rgba(255,255,255,0.55) 0%, transparent 72%)"}; animation: bgPulse 2.5s ease-in-out infinite;"></div>
-        
+
         <!-- Spinner container -->
         <div style="position: relative; animation: spinnerEnter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; opacity: 0;">
           <div style="width: 56px; height: 56px; border: 3px solid ${palette.theme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(31,29,26,0.12)"}; border-top-color: ${palette.theme === "dark" ? "rgba(255,255,255,0.85)" : "rgba(31,29,26,0.85)"}; border-radius: 50%; animation: spin 1s linear infinite; filter: drop-shadow(0 0 10px ${palette.theme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(31,29,26,0.08)"});"></div>
         </div>
-        
+
         <!-- Title -->
         <div style="font-size: 28px; font-weight: 800; letter-spacing: 4px; text-transform: uppercase; animation: titleEnter 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.2s forwards; opacity: 0; position: relative;">
           ORC TORRENT
         </div>
-        
+
         <!-- Subtitle -->
         <div style="font-size: 12px; color: ${palette.theme === "dark" ? "rgba(245,247,251,0.6)" : "rgba(27,26,23,0.55)"}; letter-spacing: 2px; text-transform: uppercase; animation: subtitleEnter 0.5s ease 0.4s forwards; opacity: 0;">
           Loading
         </div>
-        
+
         <!-- Loading dots -->
         <div style="display: flex; gap: 8px; animation: dotsEnter 0.4s ease 0.6s forwards; opacity: 0;">
           <div style="width: 6px; height: 6px; border-radius: 50%; background: ${palette.theme === "dark" ? "rgba(245,247,251,0.35)" : "rgba(27,26,23,0.3)"}; animation: dotBounce 1.4s ease-in-out infinite;"></div>
           <div style="width: 6px; height: 6px; border-radius: 50%; background: ${palette.theme === "dark" ? "rgba(245,247,251,0.35)" : "rgba(27,26,23,0.3)"}; animation: dotBounce 1.4s ease-in-out 0.2s infinite;"></div>
           <div style="width: 6px; height: 6px; border-radius: 50%; background: ${palette.theme === "dark" ? "rgba(245,247,251,0.35)" : "rgba(27,26,23,0.3)"}; animation: dotBounce 1.4s ease-in-out 0.4s infinite;"></div>
         </div>
-        
+
         <style>
           @keyframes spin {
             to { transform: rotate(360deg); }

@@ -75,29 +75,29 @@ ${StrStr}
 ; Hook into installation completion
 !macro customInstall
   !insertmacro LogMessage "Starting custom installation steps..."
-  
+
   ; Verify daemon binary
   !insertmacro VerifyDaemonBinary
-  
+
   ; Optional: Verify daemon binary checksum (enabled by default, can be disabled)
   ; Uncomment the line below to disable checksum verification
   !insertmacro VerifyDaemonChecksum
-  
+
   ; Desktop shortcut is created by electron-builder (createDesktopShortcut: "always") with app icon
-  
+
   ; Register file associations based on user choice
   !insertmacro RegisterFileAssociationsConditional
-  
+
   ; Optional: Create firewall rules (can be controlled via installer option)
   ; Check if user wants firewall rules (default: yes, but can be made optional)
   ; For now, we'll create them by default
   !insertmacro LogMessage "Creating firewall rules (optional step)..."
   !insertmacro CreateFirewallRules
-  
+
   ; Post-install verification
   !insertmacro LogMessage "Running post-installation verification..."
   !insertmacro PostInstallVerification
-  
+
   !insertmacro LogMessage "Custom installation steps completed"
 !macroend
 
@@ -122,12 +122,12 @@ ${StrStr}
   FileWrite $R9 "Install Directory: $INSTDIR$\r$\n"
   FileWrite $R9 "----------------------------------------$\r$\n"
   FileClose $R9
-  
+
   DetailPrint "Starting uninstallation..."
-  
+
   ; Terminate running processes before cleanup
   !insertmacro TerminateProcesses
-  
+
   ; Remove firewall rules
   DetailPrint "Removing firewall rules..."
   !insertmacro RemoveFirewallRules
@@ -137,7 +137,7 @@ ${StrStr}
 !macro customUnFinish
   ; Remove installer options registry (clean uninstall)
   DeleteRegKey HKCU "Software\ORC TORRENT\Installer"
-  
+
   ; Finalize uninstaller logging
   FileOpen $R9 "$TEMP\ORC_TORRENT_Uninstall.log" a
   FileWrite $R9 "----------------------------------------$\r$\n"
@@ -147,7 +147,7 @@ ${StrStr}
   FileWrite $R9 "Uninstallation ended: $R8$\r$\n"
   FileWrite $R9 "========================================$\r$\n"
   FileClose $R9
-  
+
   DetailPrint "Uninstallation completed."
   DetailPrint "Uninstallation log saved to: $TEMP\ORC_TORRENT_Uninstall.log"
 !macroend

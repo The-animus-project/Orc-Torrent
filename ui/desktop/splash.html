@@ -219,7 +219,12 @@
         width: var(--splat-size, 18px);
         height: var(--splat-size, 18px);
         border-radius: 42% 58% 52% 48% / 48% 42% 58% 52%;
-        background: radial-gradient(circle at 35% 30%, rgba(215, 255, 131, 0.7) 0%, rgba(157, 255, 0, 0.35) 55%, transparent 100%);
+        background: radial-gradient(
+          circle at 35% 30%,
+          rgba(215, 255, 131, 0.7) 0%,
+          rgba(157, 255, 0, 0.35) 55%,
+          transparent 100%
+        );
         opacity: 0;
         transform: scale(0.4);
         animation: animusPaintSplat var(--splat-duration, 5.6s) var(--easeOut) infinite;
@@ -227,7 +232,12 @@
       }
 
       .animus-splat.is-muted {
-        background: radial-gradient(circle at 35% 30%, rgba(230, 230, 230, 0.45) 0%, rgba(160, 160, 160, 0.22) 55%, transparent 100%);
+        background: radial-gradient(
+          circle at 35% 30%,
+          rgba(230, 230, 230, 0.45) 0%,
+          rgba(160, 160, 160, 0.22) 55%,
+          transparent 100%
+        );
       }
 
       .animus-burst {
@@ -237,8 +247,12 @@
         opacity: 0;
         transform: scale(0.2);
         border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%;
-        background:
-          radial-gradient(circle at 38% 32%, rgba(215, 255, 131, 0.95) 0%, rgba(157, 255, 0, 0.58) 42%, transparent 74%);
+        background: radial-gradient(
+          circle at 38% 32%,
+          rgba(215, 255, 131, 0.95) 0%,
+          rgba(157, 255, 0, 0.58) 42%,
+          transparent 74%
+        );
         box-shadow:
           10px 5px 0 -3px rgba(157, 255, 0, 0.34),
           -8px 10px 0 -4px rgba(157, 255, 0, 0.24),
@@ -248,7 +262,12 @@
       }
 
       .animus-burst.is-muted {
-        background: radial-gradient(circle at 38% 32%, rgba(240, 240, 240, 0.55) 0%, rgba(170, 170, 170, 0.28) 42%, transparent 74%);
+        background: radial-gradient(
+          circle at 38% 32%,
+          rgba(240, 240, 240, 0.55) 0%,
+          rgba(170, 170, 170, 0.28) 42%,
+          transparent 74%
+        );
         box-shadow:
           8px 4px 0 -3px rgba(255, 255, 255, 0.12),
           -6px 8px 0 -4px rgba(255, 255, 255, 0.08);
@@ -675,6 +694,20 @@
         font-weight: 850;
       }
 
+      .website {
+        margin-top: 2px;
+        color: var(--mute);
+        font-size: 10px;
+        font-weight: 750;
+        letter-spacing: 2.6px;
+        text-transform: uppercase;
+      }
+
+      body[data-edition="animus"] .website {
+        color: rgba(255, 255, 255, 0.58);
+        letter-spacing: 0.28em;
+      }
+
       .loader {
         width: min(520px, 86vw);
         display: flex;
@@ -757,20 +790,35 @@
         width: var(--brand-splat-size, 20px);
         height: var(--brand-splat-size, 20px);
         border-radius: 42% 58% 52% 48% / 48% 42% 58% 52%;
-        background: radial-gradient(circle at 35% 30%, rgba(215, 255, 131, 0.85) 0%, rgba(157, 255, 0, 0.45) 55%, transparent 100%);
+        background: radial-gradient(
+          circle at 35% 30%,
+          rgba(215, 255, 131, 0.85) 0%,
+          rgba(157, 255, 0, 0.45) 55%,
+          transparent 100%
+        );
         animation: animusPaintSplat var(--brand-splat-duration, 4.8s) var(--easeOut) infinite;
         animation-delay: var(--brand-splat-delay, 0s);
       }
 
       .animus-brand-splat.is-muted {
-        background: radial-gradient(circle at 35% 30%, rgba(230, 230, 230, 0.5) 0%, rgba(160, 160, 160, 0.24) 55%, transparent 100%);
+        background: radial-gradient(
+          circle at 35% 30%,
+          rgba(230, 230, 230, 0.5) 0%,
+          rgba(160, 160, 160, 0.24) 55%,
+          transparent 100%
+        );
       }
 
       .animus-brand-burst {
         width: var(--brand-burst-size, 44px);
         height: var(--brand-burst-size, 44px);
         border-radius: 46% 54% 50% 50% / 50% 46% 54% 50%;
-        background: radial-gradient(circle at 38% 32%, rgba(215, 255, 131, 0.95) 0%, rgba(157, 255, 0, 0.55) 42%, transparent 74%);
+        background: radial-gradient(
+          circle at 38% 32%,
+          rgba(215, 255, 131, 0.95) 0%,
+          rgba(157, 255, 0, 0.55) 42%,
+          transparent 74%
+        );
         box-shadow:
           8px 4px 0 -3px rgba(157, 255, 0, 0.32),
           -6px 8px 0 -4px rgba(157, 255, 0, 0.22);
@@ -778,11 +826,41 @@
         animation-delay: var(--brand-burst-delay, 0s);
       }
 
-      .animus-brand-splat-1 { --brand-splat-size: 24px; --brand-splat-duration: 5.2s; --brand-splat-delay: 0.3s; left: 8%; top: 18%; }
-      .animus-brand-splat-2 { --brand-splat-size: 18px; --brand-splat-duration: 4.6s; --brand-splat-delay: 1.8s; right: 10%; top: 22%; }
-      .animus-brand-splat-3 { --brand-splat-size: 28px; --brand-splat-duration: 5.8s; --brand-splat-delay: 2.6s; left: 14%; bottom: 16%; }
-      .animus-brand-burst-1 { --brand-burst-size: 56px; --brand-burst-duration: 4.4s; --brand-burst-delay: 0.8s; right: 6%; bottom: 12%; }
-      .animus-brand-burst-2 { --brand-burst-size: 68px; --brand-burst-duration: 5.4s; --brand-burst-delay: 2.1s; left: 4%; top: 8%; }
+      .animus-brand-splat-1 {
+        --brand-splat-size: 24px;
+        --brand-splat-duration: 5.2s;
+        --brand-splat-delay: 0.3s;
+        left: 8%;
+        top: 18%;
+      }
+      .animus-brand-splat-2 {
+        --brand-splat-size: 18px;
+        --brand-splat-duration: 4.6s;
+        --brand-splat-delay: 1.8s;
+        right: 10%;
+        top: 22%;
+      }
+      .animus-brand-splat-3 {
+        --brand-splat-size: 28px;
+        --brand-splat-duration: 5.8s;
+        --brand-splat-delay: 2.6s;
+        left: 14%;
+        bottom: 16%;
+      }
+      .animus-brand-burst-1 {
+        --brand-burst-size: 56px;
+        --brand-burst-duration: 4.4s;
+        --brand-burst-delay: 0.8s;
+        right: 6%;
+        bottom: 12%;
+      }
+      .animus-brand-burst-2 {
+        --brand-burst-size: 68px;
+        --brand-burst-duration: 5.4s;
+        --brand-burst-delay: 2.1s;
+        left: 4%;
+        top: 8%;
+      }
 
       .animus-logo {
         position: relative;
@@ -1000,6 +1078,7 @@
           <div class="title" id="brandTitle"><span class="title-orc">ORC</span> TORRENT</div>
           <div class="sub" id="brandSub">APEX DOWNLOADER</div>
           <div class="meta" id="brandMeta"><strong>OPEN SOURCE</strong> + <strong>THE APEX DOWNLOADER</strong></div>
+          <div class="website">ORCLABS.IO</div>
         </div>
 
         <div class="loader">
@@ -1030,6 +1109,7 @@
           <div class="loader">
             <div class="bar" aria-label="Loading progress"><div class="fill" id="animusFill"></div></div>
             <div class="status" id="animusStatusText">CONNECTING TO THE SWARM...</div>
+            <div class="website">ORCLABS.IO</div>
           </div>
 
           <div class="animus-emblem" id="animusEmblem" aria-hidden="true">
@@ -1039,14 +1119,8 @@
                 d="M24 14c-4.8 0-8.6 3.2-9.8 7.6 2.4 1.2 5.2 1.9 8.2 1.9s5.8-.7 8.2-1.9C32.6 17.2 28.8 14 24 14Z"
                 fill="#9dff00"
               />
-              <path
-                d="M16.5 34.5c2.2 3.4 5.8 5.6 9.8 5.6h-4.8c-3.2 0-6-1.6-7.8-4.1l2.8-1.5Z"
-                fill="#9dff00"
-              />
-              <path
-                d="M31.5 34.5c-2.2 3.4-5.8 5.6-9.8 5.6h4.8c3.2 0 6-1.6 7.8-4.1l-2.8-1.5Z"
-                fill="#9dff00"
-              />
+              <path d="M16.5 34.5c2.2 3.4 5.8 5.6 9.8 5.6h-4.8c-3.2 0-6-1.6-7.8-4.1l2.8-1.5Z" fill="#9dff00" />
+              <path d="M31.5 34.5c-2.2 3.4-5.8 5.6-9.8 5.6h4.8c3.2 0 6-1.6 7.8-4.1l-2.8-1.5Z" fill="#9dff00" />
             </svg>
           </div>
         </div>
@@ -1197,10 +1271,7 @@
         const gateOpen = daemonReady;
         const completionElapsed = gateOpen ? Math.max(0, elapsed - SPLASH_MIN_MS) : 0;
         const t = gateOpen
-          ? Math.max(
-              0.92,
-              Math.min(1, 0.92 + completionElapsed / (splashEdition === "animus" ? 650 : 1200))
-            )
+          ? Math.max(0.92, Math.min(1, 0.92 + completionElapsed / (splashEdition === "animus" ? 650 : 1200)))
           : Math.max(0, Math.min(0.92, elapsed / SPLASH_MIN_MS));
         const target = curve(t) * 100;
         const delta = target - progress;

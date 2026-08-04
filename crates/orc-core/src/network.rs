@@ -251,11 +251,6 @@ fn macos_default_route() -> Option<(String, Option<String>, Option<u32>)> {
     interface.map(|iface| (iface, gateway, None))
 }
 
-#[cfg(not(target_os = "macos"))]
-fn macos_default_route() -> Option<(String, Option<String>, Option<u32>)> {
-    None
-}
-
 #[cfg(target_os = "linux")]
 fn linux_default_route() -> Option<(String, Option<String>, Option<u32>)> {
     let output = Command::new("ip")
@@ -280,11 +275,6 @@ fn linux_default_route() -> Option<(String, Option<String>, Option<u32>)> {
         }
     }
     interface.map(|iface| (iface, gateway, metric))
-}
-
-#[cfg(not(target_os = "linux"))]
-fn linux_default_route() -> Option<(String, Option<String>, Option<u32>)> {
-    None
 }
 
 #[cfg(target_os = "windows")]
@@ -312,11 +302,6 @@ fn windows_default_route() -> Option<(String, Option<String>, Option<u32>)> {
         .and_then(|v| v.as_u64())
         .map(|v| v as u32);
     Some((interface, gateway, metric))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn windows_default_route() -> Option<(String, Option<String>, Option<u32>)> {
-    None
 }
 
 #[cfg(target_os = "macos")]
@@ -347,11 +332,6 @@ fn macos_dns_config() -> Option<DnsConfig> {
     })
 }
 
-#[cfg(not(target_os = "macos"))]
-fn macos_dns_config() -> Option<DnsConfig> {
-    None
-}
-
 #[cfg(target_os = "linux")]
 fn linux_dns_config() -> Option<DnsConfig> {
     let content = std::fs::read_to_string("/etc/resolv.conf").ok()?;
@@ -373,11 +353,6 @@ fn linux_dns_config() -> Option<DnsConfig> {
         secondary: servers.get(1).cloned(),
         source: "resolv.conf".to_string(),
     })
-}
-
-#[cfg(not(target_os = "linux"))]
-fn linux_dns_config() -> Option<DnsConfig> {
-    None
 }
 
 #[cfg(target_os = "windows")]
@@ -410,9 +385,4 @@ fn windows_dns_config() -> Option<DnsConfig> {
         secondary: servers.get(1).cloned(),
         source: "Get-DnsClientServerAddress".to_string(),
     })
-}
-
-#[cfg(not(target_os = "windows"))]
-fn windows_dns_config() -> Option<DnsConfig> {
-    None
 }

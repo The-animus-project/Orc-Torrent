@@ -75,7 +75,7 @@
   FileWrite $R9 "Installation ended: $R8$\r$\n"
   FileWrite $R9 "========================================$\r$\n"
   FileClose $R9
-  
+
   ; Copy log to installation directory for easy access
   ${If} ${FileExists} "${INSTALL_LOG_FILE}"
     CopyFiles /SILENT "${INSTALL_LOG_FILE}" "$INSTDIR\install.log"
@@ -91,7 +91,7 @@ Function GetDateTime
   System::Call '*(&i2, &i2, &i2, &i2, &i2, &i2, &i2, &i2) i .r0'
   System::Call 'kernel32::GetLocalTime(i r0)'
   System::Call '*$0(&i2 .r1, &i2 .r2, &i2, &i2 .r3, &i2 .r4, &i2 .r5, &i2 .r6, &i2)'
-  
+
   ; Format: YYYY-MM-DD HH:MM:SS
   IntFmt $1 "%04d" $1  ; Year
   IntFmt $2 "%02d" $2  ; Month
@@ -99,7 +99,7 @@ Function GetDateTime
   IntFmt $4 "%02d" $4  ; Hour
   IntFmt $5 "%02d" $5  ; Minute
   IntFmt $6 "%02d" $6  ; Second
-  
+
   StrCpy $R8 "$1-$2-$3 $4:$5:$6"
   Push $R8
 FunctionEnd

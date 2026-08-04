@@ -5,11 +5,12 @@ mod watch_folders;
 use std::path::{Component, Path as StdPath, PathBuf};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+use anyhow::Context as _;
 #[cfg(feature = "desktop-search")]
 use axum::routing::{delete, put};
 use axum::{
     extract::{Path, Request, State},
-    http::{HeaderMap, Method, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::Next,
     response::IntoResponse,
     routing::{get, patch, post},
@@ -18,33 +19,32 @@ use axum::{
 use subtle::ConstantTimeEq;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
-    cors::{Any, CorsLayer},
-    limit::RequestBodyLimitLayer,
-    set_header::SetResponseHeaderLayer,
+    cors::CorsLayer, limit::RequestBodyLimitLayer, set_header::SetResponseHeaderLayer,
     trace::TraceLayer,
 };
 use tracing::{error, info, warn};
 
-use librqbit::api::Api as RqbitApi;
 use orc_core::{
-    apply_bandwidth_profile_limits, apply_net_posture_stored, apply_policy_stored,
-    apply_stored_kill_switch, apply_vpn_safety_preset, build_add_torrent_options,
-    drain_seeding_stop_pending, effective_seeding_policy, extract_info_hash_from_magnet,
-    extract_info_hash_from_torrent_bytes, find_torrent_by_info_hash, get_content, get_kill_switch,
-    get_policy, get_row_snapshot, get_status, get_torrent, health, integrate_added_torrent,
-    list_torrents, mark_announce, media_download_policy_enabled, net_bind_interface, net_posture,
-    net_posture_stored_from_state, network_session_disabled, network_transfers_allowed,
-    new_state_with_runtime_policy, only_files_for, overlay_status, patch_bandwidth_settings,
-    patch_kill_switch, patch_net_posture, patch_policy, patch_seeding_settings,
-    patch_torrent_seeding_override, peers_for, policy_stored_from_state, prepare_add_input,
-    privacy_status, rebind_rqbit_session, remove_torrent, resolve_torrent_output_folder, rqbit_api,
-    rqbit_id_for, session_rate_limits_response, set_file_priority, set_profile, set_running,
-    set_session_rate_limits, take_network_rebind_required, tick, trackers_for, version,
-    wallet_status, AddTorrentInput, AddTorrentRequest, BandwidthSettings, KillSwitchStoredSettings,
-    NetworkStatusProvider, PatchFilePriorityRequest, PatchKillSwitchRequest,
-    PatchNetPostureRequest, PatchPolicyRequest, PatchTorrentProfileRequest, SeedingSettings,
-    SharedState,
+    activate_engine_policy, apply_bandwidth_profile_limits, apply_net_posture_stored,
+    apply_policy_stored, apply_stored_kill_switch, apply_vpn_safety_preset,
+    build_add_torrent_options, drain_seeding_stop_pending, effective_engine_network_policy,
+    effective_peer_traffic_mode, effective_seeding_policy, engine_api, engine_capabilities,
+    engine_id_for, extract_info_hash_from_magnet, extract_info_hash_from_torrent_bytes,
+    find_torrent_by_info_hash, get_content, get_kill_switch, get_policy, get_row_snapshot,
+    get_status, get_torrent, health, integrate_added_torrent, list_torrents, mark_announce,
+    media_download_policy_enabled, net_bind_interface, net_posture, net_posture_stored_from_state,
+    network_session_disabled, network_transfers_allowed, new_state_with_runtime_policy,
+    only_files_for, overlay_status, patch_bandwidth_settings, patch_kill_switch, patch_net_posture,
+    patch_policy, patch_seeding_settings, patch_torrent_seeding_override, peers_for,
+    policy_stored_from_state, prepare_add_input, privacy_status, rebind_engine_session,
+    remove_torrent, resolve_torrent_output_folder, session_rate_limits_response, set_file_priority,
+    set_profile, set_running, set_session_rate_limits, suspend_engine_network,
+    take_network_rebind_required, tick, trackers_for, version, wallet_status, AddTorrentInput,
+    AddTorrentRequest, BandwidthSettings, KillSwitchStoredSettings, NetworkStatusProvider,
+    PatchFilePriorityRequest, PatchKillSwitchRequest, PatchNetPostureRequest, PatchPolicyRequest,
+    PatchTorrentProfileRequest, SeedingSettings, SharedState,
 };
+use orc_engine::Engine;
 use search::secrets::validate_api_key;
 use search::{
     available_providers_with_secrets, create_default_secret_store, credential_ref_for_provider,
@@ -61,12 +61,7 @@ struct AppCtx {
     state: SharedState,
     config: Arc<tokio::sync::RwLock<config::DaemonConfig>>,
     config_file: PathBuf,
-    admin_token: String,
     shutdown: std::sync::Arc<tokio::sync::Notify>,
-    /// When false, mutating HTTP methods require `x-admin-token` (same as shutdown).
-    bind_is_loopback: bool,
-    /// Android enables this because localhost is shared by every app on the device.
-    auth_all_requests: bool,
     watch_manager: Arc<WatchFolderManager>,
     download_dir: PathBuf,
     secrets: Arc<dyn SearchSecretStore>,
@@ -78,15 +73,21 @@ struct AppCtx {
     >,
 }
 
+#[derive(Clone)]
+struct ApiSecurity {
+    admin_token: String,
+    allowed_origin: HeaderValue,
+}
+
 #[derive(Debug, Deserialize)]
 struct PutSearchCredentialsRequest {
     api_key: String,
 }
 
-/// Constant-time admin token check. Empty `expected` means no token configured (allow).
+/// Constant-time admin token check. An empty expected token is always denied.
 fn admin_token_authorized(headers: &HeaderMap, expected: &str) -> bool {
     if expected.is_empty() {
-        return true;
+        return false;
     }
     let provided = headers
         .get("x-admin-token")
@@ -98,38 +99,37 @@ fn admin_token_authorized(headers: &HeaderMap, expected: &str) -> bool {
         && provided_bytes.ct_eq(expected_bytes).unwrap_u8() == 1
 }
 
-fn build_cors_layer(bind_is_loopback: bool, allowed_origin: Option<&str>) -> CorsLayer {
-    if let Some(origin) = allowed_origin {
-        if let Ok(origin) = origin.parse::<axum::http::HeaderValue>() {
-            return CorsLayer::new()
-                .allow_origin(origin)
-                .allow_methods([
-                    Method::GET,
-                    Method::POST,
-                    Method::PATCH,
-                    Method::DELETE,
-                    Method::OPTIONS,
-                ])
-                .allow_headers(Any)
-                .max_age(Duration::from_secs(3600));
-        }
-    }
-    if bind_is_loopback {
-        CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PATCH,
-                Method::DELETE,
-                Method::OPTIONS,
-            ])
-            .allow_headers(Any)
-            .max_age(Duration::from_secs(3600))
-    } else {
-        // Deny cross-origin browser access; native/LAN clients are unaffected.
-        CorsLayer::new()
-    }
+fn build_cors_layer(allowed_origin: HeaderValue) -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(allowed_origin)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::HeaderName::from_static("x-admin-token"),
+        ])
+        .max_age(Duration::from_secs(600))
+}
+
+fn is_public_route(method: &Method, path: &str) -> bool {
+    *method == Method::GET && matches!(path, "/health" | "/version")
+}
+
+fn request_requires_token(method: &Method, path: &str) -> bool {
+    *method != Method::OPTIONS && !is_public_route(method, path)
+}
+
+fn origin_authorized(headers: &HeaderMap, expected: &HeaderValue) -> bool {
+    headers.get(header::ORIGIN).is_some_and(|origin| {
+        origin.as_bytes() == expected.as_bytes() && origin.as_bytes() != b"null"
+    })
 }
 
 fn validate_torrent_id(id: &str) -> bool {
@@ -155,20 +155,20 @@ fn validate_torrent_id(id: &str) -> bool {
     false
 }
 
-async fn sync_media_download_policy(api: &RqbitApi, torrent_id: &str, state: &SharedState) {
+async fn sync_media_download_policy(api: &Engine, torrent_id: &str, state: &SharedState) {
     if !media_download_policy_enabled() {
         return;
     }
 
-    let (rqbit_id, only_files) = {
+    let (engine_id, only_files) = {
         let guard = state.lock().await;
         (
-            rqbit_id_for(&guard, torrent_id),
+            engine_id_for(&guard, torrent_id),
             only_files_for(&guard, torrent_id),
         )
     };
 
-    let (Some(rqbit_id), Some(only_files)) = (rqbit_id, only_files) else {
+    let (Some(engine_id), Some(only_files)) = (engine_id, only_files) else {
         return;
     };
 
@@ -178,7 +178,7 @@ async fn sync_media_download_policy(api: &RqbitApi, torrent_id: &str, state: &Sh
 
     if let Err(error) = api
         .api_torrent_action_update_only_files(
-            librqbit::api::TorrentIdOrHash::Id(rqbit_id),
+            orc_engine::api::TorrentIdOrHash::Id(engine_id),
             &only_files,
         )
         .await
@@ -204,7 +204,9 @@ fn normalize_path(path: &StdPath) -> PathBuf {
     result
 }
 
-/// Validate save_path: must be under download_dir_path or user home. Returns canonicalized path string.
+/// Validate a destination beneath the dedicated ORC download root. Existing path
+/// components must not be symlinks, and the nearest existing parent is canonicalized
+/// before any non-existing suffix is accepted.
 fn allowed_save_path(
     save_path: &str,
     download_dir_path: &StdPath,
@@ -219,32 +221,42 @@ fn allowed_save_path(
     } else {
         normalize_path(&download_dir_path.join(path))
     };
-    // Allowed roots: download_dir (already canonical) and user home
+    let lexical_root = normalize_path(download_dir_path);
+    let relative = normalized
+        .strip_prefix(&lexical_root)
+        .map_err(|_| anyhow::anyhow!("save_path must be under the ORC download directory"))?;
     let download_root = download_dir_path
         .canonicalize()
         .unwrap_or_else(|_| download_dir_path.to_path_buf());
-    let mut allowed_roots: Vec<PathBuf> = vec![download_root];
-    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        if !home.is_empty() {
-            let home_path = PathBuf::from(&home);
-            if let Ok(canon) = home_path.canonicalize() {
-                allowed_roots.push(canon);
-            } else {
-                allowed_roots.push(home_path);
+    let mut authorized = download_root.clone();
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return Err(anyhow::anyhow!("save_path contains an invalid component"));
+        };
+        let candidate = authorized.join(name);
+        match std::fs::symlink_metadata(&candidate) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(anyhow::anyhow!(
+                        "save_path must not traverse symbolic links or reparse points"
+                    ));
+                }
+                authorized = candidate
+                    .canonicalize()
+                    .context("failed to canonicalize save_path component")?;
+                if !authorized.starts_with(&download_root) {
+                    return Err(anyhow::anyhow!(
+                        "save_path escapes the ORC download directory"
+                    ));
+                }
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                authorized = candidate;
+            }
+            Err(error) => return Err(error).context("failed to inspect save_path component"),
         }
     }
-    let allowed = normalized
-        .canonicalize()
-        .unwrap_or_else(|_| normalized.clone());
-    let under_allowed = allowed_roots.iter().any(|root| allowed.starts_with(root));
-    if under_allowed {
-        Ok(allowed.to_string_lossy().to_string())
-    } else {
-        Err(anyhow::anyhow!(
-            "save_path must be under the download directory or your home directory"
-        ))
-    }
+    Ok(authorized.to_string_lossy().to_string())
 }
 
 async fn validate_content_type(request: Request, next: Next) -> impl IntoResponse {
@@ -280,26 +292,30 @@ async fn validate_content_type(request: Request, next: Next) -> impl IntoRespons
     next.run(request).await
 }
 
-/// Protect remote mutations on desktop and all non-public Android API routes.
-async fn require_auth_non_loopback_mutations(
-    State(ctx): State<AppCtx>,
+/// Deny-by-default trust boundary for the local API. Only health and version are public.
+async fn require_api_security(
+    State(security): State<ApiSecurity>,
     request: Request,
     next: Next,
 ) -> axum::response::Response {
-    // Browser preflight requests cannot include the admin token. CORS still validates
-    // their origin and requested headers before the authenticated request is sent.
-    let public_route = request.method() == Method::OPTIONS
-        || matches!(request.uri().path(), "/health" | "/version");
-    let requires_auth = if ctx.auth_all_requests {
-        !public_route
-    } else {
-        !ctx.bind_is_loopback
-            && matches!(
-                *request.method(),
-                Method::POST | Method::PATCH | Method::DELETE
-            )
-    };
-    if requires_auth && !admin_token_authorized(request.headers(), &ctx.admin_token) {
+    if is_public_route(request.method(), request.uri().path()) {
+        return next.run(request).await;
+    }
+
+    if !origin_authorized(request.headers(), &security.allowed_origin) {
+        warn!("Request rejected: missing, opaque, or unexpected Origin header");
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "origin_not_allowed"})),
+        )
+            .into_response();
+    }
+
+    // A valid browser preflight cannot carry the token. The exact-origin CORS layer
+    // validates it before the authenticated request is allowed through.
+    if request_requires_token(request.method(), request.uri().path())
+        && !admin_token_authorized(request.headers(), &security.admin_token)
+    {
         warn!("Request rejected: invalid or missing x-admin-token");
         return (
             StatusCode::UNAUTHORIZED,
@@ -310,23 +326,16 @@ async fn require_auth_non_loopback_mutations(
     next.run(request).await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthenticationPolicy {
-    RemoteMutations,
-    AllExceptPublic,
-}
-
 pub struct DaemonRuntimeConfig {
     pub bind_addr: SocketAddr,
     pub admin_token: String,
     pub download_dir: PathBuf,
     pub config_dir: Option<PathBuf>,
     pub state_dir: Option<PathBuf>,
-    pub authentication_policy: AuthenticationPolicy,
     pub cors_origin: Option<String>,
     pub install_signal_handlers: bool,
     pub shutdown: Option<Arc<tokio::sync::Notify>>,
-    pub storage_factory: Option<librqbit::storage::BoxStorageFactory>,
+    pub storage_factory: Option<orc_engine::storage::BoxStorageFactory>,
     pub network_status_provider: Option<Arc<dyn NetworkStatusProvider>>,
     pub network_disabled_at_start: bool,
     prebound_listener: Option<std::net::TcpListener>,
@@ -346,8 +355,10 @@ impl DaemonRuntimeConfig {
             ),
             config_dir: std::env::var_os("ORC_CONFIG_DIR").map(PathBuf::from),
             state_dir: std::env::var_os("ORC_STATE_DIR").map(PathBuf::from),
-            authentication_policy: AuthenticationPolicy::RemoteMutations,
-            cors_origin: None,
+            cors_origin: Some(
+                std::env::var("DAEMON_ALLOWED_ORIGIN")
+                    .unwrap_or_else(|_| "orc://desktop".to_string()),
+            ),
             install_signal_handlers: true,
             shutdown: None,
             storage_factory: None,
@@ -370,7 +381,6 @@ impl DaemonRuntimeConfig {
             download_dir,
             config_dir: Some(config_dir),
             state_dir: Some(state_dir),
-            authentication_policy: AuthenticationPolicy::AllExceptPublic,
             cors_origin: Some("https://localhost".to_string()),
             install_signal_handlers: false,
             shutdown: None,
@@ -459,13 +469,42 @@ fn sanitize_error(e: &anyhow::Error, context: &str) -> String {
     if sanitized.to_lowercase().contains("token") || sanitized.to_lowercase().contains("secret") {
         sanitized = "An error occurred".to_string();
     }
-    if sanitized.len() > 200 {
-        format!("{}...", &sanitized[..200])
+    let mut chars = sanitized.chars();
+    let prefix: String = chars.by_ref().take(200).collect();
+    if chars.next().is_some() {
+        format!("{prefix}...")
     } else {
         sanitized
     }
 }
 
+async fn persist_config_update<F>(ctx: &AppCtx, update: F) -> anyhow::Result<config::DaemonConfig>
+where
+    F: FnOnce(&mut config::DaemonConfig),
+{
+    // Serialize config transactions so a slow disk write cannot overwrite a newer
+    // update. The active copy is replaced only after the synced atomic write succeeds.
+    let mut active = ctx.config.write().await;
+    let mut candidate = active.clone();
+    update(&mut candidate);
+    config::save_config_to(&candidate, &ctx.config_file).await?;
+    *active = candidate.clone();
+    Ok(candidate)
+}
+
+fn persistence_failure(error: &anyhow::Error, context: &str) -> axum::response::Response {
+    let sanitized = sanitize_error(error, context);
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({
+            "error": sanitized,
+            "persisted": false
+        })),
+    )
+        .into_response()
+}
+
+#[allow(dead_code)] // This file is also included by lib.rs for the embeddable runtime.
 fn setup_panic_handler() {
     std::panic::set_hook(Box::new(|panic_info| {
         error!("PANIC: Application panicked");
@@ -492,7 +531,7 @@ fn default_download_dir() -> String {
     {
         if let Ok(profile) = std::env::var("USERPROFILE") {
             if !profile.is_empty() {
-                return format!("{}\\Downloads", profile.trim_end_matches('\\'));
+                return format!("{}\\Downloads\\ORC Torrent", profile.trim_end_matches('\\'));
             }
         }
     }
@@ -500,7 +539,7 @@ fn default_download_dir() -> String {
     {
         if let Ok(home) = std::env::var("HOME") {
             if !home.is_empty() {
-                return format!("{}/Downloads", home.trim_end_matches('/'));
+                return format!("{}/Downloads/ORC Torrent", home.trim_end_matches('/'));
             }
         }
     }
@@ -508,6 +547,7 @@ fn default_download_dir() -> String {
 }
 
 #[tokio::main]
+#[allow(dead_code)] // This file is also included by lib.rs for the embeddable runtime.
 async fn main() -> anyhow::Result<()> {
     setup_panic_handler();
     tracing_subscriber::fmt()
@@ -527,36 +567,58 @@ pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> 
     };
 
     let admin_token = runtime.admin_token.clone();
-    if !admin_token.is_empty() && admin_token.len() < 32 {
-        warn!("DAEMON_ADMIN_TOKEN is shorter than recommended 32 characters. Consider using a longer token for better security.");
+    if admin_token.len() < 32 {
+        return Err(anyhow::anyhow!(
+            "SECURITY ERROR: DAEMON_ADMIN_TOKEN must contain at least 32 characters"
+        ));
     }
     let addr = runtime.bind_addr;
     let bind_is_loopback = addr.ip().is_loopback();
 
-    if !bind_is_loopback && admin_token.is_empty() {
+    if !bind_is_loopback {
         return Err(anyhow::anyhow!(
-            "SECURITY ERROR: Binding to non-localhost address {} requires DAEMON_ADMIN_TOKEN to be set. \
-            For production use, always set a strong admin token when exposing to network.",
+            "SECURITY ERROR: non-loopback HTTP binding to {} is disabled; remote access requires a separate TLS listener",
             addr.ip()
+        ));
+    }
+
+    let allowed_origin: HeaderValue = runtime
+        .cors_origin
+        .as_deref()
+        .ok_or_else(|| {
+            anyhow::anyhow!("SECURITY ERROR: an exact daemon Origin allowlist is required")
+        })?
+        .parse()
+        .context("invalid daemon Origin allowlist value")?;
+    if allowed_origin.as_bytes() == b"null" || allowed_origin.as_bytes().is_empty() {
+        return Err(anyhow::anyhow!(
+            "SECURITY ERROR: opaque or empty daemon origins are not allowed"
         ));
     }
 
     let download_dir = runtime.download_dir.to_string_lossy().into_owned();
     tracing::info!("Download directory: {}", download_dir);
+    // Configuration integrity is established before the torrent engine creates any
+    // network sockets. Corrupt or unreadable privacy policy therefore fails closed.
     let config = config::load_config_from(&config_file)
         .await
-        .unwrap_or_else(|e| {
-            tracing::warn!("Failed to load config, using defaults: {e}");
-            let mut config = config::DaemonConfig::default();
-            search::apply_edition_search_defaults(&mut config.search);
-            config
-        });
+        .context("configuration integrity check failed; torrent networking was not started")?;
 
     tracing::info!("Using listen port: {}", config.listen_port);
     tokio::fs::create_dir_all(&download_dir).await?;
 
     let bind_iface = config.net_posture.bind_interface.clone();
     let persistence_dir = runtime.state_dir.as_ref().map(|dir| dir.join("rqbit"));
+    let startup_engine_policy = config
+        .policy
+        .as_ref()
+        .map(effective_engine_network_policy)
+        .unwrap_or_default();
+    let startup_peer_traffic_mode = config
+        .policy
+        .as_ref()
+        .map(effective_peer_traffic_mode)
+        .unwrap_or_default();
     let state = new_state_with_runtime_policy(
         download_dir.clone(),
         config.listen_port,
@@ -564,6 +626,8 @@ pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> 
         persistence_dir,
         runtime.storage_factory.take(),
         runtime.network_disabled_at_start,
+        startup_engine_policy,
+        startup_peer_traffic_mode,
     )
     .await?;
     if let Some(ref ks) = config.kill_switch {
@@ -580,6 +644,16 @@ pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> 
         if let Some(ref policy) = config.policy {
             apply_policy_stored(&mut guard, policy);
             info!("Restored policy from config");
+        }
+    }
+    if config.policy.is_some() {
+        let mut guard = state.lock().await;
+        if !network_session_disabled(&guard) {
+            match activate_engine_policy(&mut guard).await {
+                Ok(Some(reason)) => warn!("{reason}"),
+                Ok(None) => info!("Activated persisted ORC engine policy"),
+                Err(error) => return Err(error).context("failed to activate ORC engine policy"),
+            }
         }
     }
     let watch_manager = Arc::new(WatchFolderManager::new(config.watch_folders.clone()));
@@ -606,20 +680,47 @@ pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> 
                 let pending = {
                     let mut guard = s.lock().await;
                     tick(&mut guard);
+                    let engine = engine_api(&guard);
+                    let engaged = matches!(
+                        get_kill_switch(&guard).enforcement_state,
+                        orc_core::KillSwitchState::Engaged
+                    );
+                    if engaged && !engine.is_network_suspended() {
+                        if let Err(error) = suspend_engine_network(&mut guard).await {
+                            engine_api(&guard).set_degraded_reason(Some(format!(
+                                "kill switch could not suspend engine sockets: {error}"
+                            )));
+                            error!("Kill switch engine suspension failed: {error:#}");
+                        }
+                    } else if !engaged
+                        && engine.is_network_suspended()
+                        && network_transfers_allowed()
+                    {
+                        if let Err(error) = rebind_engine_session(&mut guard).await {
+                            engine_api(&guard).set_degraded_reason(Some(format!(
+                                "engine network restore failed: {error}"
+                            )));
+                            error!("Engine network restore failed: {error:#}");
+                        } else {
+                            engine_api(&guard).set_degraded_reason(None);
+                        }
+                    }
                     drain_seeding_stop_pending(&mut guard)
                 };
                 for id in pending {
                     let api = {
                         let guard = s.lock().await;
-                        rqbit_api(&guard)
+                        engine_api(&guard)
                     };
-                    let rqbit_id = {
+                    let engine_id = {
                         let guard = s.lock().await;
-                        rqbit_id_for(&guard, &id)
+                        engine_id_for(&guard, &id)
                     };
-                    if let Some(rqbit_id) = rqbit_id {
+                    if let Some(engine_id) = engine_id {
                         if let Err(e) = api
-                            .api_torrent_action_pause(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+                            .api_torrent_action_pause(orc_engine::api::TorrentIdOrHash::Id(
+                                engine_id,
+                            ))
                             .await
                         {
                             warn!("seeding limit pause failed for {id}: {e}");
@@ -629,8 +730,7 @@ pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> 
             }
         });
     }
-    let cors = build_cors_layer(bind_is_loopback, runtime.cors_origin.as_deref());
-    use axum::http::HeaderValue;
+    let cors = build_cors_layer(allowed_origin.clone());
     let security_headers = (
         SetResponseHeaderLayer::overriding(
             axum::http::header::X_CONTENT_TYPE_OPTIONS,
@@ -663,21 +763,20 @@ pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> 
         state,
         config: config_state,
         config_file,
-        admin_token,
         shutdown: shutdown_notify.clone(),
-        bind_is_loopback,
-        auth_all_requests: matches!(
-            runtime.authentication_policy,
-            AuthenticationPolicy::AllExceptPublic
-        ),
         watch_manager,
         download_dir: PathBuf::from(download_dir),
         secrets,
         connection_status: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
     };
+    let api_security = ApiSecurity {
+        admin_token,
+        allowed_origin,
+    };
 
     let app = Router::new()
         .route("/health", get(h_health))
+        .route("/engine/capabilities", get(h_engine_capabilities))
         .route("/version", get(h_version))
         .route("/wallet", get(h_wallet))
         .route("/overlay/status", get(h_overlay_status))
@@ -749,8 +848,8 @@ pub async fn run_daemon(mut runtime: DaemonRuntimeConfig) -> anyhow::Result<()> 
     let app = app
         .with_state(app_ctx.clone())
         .layer(axum::middleware::from_fn_with_state(
-            app_ctx.clone(),
-            require_auth_non_loopback_mutations,
+            api_security,
+            require_api_security,
         ))
         .layer(axum::middleware::from_fn(validate_content_type))
         .layer(TraceLayer::new_for_http())
@@ -801,6 +900,11 @@ async fn h_health(State(ctx): State<AppCtx>) -> impl IntoResponse {
     Json(health_status)
 }
 
+async fn h_engine_capabilities(State(ctx): State<AppCtx>) -> impl IntoResponse {
+    let guard = ctx.state.lock().await;
+    Json(engine_capabilities(&guard))
+}
+
 async fn h_version() -> impl IntoResponse {
     Json(version())
 }
@@ -823,7 +927,7 @@ async fn h_patch_net_posture(
     Json(req): Json<PatchNetPostureRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = req.validate() {
-        let sanitized = sanitize_error(&anyhow::Error::from(e), "Invalid net posture request");
+        let sanitized = sanitize_error(&e, "Invalid net posture request");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": sanitized})),
@@ -836,7 +940,7 @@ async fn h_patch_net_posture(
     let out = patch_net_posture(&mut guard, req);
     let bind_changed = old_bind.as_deref() != net_bind_interface(&guard);
     if bind_changed {
-        if let Err(e) = rebind_rqbit_session(&mut guard).await {
+        if let Err(e) = rebind_engine_session(&mut guard).await {
             let sanitized = sanitize_error(&e, "Failed to rebind network interface");
             return (
                 StatusCode::BAD_REQUEST,
@@ -850,15 +954,14 @@ async fn h_patch_net_posture(
     let policy_stored = policy_stored_from_state(&guard);
     drop(guard);
 
-    let updated = {
-        let mut config = ctx.config.write().await;
+    if let Err(e) = persist_config_update(&ctx, move |config| {
         config.net_posture = stored;
         config.kill_switch = Some(kill_switch_stored);
         config.policy = Some(policy_stored);
-        config.clone()
-    };
-    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-        warn!("Failed to persist net posture config: {e}");
+    })
+    .await
+    {
+        return persistence_failure(&e, "Failed to persist net posture config");
     }
 
     Json(out).into_response()
@@ -898,7 +1001,7 @@ async fn h_patch_kill_switch(
     Json(req): Json<PatchKillSwitchRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = req.validate() {
-        let sanitized = sanitize_error(&anyhow::Error::from(e), "Invalid kill switch request");
+        let sanitized = sanitize_error(&e, "Invalid kill switch request");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": sanitized})),
@@ -913,15 +1016,14 @@ async fn h_patch_kill_switch(
     let policy_stored = policy_stored_from_state(&guard);
     drop(guard);
 
-    let updated = {
-        let mut config = ctx.config.write().await;
+    if let Err(e) = persist_config_update(&ctx, move |config| {
         config.kill_switch = Some(stored);
         config.net_posture = posture_stored;
         config.policy = Some(policy_stored);
-        config.clone()
-    };
-    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-        warn!("Failed to persist kill switch config: {e}");
+    })
+    .await
+    {
+        return persistence_failure(&e, "Failed to persist transfer-pause config");
     }
 
     Json(out).into_response()
@@ -930,9 +1032,11 @@ async fn h_patch_kill_switch(
 async fn h_kill_switch_test(State(ctx): State<AppCtx>) -> impl IntoResponse {
     let guard = ctx.state.lock().await;
     if orc_core::get_kill_switch(&guard).enabled {
-        Json(serde_json::json!({"ok": true, "message": "Kill switch is enabled (simulation)."}))
+        Json(
+            serde_json::json!({"ok": true, "message": "VPN transfer pause is enabled (simulation only; no OS firewall is claimed)."}),
+        )
     } else {
-        Json(serde_json::json!({"ok": false, "message": "Kill switch is disabled."}))
+        Json(serde_json::json!({"ok": false, "message": "VPN transfer pause is disabled."}))
     }
 }
 
@@ -946,7 +1050,7 @@ async fn h_patch_policy(
     Json(req): Json<PatchPolicyRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = req.desired_patch.validate() {
-        let sanitized = sanitize_error(&anyhow::Error::from(e), "Invalid policy request");
+        let sanitized = sanitize_error(&e, "Invalid policy request");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": sanitized})),
@@ -955,16 +1059,31 @@ async fn h_patch_policy(
     }
 
     let mut guard = ctx.state.lock().await;
-    let out = patch_policy(&mut guard, req.desired_patch);
+    let previous_engine_policy = engine_api(&guard).network_policy();
+    let previous_peer_traffic_mode = get_policy(&guard).effective.peer_encryption;
+    patch_policy(&mut guard, req.desired_patch);
+    let engine_policy_changed = engine_api(&guard).network_policy() != previous_engine_policy;
+    let peer_traffic_mode_changed =
+        get_policy(&guard).effective.peer_encryption != previous_peer_traffic_mode;
+    if (engine_policy_changed || peer_traffic_mode_changed) && !network_session_disabled(&guard) {
+        if let Err(error) = activate_engine_policy(&mut guard).await {
+            let sanitized = sanitize_error(&error, "Failed to activate engine policy");
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": sanitized})),
+            )
+                .into_response();
+        }
+    }
+    let out = get_policy(&guard);
     let policy_stored = policy_stored_from_state(&guard);
     drop(guard);
-    let updated = {
-        let mut config = ctx.config.write().await;
+    if let Err(e) = persist_config_update(&ctx, move |config| {
         config.policy = Some(policy_stored);
-        config.clone()
-    };
-    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-        warn!("Failed to persist policy config: {e}");
+    })
+    .await
+    {
+        return persistence_failure(&e, "Failed to persist policy config");
     }
     Json(out).into_response()
 }
@@ -999,7 +1118,7 @@ async fn h_patch_search_settings(
     Json(req): Json<SearchSettingsPatchRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = req.validate() {
-        let sanitized = sanitize_error(&anyhow::Error::from(e), "Invalid search settings request");
+        let sanitized = sanitize_error(&e, "Invalid search settings request");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": sanitized})),
@@ -1007,39 +1126,33 @@ async fn h_patch_search_settings(
             .into_response();
     }
 
-    let (updated, removed_refs) = {
-        let mut config = ctx.config.write().await;
-        let before = config.search.clone();
-        match req.apply(&config.search) {
-            Ok(updated_search) => {
-                let removed = removed_provider_credential_refs(&before, &updated_search);
-                config.search = updated_search;
-                (config.clone(), removed)
-            }
-            Err(e) => {
-                let sanitized = sanitize_error(&e, "Invalid search settings request");
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": sanitized})),
-                )
-                    .into_response();
-            }
+    let before = ctx.config.read().await.search.clone();
+    let updated_search = match req.apply(&before) {
+        Ok(updated) => updated,
+        Err(e) => {
+            let sanitized = sanitize_error(&e, "Invalid search settings request");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": sanitized})),
+            )
+                .into_response();
         }
     };
+    let removed_refs = removed_provider_credential_refs(&before, &updated_search);
+    let updated = match persist_config_update(&ctx, move |config| {
+        config.search = updated_search;
+    })
+    .await
+    {
+        Ok(updated) => updated,
+        Err(e) => return persistence_failure(&e, "Failed to persist search settings"),
+    };
 
+    // Delete credentials only after the configuration no longer references them.
     for reference in removed_refs {
         if let Err(e) = ctx.secrets.delete_secret(&reference).await {
             warn!("failed to delete search credential for removed provider: {e}");
         }
-    }
-
-    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-        let sanitized = sanitize_error(&e, "Failed to persist search settings");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": sanitized })),
-        )
-            .into_response();
     }
 
     match search_settings_response_with_secrets(&updated.search, ctx.secrets.as_ref()).await {
@@ -1261,28 +1374,8 @@ async fn h_delete_search_provider(
     State(ctx): State<AppCtx>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let known_builtin = matches!(
-        name.as_str(),
-        "mock"
-            | "open_content"
-            | "internet_archive"
-            | "internet_archive_software"
-            | "yts"
-            | "tpb_movies"
-            | "tpb_tv"
-            | "x1337_movies"
-            | "x1337_tv"
-    );
-    if known_builtin {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "Built-in providers cannot be removed" })),
-        )
-            .into_response();
-    }
-
-    let (updated, credential_ref) = {
-        let mut config = ctx.config.write().await;
+    let (next_search, credential_ref) = {
+        let config = ctx.config.read().await;
         let Ok(setting) = config.search.provider_setting(&name) else {
             return (
                 StatusCode::NOT_FOUND,
@@ -1301,24 +1394,22 @@ async fn h_delete_search_provider(
             None
         };
 
-        config
-            .search
+        let mut next_search = config.search.clone();
+        next_search
             .providers
             .retain(|provider| provider.name != name);
-        if config
-            .search
+        if next_search
             .default_provider
             .as_deref()
             .is_some_and(|value| value == name)
         {
-            config.search.default_provider = config
-                .search
+            next_search.default_provider = next_search
                 .providers
                 .iter()
                 .find(|provider| provider.enabled)
                 .map(|provider| provider.name.clone());
         }
-        if let Err(e) = config.search.validate() {
+        if let Err(e) = next_search.validate() {
             let sanitized = sanitize_error(&e, "Invalid search settings after provider removal");
             return (
                 StatusCode::BAD_REQUEST,
@@ -1326,9 +1417,19 @@ async fn h_delete_search_provider(
             )
                 .into_response();
         }
-        (config.clone(), credential_ref)
+        (next_search, credential_ref)
     };
 
+    let updated = match persist_config_update(&ctx, move |config| {
+        config.search = next_search;
+    })
+    .await
+    {
+        Ok(updated) => updated,
+        Err(e) => return persistence_failure(&e, "Failed to persist search settings"),
+    };
+
+    // Remove the secret and transient status only after the provider removal is durable.
     if let Some(reference) = credential_ref {
         if let Err(e) = ctx.secrets.delete_secret(&reference).await {
             warn!("failed to delete credential for removed provider: {e}");
@@ -1337,15 +1438,6 @@ async fn h_delete_search_provider(
     {
         let mut status = ctx.connection_status.write().await;
         status.remove(&name);
-    }
-
-    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-        let sanitized = sanitize_error(&e, "Failed to persist search settings");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": sanitized })),
-        )
-            .into_response();
     }
 
     match available_providers_with_secrets(&updated.search, ctx.secrets.clone()).await {
@@ -1380,7 +1472,7 @@ async fn h_add_torrent(
     Json(req): Json<AddTorrentRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = req.validate() {
-        let sanitized = sanitize_error(&anyhow::Error::from(e), "Invalid add torrent request");
+        let sanitized = sanitize_error(&e, "Invalid add torrent request");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": sanitized})),
@@ -1414,20 +1506,20 @@ async fn h_add_torrent(
         if let Some((id, _is_complete, is_running)) = existing_result {
             let api = {
                 let guard = ctx.state.lock().await;
-                rqbit_api(&guard)
+                engine_api(&guard)
             };
 
-            let rqbit_id = {
+            let engine_id = {
                 let guard = ctx.state.lock().await;
-                rqbit_id_for(&guard, &id)
+                engine_id_for(&guard, &id)
             };
-            if let Some(rqbit_id) = rqbit_id {
+            if let Some(engine_id) = engine_id {
                 if !is_running && transfers_allowed && !req.start_paused {
                     if let Err(e) = api
-                        .api_torrent_action_start(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+                        .api_torrent_action_start(orc_engine::api::TorrentIdOrHash::Id(engine_id))
                         .await
                     {
-                        error!("rqbit start failed for existing torrent: {e:?}");
+                        error!("engine start failed for existing torrent: {e:?}");
                     } else {
                         let mut guard = ctx.state.lock().await;
                         let _ = set_running(&mut guard, &id, true);
@@ -1454,7 +1546,7 @@ async fn h_add_torrent(
     }
     let (api, default_download_path) = {
         let guard = ctx.state.lock().await;
-        (rqbit_api(&guard), guard.download_dir_path().clone())
+        (engine_api(&guard), guard.download_dir_path().clone())
     };
     let output_folder = if let Some(s) = req.save_path.as_ref() {
         let t = s.trim();
@@ -1484,18 +1576,21 @@ async fn h_add_torrent(
     });
     let mut opts = build_add_torrent_options(output_folder.clone());
     opts.paused = req.start_paused || !transfers_allowed;
-    let rqbit_resp = match &input {
+    let engine_resp = match &input {
         AddTorrentInput::Url(u) => {
-            api.api_add_torrent(librqbit::AddTorrent::from_url(u.as_str()), Some(opts))
+            api.api_add_torrent(orc_engine::AddTorrent::from_url(u.as_str()), Some(opts))
                 .await
         }
         AddTorrentInput::TorrentBytes(bytes) => {
-            api.api_add_torrent(librqbit::AddTorrent::from_bytes(bytes.clone()), Some(opts))
-                .await
+            api.api_add_torrent(
+                orc_engine::AddTorrent::from_bytes(bytes.clone()),
+                Some(opts),
+            )
+            .await
         }
     };
 
-    let rqbit_resp = match rqbit_resp {
+    let engine_resp = match engine_resp {
         Ok(r) => Ok(r),
         Err(e) => {
             let error_str = e.to_string();
@@ -1513,14 +1608,14 @@ async fn h_add_torrent(
                 match &input {
                     AddTorrentInput::Url(u) => {
                         api.api_add_torrent(
-                            librqbit::AddTorrent::from_url(u.as_str()),
+                            orc_engine::AddTorrent::from_url(u.as_str()),
                             Some(retry_opts),
                         )
                         .await
                     }
                     AddTorrentInput::TorrentBytes(bytes) => {
                         api.api_add_torrent(
-                            librqbit::AddTorrent::from_bytes(bytes.clone()),
+                            orc_engine::AddTorrent::from_bytes(bytes.clone()),
                             Some(retry_opts),
                         )
                         .await
@@ -1537,7 +1632,7 @@ async fn h_add_torrent(
         }
     };
 
-    let rqbit_resp = match rqbit_resp {
+    let engine_resp = match engine_resp {
         Ok(r) => r,
         Err(e) => {
             let sanitized = sanitize_error(
@@ -1554,7 +1649,7 @@ async fn h_add_torrent(
 
     let out = {
         let mut guard = ctx.state.lock().await;
-        match integrate_added_torrent(&mut guard, &req, rqbit_resp) {
+        match integrate_added_torrent(&mut guard, &req, engine_resp) {
             Ok(r) => {
                 if req.start_paused || !transfers_allowed {
                     let _ = set_running(&mut guard, &r.id, false);
@@ -1574,7 +1669,7 @@ async fn h_add_torrent(
 
     let api_for_policy = {
         let guard = ctx.state.lock().await;
-        rqbit_api(&guard)
+        engine_api(&guard)
     };
     sync_media_download_policy(&api_for_policy, &out.id, &ctx.state).await;
 
@@ -1652,28 +1747,28 @@ async fn h_patch_file_priority(
 
     // Production Security: Validate request payload
     if let Err(e) = req.validate() {
-        let sanitized = sanitize_error(&anyhow::Error::from(e), "Invalid file priority request");
+        let sanitized = sanitize_error(&e, "Invalid file priority request");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": sanitized})),
         )
             .into_response();
     }
-    let (api, rqbit_id, only_files) = {
+    let (api, engine_id, only_files) = {
         let mut guard = ctx.state.lock().await;
         if set_file_priority(&mut guard, &id, req).is_err() {
             return StatusCode::NOT_FOUND.into_response();
         }
         (
-            rqbit_api(&guard),
-            rqbit_id_for(&guard, &id),
+            engine_api(&guard),
+            engine_id_for(&guard, &id),
             only_files_for(&guard, &id),
         )
     };
-    if let (Some(rqbit_id), Some(only_files)) = (rqbit_id, only_files) {
+    if let (Some(engine_id), Some(only_files)) = (engine_id, only_files) {
         if let Err(e) = api
             .api_torrent_action_update_only_files(
-                librqbit::api::TorrentIdOrHash::Id(rqbit_id),
+                orc_engine::api::TorrentIdOrHash::Id(engine_id),
                 &only_files,
             )
             .await
@@ -1708,7 +1803,7 @@ async fn h_patch_profile(
 
     // Production Security: Validate request payload
     if let Err(e) = req.validate() {
-        let sanitized = sanitize_error(&anyhow::Error::from(e), "Invalid profile request");
+        let sanitized = sanitize_error(&e, "Invalid profile request");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": sanitized})),
@@ -1750,7 +1845,7 @@ async fn h_start(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl Into
         let rebind_requested = take_network_rebind_required();
         let mut guard = ctx.state.lock().await;
         if network_session_disabled(&guard) || rebind_requested {
-            if let Err(error) = rebind_rqbit_session(&mut guard).await {
+            if let Err(error) = rebind_engine_session(&mut guard).await {
                 let sanitized = sanitize_error(&error, "Failed to enable the torrent network");
                 return (
                     StatusCode::BAD_REQUEST,
@@ -1771,17 +1866,17 @@ async fn h_start(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl Into
         }
     }
 
-    let (api, rqbit_id) = {
+    let (api, engine_id) = {
         let guard = ctx.state.lock().await;
-        (rqbit_api(&guard), rqbit_id_for(&guard, &id))
+        (engine_api(&guard), engine_id_for(&guard, &id))
     };
 
-    let Some(rqbit_id) = rqbit_id else {
+    let Some(engine_id) = engine_id else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
     if let Err(e) = api
-        .api_torrent_action_start(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        .api_torrent_action_start(orc_engine::api::TorrentIdOrHash::Id(engine_id))
         .await
     {
         let sanitized = sanitize_error(&anyhow::Error::from(e), "Failed to start torrent");
@@ -1808,17 +1903,17 @@ async fn h_stop(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl IntoR
             .into_response();
     }
 
-    let (api, rqbit_id) = {
+    let (api, engine_id) = {
         let guard = ctx.state.lock().await;
-        (rqbit_api(&guard), rqbit_id_for(&guard, &id))
+        (engine_api(&guard), engine_id_for(&guard, &id))
     };
 
-    let Some(rqbit_id) = rqbit_id else {
+    let Some(engine_id) = engine_id else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
     if let Err(e) = api
-        .api_torrent_action_pause(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        .api_torrent_action_pause(orc_engine::api::TorrentIdOrHash::Id(engine_id))
         .await
     {
         let sanitized = sanitize_error(&anyhow::Error::from(e), "Failed to stop torrent");
@@ -1855,29 +1950,29 @@ async fn h_remove(
             .into_response();
     }
 
-    let (api, rqbit_id) = {
+    let (api, engine_id) = {
         let guard = ctx.state.lock().await;
-        (rqbit_api(&guard), rqbit_id_for(&guard, &id))
+        (engine_api(&guard), engine_id_for(&guard, &id))
     };
 
-    let Some(rqbit_id) = rqbit_id else {
+    let Some(engine_id) = engine_id else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
     let delete_data = body.map(|Json(body)| body.delete_data).unwrap_or(false);
     let result = if delete_data {
-        api.api_torrent_action_delete(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        api.api_torrent_action_delete(orc_engine::api::TorrentIdOrHash::Id(engine_id))
             .await
     } else {
-        api.api_torrent_action_forget(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        api.api_torrent_action_forget(orc_engine::api::TorrentIdOrHash::Id(engine_id))
             .await
     };
     if let Err(e) = result {
-        // rqbit removes the in-memory/persisted torrent before asking custom storage
+        // The engine removes the in-memory/persisted torrent before asking custom storage
         // to delete files. Keep ORC's catalog synchronized even when SAF reports a
         // partial deletion (for example after a URI grant is revoked).
         if api
-            .mgr_handle(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+            .mgr_handle(orc_engine::api::TorrentIdOrHash::Id(engine_id))
             .is_err()
         {
             let mut guard = ctx.state.lock().await;
@@ -1917,12 +2012,12 @@ async fn h_recheck(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl In
         }
     }
 
-    let (api, rqbit_id) = {
+    let (api, engine_id) = {
         let guard = ctx.state.lock().await;
-        (rqbit_api(&guard), rqbit_id_for(&guard, &id))
+        (engine_api(&guard), engine_id_for(&guard, &id))
     };
 
-    let Some(rqbit_id) = rqbit_id else {
+    let Some(engine_id) = engine_id else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
@@ -1931,10 +2026,10 @@ async fn h_recheck(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl In
         let _ = orc_core::force_checking(&mut guard, &id);
     }
     let _ = api
-        .api_torrent_action_pause(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        .api_torrent_action_pause(orc_engine::api::TorrentIdOrHash::Id(engine_id))
         .await;
     let _ = api
-        .api_torrent_action_start(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        .api_torrent_action_start(orc_engine::api::TorrentIdOrHash::Id(engine_id))
         .await;
 
     StatusCode::OK.into_response()
@@ -1961,12 +2056,12 @@ async fn h_announce(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl I
         }
     }
 
-    let (api, rqbit_id) = {
+    let (api, engine_id) = {
         let guard = ctx.state.lock().await;
-        (rqbit_api(&guard), rqbit_id_for(&guard, &id))
+        (engine_api(&guard), engine_id_for(&guard, &id))
     };
 
-    let Some(rqbit_id) = rqbit_id else {
+    let Some(engine_id) = engine_id else {
         return StatusCode::NOT_FOUND.into_response();
     };
     {
@@ -1974,10 +2069,10 @@ async fn h_announce(State(ctx): State<AppCtx>, Path(id): Path<String>) -> impl I
         let _ = mark_announce(&mut guard, &id);
     }
     let _ = api
-        .api_torrent_action_pause(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        .api_torrent_action_pause(orc_engine::api::TorrentIdOrHash::Id(engine_id))
         .await;
     let _ = api
-        .api_torrent_action_start(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+        .api_torrent_action_start(orc_engine::api::TorrentIdOrHash::Id(engine_id))
         .await;
 
     StatusCode::OK.into_response()
@@ -2040,16 +2135,7 @@ async fn h_get_row_snapshot(
     }
 }
 
-async fn h_admin_shutdown(State(ctx): State<AppCtx>, headers: HeaderMap) -> impl IntoResponse {
-    if !admin_token_authorized(&headers, &ctx.admin_token) {
-        warn!("Admin shutdown attempt with invalid token");
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "unauthorized"})),
-        )
-            .into_response();
-    }
-
+async fn h_admin_shutdown(State(ctx): State<AppCtx>) -> impl IntoResponse {
     info!("admin shutdown accepted");
     ctx.shutdown.notify_one();
     (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
@@ -2067,7 +2153,7 @@ async fn h_vpn_safety_preset(State(ctx): State<AppCtx>) -> impl IntoResponse {
         let out = apply_vpn_safety_preset(&mut guard);
         let bind_changed = old_bind.as_deref() != net_bind_interface(&guard);
         if bind_changed {
-            if let Err(e) = rebind_rqbit_session(&mut guard).await {
+            if let Err(e) = rebind_engine_session(&mut guard).await {
                 let sanitized = sanitize_error(&e, "Failed to rebind network interface");
                 return (
                     StatusCode::BAD_REQUEST,
@@ -2081,15 +2167,17 @@ async fn h_vpn_safety_preset(State(ctx): State<AppCtx>) -> impl IntoResponse {
         let policy = policy_stored_from_state(&guard);
         (out, ks, np, policy)
     };
-    let updated = {
-        let mut config = ctx.config.write().await;
-        config.kill_switch = Some(KillSwitchStoredSettings::from(&result.1));
-        config.net_posture = result.2;
-        config.policy = Some(result.3);
-        config.clone()
-    };
-    if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-        warn!("Failed to persist VPN safety preset config: {e}");
+    let stored_kill_switch = KillSwitchStoredSettings::from(&result.1);
+    let stored_posture = result.2.clone();
+    let stored_policy = result.3.clone();
+    if let Err(e) = persist_config_update(&ctx, move |config| {
+        config.kill_switch = Some(stored_kill_switch);
+        config.net_posture = stored_posture;
+        config.policy = Some(stored_policy);
+    })
+    .await
+    {
+        return persistence_failure(&e, "Failed to persist VPN safety preset config");
     }
     Json(result.0).into_response()
 }
@@ -2108,13 +2196,13 @@ async fn h_patch_watch_folders(
         .await
     {
         Ok(resp) => {
-            let updated = {
-                let mut config = ctx.config.write().await;
-                config.watch_folders = resp.settings.clone();
-                config.clone()
-            };
-            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-                warn!("Failed to persist watch folder config: {e}");
+            let settings = resp.settings.clone();
+            if let Err(e) = persist_config_update(&ctx, move |config| {
+                config.watch_folders = settings;
+            })
+            .await
+            {
+                return persistence_failure(&e, "Failed to persist watch folder config");
             }
             Json(resp).into_response()
         }
@@ -2148,20 +2236,17 @@ async fn h_patch_seeding(
 ) -> impl IntoResponse {
     let out = {
         let mut guard = ctx.state.lock().await;
-        match patch_seeding_settings(&mut guard, body) {
-            Ok(s) => Ok(s),
-            Err(e) => Err(e),
-        }
+        patch_seeding_settings(&mut guard, body)
     };
     match out {
         Ok(settings) => {
-            let updated = {
-                let mut config = ctx.config.write().await;
-                config.seeding = settings.clone();
-                config.clone()
-            };
-            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-                warn!("Failed to persist seeding config: {e}");
+            let persisted_settings = settings.clone();
+            if let Err(e) = persist_config_update(&ctx, move |config| {
+                config.seeding = persisted_settings;
+            })
+            .await
+            {
+                return persistence_failure(&e, "Failed to persist seeding config");
             }
             Json(settings).into_response()
         }
@@ -2197,14 +2282,16 @@ async fn h_post_limits(
     };
     match result {
         Ok(()) => {
-            let updated = {
-                let mut config = ctx.config.write().await;
+            let bandwidth = {
                 let guard = ctx.state.lock().await;
-                config.bandwidth = guard.bandwidth_settings.clone();
-                config.clone()
+                guard.bandwidth_settings.clone()
             };
-            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-                warn!("Failed to persist bandwidth config: {e}");
+            if let Err(e) = persist_config_update(&ctx, move |config| {
+                config.bandwidth = bandwidth;
+            })
+            .await
+            {
+                return persistence_failure(&e, "Failed to persist bandwidth config");
             }
             let guard = ctx.state.lock().await;
             Json(session_rate_limits_response(&guard)).into_response()
@@ -2230,13 +2317,13 @@ async fn h_patch_bandwidth_schedule(
     };
     match result {
         Ok(settings) => {
-            let updated = {
-                let mut config = ctx.config.write().await;
-                config.bandwidth = settings.clone();
-                config.clone()
-            };
-            if let Err(e) = config::save_config_to(&updated, &ctx.config_file).await {
-                warn!("Failed to persist bandwidth config: {e}");
+            let persisted_settings = settings.clone();
+            if let Err(e) = persist_config_update(&ctx, move |config| {
+                config.bandwidth = persisted_settings;
+            })
+            .await
+            {
+                return persistence_failure(&e, "Failed to persist bandwidth config");
             }
             Json(settings).into_response()
         }
@@ -2307,14 +2394,46 @@ async fn h_patch_torrent_seeding(
 
 #[cfg(test)]
 mod tests {
-    use super::admin_token_authorized;
-    use axum::http::{HeaderMap, HeaderValue};
+    use super::{
+        admin_token_authorized, allowed_save_path, build_cors_layer, is_public_route,
+        origin_authorized, request_requires_token, require_api_security, sanitize_error,
+        ApiSecurity,
+    };
+    use axum::{
+        body::Body,
+        http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode},
+        routing::post,
+        Router,
+    };
+    use tower::ServiceExt;
+
+    const TEST_TOKEN: &str = "0123456789abcdef0123456789abcdef";
+
+    fn protected_test_router() -> Router {
+        let origin = HeaderValue::from_static("orc://desktop");
+        Router::new()
+            .route(
+                "/protected",
+                post(|| async { StatusCode::NO_CONTENT })
+                    .patch(|| async { StatusCode::NO_CONTENT })
+                    .put(|| async { StatusCode::NO_CONTENT })
+                    .delete(|| async { StatusCode::NO_CONTENT }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                ApiSecurity {
+                    admin_token: TEST_TOKEN.to_string(),
+                    allowed_origin: origin.clone(),
+                },
+                require_api_security,
+            ))
+            .layer(build_cors_layer(origin))
+    }
 
     #[test]
-    fn admin_token_empty_expected_allows() {
+    fn admin_token_empty_expected_is_fail_closed() {
         let mut h = HeaderMap::new();
         h.insert("x-admin-token", HeaderValue::from_static("anything"));
-        assert!(admin_token_authorized(&h, ""));
+        assert!(!admin_token_authorized(&h, ""));
     }
 
     #[test]
@@ -2347,5 +2466,153 @@ mod tests {
             &h,
             "secret-token-value-here-32chars"
         ));
+    }
+
+    #[test]
+    fn every_mutating_method_requires_a_token() {
+        for method in [Method::POST, Method::PATCH, Method::PUT, Method::DELETE] {
+            assert!(request_requires_token(&method, "/torrents/example"));
+            assert!(request_requires_token(&method, "/health"));
+        }
+        assert!(request_requires_token(&Method::GET, "/torrents"));
+        assert!(is_public_route(&Method::GET, "/health"));
+        assert!(is_public_route(&Method::GET, "/version"));
+    }
+
+    #[test]
+    fn origin_must_be_present_exact_and_non_opaque() {
+        let expected = HeaderValue::from_static("orc://desktop");
+        let mut headers = HeaderMap::new();
+        assert!(!origin_authorized(&headers, &expected));
+        headers.insert(header::ORIGIN, HeaderValue::from_static("null"));
+        assert!(!origin_authorized(&headers, &expected));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://attacker.example"),
+        );
+        assert!(!origin_authorized(&headers, &expected));
+        headers.insert(header::ORIGIN, expected.clone());
+        assert!(origin_authorized(&headers, &expected));
+    }
+
+    #[test]
+    fn error_sanitization_is_unicode_safe_at_limit() {
+        let message = format!("{}🙂tail", "界".repeat(199));
+        let error = anyhow::anyhow!(message);
+        let sanitized = sanitize_error(&error, "unicode test");
+        assert!(sanitized.ends_with("..."));
+        assert_eq!(sanitized.chars().count(), 203);
+    }
+
+    #[tokio::test]
+    async fn protected_mutations_reject_missing_token_for_every_method() {
+        for method in [Method::POST, Method::PATCH, Method::PUT, Method::DELETE] {
+            let response = protected_test_router()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri("/protected")
+                        .header(header::ORIGIN, "orc://desktop")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    #[tokio::test]
+    async fn protected_route_accepts_exact_origin_and_token() {
+        let response = protected_test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/protected")
+                    .header(header::ORIGIN, "orc://desktop")
+                    .header("x-admin-token", TEST_TOKEN)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn unrelated_origin_fails_cors_preflight() {
+        let response = protected_test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/protected")
+                    .header(header::ORIGIN, "https://attacker.example")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_ne!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("https://attacker.example")
+        );
+
+        let mutation = protected_test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/protected")
+                    .header(header::ORIGIN, "https://attacker.example")
+                    .header("x-admin-token", TEST_TOKEN)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mutation.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn save_path_is_confined_to_dedicated_download_root() {
+        let root = tempfile::tempdir().unwrap();
+        let download_root = root.path().join("ORC Torrent");
+        std::fs::create_dir_all(&download_root).unwrap();
+        let nested = download_root.join("new").join("torrent");
+        let expected = download_root
+            .canonicalize()
+            .unwrap()
+            .join("new")
+            .join("torrent");
+        assert_eq!(
+            allowed_save_path(nested.to_str().unwrap(), &download_root).unwrap(),
+            expected.to_string_lossy()
+        );
+        assert!(allowed_save_path(
+            root.path().join("outside").to_str().unwrap(),
+            &download_root
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_path_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let download_root = root.path().join("ORC Torrent");
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&download_root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, download_root.join("escape")).unwrap();
+        assert!(allowed_save_path(
+            download_root.join("escape/file").to_str().unwrap(),
+            &download_root
+        )
+        .is_err());
     }
 }

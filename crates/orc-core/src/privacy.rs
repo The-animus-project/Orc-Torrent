@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{vpn_status, KillSwitchState, OrcState, VpnPostureState};
+use orc_engine::PeerTrafficMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -24,6 +25,19 @@ pub struct PrivacyStatus {
     pub dht_enabled: bool,
     pub pex_enabled: bool,
     pub lsd_enabled: bool,
+    pub tcp_enabled: bool,
+    pub utp_enabled: bool,
+    pub ipv4_enabled: bool,
+    pub ipv6_enabled: bool,
+    pub binding_strict: bool,
+    pub network_suspended: bool,
+    pub requested_peer_traffic_mode: PeerTrafficMode,
+    pub effective_peer_traffic_mode: PeerTrafficMode,
+    pub peer_traffic_mixed: bool,
+    pub protected_peer_count: u32,
+    pub plaintext_peer_count: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub degraded_reasons: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_ip: Option<String>,
     pub risk_state: RiskState,
@@ -47,10 +61,11 @@ pub fn compute_privacy_status(state: &OrcState) -> PrivacyStatus {
         KillSwitchState::Engaged
     );
     let network_allowed = state.policy.effective.network_allowed;
-    let discovery_allowed = state.policy.effective.discovery_allowed;
-    let dht_enabled = discovery_allowed && state.rqbit.api_dht_stats().is_ok();
-    let pex_enabled = discovery_allowed;
-    let lsd_enabled = discovery_allowed;
+    let capabilities = state.engine.capabilities();
+    let dht_enabled = capabilities.discovery.dht.enabled && state.engine.api_dht_stats().is_ok();
+    let pex_enabled = capabilities.discovery.pex.enabled;
+    let lsd_enabled = capabilities.discovery.lsd.enabled;
+    let peer_encryption = &capabilities.security.peer_encryption;
 
     let (risk_state, reason) = compute_risk_state(
         vpn_detected,
@@ -72,6 +87,19 @@ pub fn compute_privacy_status(state: &OrcState) -> PrivacyStatus {
         dht_enabled,
         pex_enabled,
         lsd_enabled,
+        tcp_enabled: capabilities.transports.tcp.enabled,
+        utp_enabled: capabilities.transports.utp.enabled,
+        ipv4_enabled: capabilities.transports.ipv4.enabled,
+        ipv6_enabled: capabilities.transports.ipv6.enabled,
+        binding_strict: state.policy.effective.engine.strict_binding,
+        network_suspended: capabilities.network_suspended,
+        requested_peer_traffic_mode: peer_encryption.requested_mode,
+        effective_peer_traffic_mode: peer_encryption.effective_mode,
+        peer_traffic_mixed: peer_encryption.live_rc4_peers > 0
+            && peer_encryption.live_plaintext_peers > 0,
+        protected_peer_count: peer_encryption.live_rc4_peers,
+        plaintext_peer_count: peer_encryption.live_plaintext_peers,
+        degraded_reasons: capabilities.degraded_reasons,
         public_ip: None,
         risk_state,
         reason,

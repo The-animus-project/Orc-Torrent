@@ -4,7 +4,8 @@
 
 - `crates/orc-daemon` — Axum HTTP API server
 - `crates/orc-core` — shared state, VPN, policy, automation logic
-- `crates/librqbit-patched` — patched BitTorrent engine
+- `crates/orc-engine` — public ORC transfer-engine boundary
+- `crates/librqbit-v9-patched` and `crates/rqbit-v9` — private rqbit v9.0.0-beta.2-derived backend
 - `ui/desktop` — Electron + React UI
 
 See [CODEBASE_OVERVIEW.md](CODEBASE_OVERVIEW.md) for architecture details.
@@ -36,7 +37,9 @@ npm run dev
 
 ```bash
 cd crates
-cargo test
+cargo test -p orc-engine -p orc-core -p orc-daemon
+# Android uses the mutually exclusive rustls/SHA feature set; check separately.
+cargo check -p orc-android --no-default-features
 cargo fmt --check
 ```
 

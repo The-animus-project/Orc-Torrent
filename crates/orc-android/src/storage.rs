@@ -6,9 +6,9 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use librqbit::{
-    storage::{BoxStorageFactory, StorageFactory, StorageFactoryExt, TorrentStorage},
-    ManagedTorrentShared, TorrentMetadata,
+use orc_engine::storage::{
+    BoxStorageFactory, StorageFactory, StorageFactoryExt, TorrentDescriptor, TorrentMetadata,
+    TorrentStorage,
 };
 use parking_lot::RwLock;
 
@@ -61,24 +61,22 @@ impl AndroidSafStorageFactory {
 }
 
 impl StorageFactory for AndroidSafStorageFactory {
-    type Storage = AndroidSafStorage;
-
     fn create(
         &self,
-        shared: &ManagedTorrentShared,
+        torrent: &TorrentDescriptor,
         _metadata: &TorrentMetadata,
-    ) -> anyhow::Result<Self::Storage> {
-        let torrent_root = shared
-            .output_folder()
+    ) -> anyhow::Result<Box<dyn TorrentStorage>> {
+        let torrent_root = torrent
+            .output_folder
             .strip_prefix(&self.logical_root)
             .context("torrent output escaped the Android logical root")?
             .to_path_buf();
-        Ok(AndroidSafStorage {
+        Ok(Box::new(AndroidSafStorage {
             torrent_root,
             broker: self.broker.clone(),
             files: Vec::new(),
             paths: Vec::new(),
-        })
+        }))
     }
 
     fn clone_box(&self) -> BoxStorageFactory {
@@ -96,13 +94,13 @@ pub struct AndroidSafStorage {
 impl TorrentStorage for AndroidSafStorage {
     fn init(
         &mut self,
-        shared: &ManagedTorrentShared,
+        torrent: &TorrentDescriptor,
         metadata: &TorrentMetadata,
     ) -> anyhow::Result<()> {
         self.files.clear();
         self.paths.clear();
-        for details in &metadata.file_infos {
-            if details.attrs.padding {
+        for details in &metadata.files {
+            if details.padding {
                 self.files.push(RwLock::new(None));
                 self.paths.push(None);
                 continue;
@@ -110,9 +108,9 @@ impl TorrentStorage for AndroidSafStorage {
             let relative = safe_relative_path(&self.torrent_root.join(&details.relative_filename))?;
             let file = self
                 .broker
-                .open_file(&relative, details.len, shared.allow_overwrite())
+                .open_file(&relative, details.length, torrent.allow_overwrite)
                 .with_context(|| format!("failed to open SAF document {relative}"))?;
-            file.set_len(details.len)?;
+            file.set_len(details.length)?;
             self.files.push(RwLock::new(Some(file)));
             self.paths.push(Some(relative));
         }

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 export const ANIMUS_EDITION = "animus";
 export const STANDARD_EDITION = "standard";
@@ -75,7 +75,8 @@ const ANIMUS_FALLBACK_BRANDING: EditionBranding = {
 
 export function resolveEditionId(): string {
   const raw = process.env.ORC_TORRENT_EDITION?.trim().toLowerCase();
-  return raw === ANIMUS_EDITION ? ANIMUS_EDITION : STANDARD_EDITION;
+  const executableName = basename(process.execPath).toLowerCase();
+  return raw === ANIMUS_EDITION || executableName.includes(ANIMUS_EDITION) ? ANIMUS_EDITION : STANDARD_EDITION;
 }
 
 export function isAnimusEdition(): boolean {

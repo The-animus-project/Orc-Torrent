@@ -30,6 +30,7 @@ import {
   NetworkPage,
   EventsPage,
   SecuritySettings,
+  EngineSettings,
   DaemonControl,
   NotificationSoundSettings,
   UpdateSettings,
@@ -63,6 +64,7 @@ import { useDaemonHealth, useTorrentData, usePrivacyStatus, useTorrentEvents, us
 import { loadPersistedNotificationSound } from "../utils/notifications";
 import { useKeyboardShortcuts, type KeyboardShortcut } from "../utils/keyboard";
 import { getErrorMessage, isApiError } from "../utils/errorHandling";
+import { infoHashFromTorrentBytes } from "../lib/infoHash";
 import { logger } from "../utils/logger";
 import { fmtBytesPerSec } from "../utils/format";
 import { createEvent, addEvent } from "../utils/eventService";
@@ -86,6 +88,7 @@ import {
 
 const SESSION_RATE_LIMITS_STORAGE_KEY = "orc-session-rate-limits";
 const BYTES_PER_KILOBYTE = 1024;
+const OFFICIAL_WEBSITE_URL = "https://orclabs.io";
 
 type StoredSessionRateLimits = {
   enabled: boolean;
@@ -243,6 +246,17 @@ export default function App() {
       toastTimer.current = null;
     }, 5000);
   }, []);
+
+  const handleOpenOfficialWebsite = useCallback(async () => {
+    try {
+      const opened = await window.orc?.openExternalUrl?.(OFFICIAL_WEBSITE_URL);
+      if (!opened) {
+        pushToast("error", "Could not open Orclabs.io in your browser");
+      }
+    } catch {
+      pushToast("error", "Could not open Orclabs.io in your browser");
+    }
+  }, [pushToast]);
 
   const pushActionToast = useCallback(
     (kind: "error" | "info", msg: string, actionLabel: string, onAction: () => void | Promise<void>) => {
@@ -662,7 +676,6 @@ export default function App() {
         const bytes = new Uint8Array(arrayBuffer);
 
         // Check for duplicates by info hash (use fresh list)
-        const { infoHashFromTorrentBytes } = await import("../lib/infoHash");
         const hash = await infoHashFromTorrentBytes(bytes);
         if (hash) {
           const listRes = await getJson<{ items: Torrent[] }>("/torrents");
@@ -900,7 +913,15 @@ export default function App() {
         description: "Close Modal/Drawer or Navigate Back",
       },
     ],
-    [showAddTorrentModal, showKillSwitchDrawer, showFileSelectionDialog, showKeyboardShortcuts, currentPage, isAnimusEdition, landingPage]
+    [
+      showAddTorrentModal,
+      showKillSwitchDrawer,
+      showFileSelectionDialog,
+      showKeyboardShortcuts,
+      currentPage,
+      isAnimusEdition,
+      landingPage,
+    ]
   );
 
   useKeyboardShortcuts(keyboardShortcuts, mounted && online);
@@ -950,7 +971,6 @@ export default function App() {
       let hash: string | null = null;
       try {
         // Check for duplicates by info hash
-        const { infoHashFromTorrentBytes } = await import("../lib/infoHash");
         const bytes = Uint8Array.from(atob(data.base64), (c) => c.charCodeAt(0));
         hash = await infoHashFromTorrentBytes(bytes);
         if (hash) {
@@ -1451,9 +1471,22 @@ export default function App() {
                 </div>
               </div>
               <p className="settingsSummaryNote">
-                Startup-specific preferences are not surfaced by the daemon yet, so this view keeps them visible
-                without pretending they already persist.
+                Startup-specific preferences are not surfaced by the daemon yet, so this view keeps them visible without
+                pretending they already persist.
               </p>
+            </div>
+
+            <div className="settingsSectionCard settingsSummaryCard officialWebsiteCard">
+              <div>
+                <div className="settingsPageEyebrow">Official website</div>
+                <h2 className="settingsSectionCardTitle">Orclabs.io</h2>
+                <p className="settingsSummaryNote">
+                  Visit the official home of ORC Torrent for project news, downloads, and documentation.
+                </p>
+              </div>
+              <button type="button" className="btn primary" onClick={() => void handleOpenOfficialWebsite()}>
+                Visit Orclabs.io ↗
+              </button>
             </div>
 
             <div className="settingsSectionCard settingsSectionCardWide">
@@ -1472,10 +1505,12 @@ export default function App() {
                 </div>
                 <div className="settingsSummaryRow">
                   <span>Daemon connected</span>
-                  <span className={`settingsSummaryBadge ${online ? "ok" : "warn"}`}>{online ? "OK" : "Connecting"}</span>
+                  <span className={`settingsSummaryBadge ${online ? "ok" : "warn"}`}>
+                    {online ? "OK" : "Connecting"}
+                  </span>
                 </div>
                 <div className="settingsSummaryRow">
-                  <span>Kill switch armed</span>
+                  <span>VPN transfer pause armed</span>
                   <span className={`settingsSummaryBadge ${killSwitch?.enabled ? "ok" : "muted"}`}>
                     {killSwitch?.enabled ? "On" : "Off"}
                   </span>
@@ -1784,8 +1819,7 @@ export default function App() {
                 </div>
               ) : (
                 <p className="settingsSummaryNote">
-                  AnimUS Edition keeps its fixed dark graffiti shell. Notification visuals can still be previewed
-                  below.
+                  AnimUS Edition keeps its fixed dark graffiti shell. Notification visuals can still be previewed below.
                 </p>
               )}
               <div className="notificationThemeControls notificationThemeControlsSticky">
@@ -1830,16 +1864,25 @@ export default function App() {
         )}
 
         {settingsTab === "advanced" && (
-          <div className="settingsSectionCard settingsSectionCardWide">
-            <h2 className="settingsSectionCardTitle">Daemon</h2>
-            <div className="settingsSection">
-              <DaemonControl
+          <>
+            <div className="settingsSectionCard settingsSectionCardWide">
+              <EngineSettings
                 online={online}
                 onError={(msg) => pushToast("error", msg)}
                 onSuccess={(msg) => pushToast("info", msg)}
               />
             </div>
-          </div>
+            <div className="settingsSectionCard settingsSectionCardWide">
+              <h2 className="settingsSectionCardTitle">Daemon</h2>
+              <div className="settingsSection">
+                <DaemonControl
+                  online={online}
+                  onError={(msg) => pushToast("error", msg)}
+                  onSuccess={(msg) => pushToast("info", msg)}
+                />
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -1910,7 +1953,11 @@ export default function App() {
         <div className="dashboardMetricCard">
           <div className="dashboardMetricLabel">Protection</div>
           <div className="dashboardMetricValue">
-            {netPosture?.state === "protected" ? "Protected" : netPosture?.state === "leak_risk" ? "At risk" : "Checking"}
+            {netPosture?.state === "protected"
+              ? "Protected"
+              : netPosture?.state === "leak_risk"
+                ? "At risk"
+                : "Checking"}
           </div>
           <div className="dashboardMetricSubtle">{online ? "Daemon OK" : "Daemon reconnecting"}</div>
         </div>
@@ -1932,12 +1979,16 @@ export default function App() {
             onPause={handleBulkPause}
             onStop={handleBulkStop}
             onRemove={handleBulkRemove}
-            onSetPriority={(ids, priority) => pushToast("info", `Setting priority ${priority} for ${ids.length} torrent(s)`)}
+            onSetPriority={(ids, priority) =>
+              pushToast("info", `Setting priority ${priority} for ${ids.length} torrent(s)`)
+            }
             onMoveData={(ids) => pushToast("info", `Moving data for ${ids.length} torrent(s)`)}
             onExportTorrent={(ids) => pushToast("info", `Exporting ${ids.length} torrent(s)`)}
             onSetLimits={(ids) => pushToast("info", `Setting limits for ${ids.length} torrent(s)`)}
             onApplyLabel={(ids, label) => pushToast("info", `Applying label ${label} to ${ids.length} torrent(s)`)}
-            onSetVpnPolicy={(ids, policy) => pushToast("info", `Setting VPN policy ${policy} for ${ids.length} torrent(s)`)}
+            onSetVpnPolicy={(ids, policy) =>
+              pushToast("info", `Setting VPN policy ${policy} for ${ids.length} torrent(s)`)
+            }
             availableLabels={labels}
             online={online}
             filter={downloadsFilter}
@@ -2000,12 +2051,16 @@ export default function App() {
             onPause={handleBulkPause}
             onStop={handleBulkStop}
             onRemove={handleBulkRemove}
-            onSetPriority={(ids, priority) => pushToast("info", `Setting priority ${priority} for ${ids.length} torrent(s)`)}
+            onSetPriority={(ids, priority) =>
+              pushToast("info", `Setting priority ${priority} for ${ids.length} torrent(s)`)
+            }
             onMoveData={(ids) => pushToast("info", `Moving data for ${ids.length} torrent(s)`)}
             onExportTorrent={(ids) => pushToast("info", `Exporting ${ids.length} torrent(s)`)}
             onSetLimits={(ids) => pushToast("info", `Setting limits for ${ids.length} torrent(s)`)}
             onApplyLabel={(ids, label) => pushToast("info", `Applying label ${label} to ${ids.length} torrent(s)`)}
-            onSetVpnPolicy={(ids, policy) => pushToast("info", `Setting VPN policy ${policy} for ${ids.length} torrent(s)`)}
+            onSetVpnPolicy={(ids, policy) =>
+              pushToast("info", `Setting VPN policy ${policy} for ${ids.length} torrent(s)`)
+            }
             availableLabels={labels}
             online={online}
             filter={downloadsFilter}
@@ -2141,6 +2196,7 @@ export default function App() {
                 onDaemonHealthClick={handleHealthClick}
                 onAddTorrent={handleOpenAddModal}
                 onOpenEvents={handleEventsPageClick}
+                onOpenWebsite={handleOpenOfficialWebsite}
                 version={version}
               >
                 {daemonBanner}
@@ -2222,6 +2278,7 @@ export default function App() {
                   diskFree={null}
                   encryptionMode="preferred"
                   netPosture={netPosture}
+                  onOpenWebsite={handleOpenOfficialWebsite}
                   version={version}
                 />
               </>

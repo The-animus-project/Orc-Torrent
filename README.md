@@ -10,25 +10,25 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. A s
 
 **ORC Torrent is compatible with Android 10+, Windows, macOS, and Linux.**
 
-**Latest release: [v2.4.0](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.4.0)** — the first Android release, with on-device torrenting, shared-folder storage, background transfers, Wi-Fi-first networking, and VPN-aware protection.
+**Latest release: [v2.5.0](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.5.0)** — ORC Engine, opt-in MSE/PE peer-traffic obfuscation, BEP 6, adaptive scheduling beta, and hardened localhost API isolation.
 
 **Android is here.** Phones and tablets running Android 10+ can install ORC from the signed `arm64-v8a` APK. See the [Android installation guide](Install-Instructions/Android.md) for download, verification, sideloading, and first-run setup.
 
 <p align="center">
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.4.0.exe">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.5.0.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-0078D6?style=for-the-badge&logo=windows&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.4.0-mac-arm64.dmg">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.0-mac-arm64.dmg">
     <img alt="Download for macOS" src="https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.4.0-linux-x86_64.AppImage">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.0-linux-x86_64.AppImage">
     <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   </a>
 </p>
 <p align="center">
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.4.0-android-arm64-v8a.apk">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.0-android-arm64-v8a.apk">
     <img alt="Download for Android" src="https://img.shields.io/badge/Android%2010%2B-Download-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   </a>
 </p>
@@ -78,7 +78,7 @@ The fingerprint must be:
 Verify the downloaded build before opening or extracting it. For example:
 
 ```sh
-gpg --verify ORC-TORRENT-2.4.0-linux-x86_64.AppImage.asc ORC-TORRENT-2.4.0-linux-x86_64.AppImage
+gpg --verify ORC-TORRENT-2.5.0-linux-x86_64.AppImage.asc ORC-TORRENT-2.5.0-linux-x86_64.AppImage
 ```
 
 You can also verify the signed checksum manifest and then check all downloaded builds in it:
@@ -94,7 +94,7 @@ A valid result reports a good signature made by the key above. A good signature 
 
 ## Installation
 
-Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.4.0`).
+Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.5.0`).
 
 ### Windows
 
@@ -128,7 +128,7 @@ AppImages need [FUSE](https://github.com/AppImage/AppImageKit/wiki/FUSE) on some
 
 Download `ORC-TORRENT-<version>-android-arm64-v8a.apk` from GitHub Releases, verify the signed checksum manifest, and allow your browser or file manager to install that APK. On first launch, create or select a dedicated ORC subfolder with Android's system folder picker. The app does not request broad storage access, and completed files remain in that shared folder after uninstall.
 
-Transfers use unmetered Wi-Fi by default. Cellular data and the VPN kill switch are explicit opt-ins in Settings and Privacy.
+Transfers use unmetered Wi-Fi by default. Cellular data and automatic VPN-disconnect transfer pausing are explicit opt-ins in Settings and Privacy.
 
 For complete download-verification, sideloading, onboarding, updating, and troubleshooting steps, read **[Install ORC Torrent on Android](Install-Instructions/Android.md)**.
 
@@ -191,7 +191,7 @@ Screenshots of the ORC Torrent desktop client:
 | **Privacy dashboard** | Consolidated VPN/kill-switch risk card with one-click VPN Safety Mode. |
 | **Network page** | Adapter list, default route, DNS, VPN signal, and kill-switch enforcement status. |
 | **GitHub auto-update** | Check for updates, download in the background, and restart to install from Settings → Updates. |
-| **VPN and kill switch** | VPN interface detection (e.g. tun/wg); optional kill switch to pause all torrents when the VPN disconnects. |
+| **VPN transfer pause** | VPN interface detection (e.g. tun/wg); optionally closes ORC transfer/discovery sockets when the VPN disconnects. This is not an OS firewall. |
 | **Network posture** | Policy, bind interface, and threat presets. |
 | **Security** | Request validation, error sanitization, optional admin token for remote or network use. |
 | **Desktop integration** | Magnet and `.torrent` file associations; **custom notification sounds** (multiple built-in sounds for download-complete and kill-switch; choose in settings or use your own). |
@@ -204,7 +204,7 @@ Beyond standard BitTorrent behaviour, we’ve added:
 
 | Feature | Description |
 |---------|-------------|
-| **VPN-aware kill switch** | Detects VPN interfaces (tun/wg and common provider names) and can pause all torrents when the VPN drops to reduce accidental clearnet exposure. |
+| **VPN-aware transfer pause** | Detects VPN interfaces and can close ORC sockets and pause transfers when the VPN drops. It does not block other applications. |
 | **GeoIP integration** | Peer and tracker data can be enriched with country info (GeoLite2) for visibility and policy. |
 | **Network posture and policy** | Central policy for when network is allowed, bind-interface control, and threat presets so behaviour fits your setup. |
 | **Hardened daemon API** | Request validation, torrent ID checks, body size and concurrency limits, sanitized errors, constant-time admin token check, and security headers. |
@@ -252,10 +252,10 @@ ORC Torrent is split into a backend daemon and a desktop frontend:
 
 | Component | Location | Role |
 |-----------|----------|------|
-| **Desktop app** | `ui/desktop/` | Electron main process manages daemon lifecycle (start, health checks, restarts); React renderer talks to the daemon over HTTP. |
-| **Daemon** | `crates/orc-daemon/` | Axum REST API (default: `127.0.0.1:8733`). Handles routing, validation, permissive CORS on loopback only, and security headers. |
-| **Core** | `crates/orc-core/` | Shared state (torrents, policy, kill switch), GeoIP, VPN detection, and all logic that uses the BitTorrent engine. |
-| **BitTorrent engine** | `crates/librqbit-patched/` | Patched [rqbit](https://github.com/ikatson/rqbit) 8.1.1 by Igor Katson (Apache-2.0), with peer stats and full API support. |
+| **Desktop app** | `ui/desktop/` | Electron main process manages daemon lifecycle and proxies authenticated API operations; the React renderer never receives the daemon token or chooses its authority. |
+| **Daemon** | `crates/orc-daemon/` | Authenticated Axum REST API on `127.0.0.1:8733`, with an exact Origin allowlist and deny-by-default middleware. |
+| **Core** | `crates/orc-core/` | Shared state (torrents, policy, kill switch), GeoIP, VPN detection, and logic expressed through the ORC Engine contract. |
+| **ORC Engine** | `crates/orc-engine/` | ORC-owned async facade shared by desktop and Android. Its private backend is derived from tagged [rqbit v9.0.0-beta.2](https://github.com/ikatson/rqbit/releases/tag/v9.0.0-beta.2) by Igor Katson (Apache-2.0). |
 
 A more detailed technical overview is in [docs/CODEBASE_OVERVIEW.md](docs/CODEBASE_OVERVIEW.md).
 
@@ -338,13 +338,14 @@ npm run dev
 
 | Item | Environment variable | Description |
 |------|----------------------|-------------|
-| Bind address | `DAEMON_BIND` | Default: `127.0.0.1:8733`. Non-loopback binding requires `DAEMON_ADMIN_TOKEN`. |
-| Admin token | `DAEMON_ADMIN_TOKEN` | Optional on **loopback** (default desktop). **Required** when `DAEMON_BIND` is not a loopback address; the daemon will not start without it. |
-| Download directory | `ORC_DOWNLOAD_DIR` | Default: the user’s **Downloads** folder on Windows, macOS, and Linux. |
+| Bind address | `DAEMON_BIND` | Default: `127.0.0.1:8733`. Plaintext non-loopback binding is refused. |
+| Admin token | `DAEMON_ADMIN_TOKEN` | Required, including on loopback; minimum 32 characters. Desktop rotates a 48-character token on every daemon start. |
+| Allowed Origin | `DAEMON_ALLOWED_ORIGIN` | Exact protected-route Origin. Desktop uses `orc://desktop`; opaque, missing, and wildcard origins are rejected. |
+| Download directory | `ORC_DOWNLOAD_DIR` | Default: **Downloads/ORC Torrent** on Windows, macOS, and Linux. |
 
-**Non-loopback (LAN / remote) behavior:** Send the same token as the `x-admin-token` HTTP header on **every** `POST`, `PATCH`, and `DELETE` request (including adding torrents, policy changes, and `/admin/shutdown`). Cross-origin browser access uses a restrictive CORS policy in this mode; native clients and same-machine tools are unaffected. The bundled desktop app binds the daemon to loopback and does not send this header on normal UI traffic—use remote bind only with custom clients that supply the header.
+Every route except `GET /health` and `GET /version` requires both the exact configured Origin and `x-admin-token`, including reads and loopback requests. Browser preflights are limited to the exact Origin. Remote HTTP listening is disabled until a separate TLS/scoped-token listener is implemented.
 
-**Manual checks (optional):** With `DAEMON_BIND=127.0.0.1:8733`, `POST /torrents` without `x-admin-token` should succeed (empty token). With a non-loopback bind and token set, the same request without the header should return `401`; with a matching `x-admin-token`, it should succeed.
+**Manual check:** a protected request with `Origin: orc://desktop` but no token returns `401`; an unrelated web Origin returns `403` or fails CORS preflight.
 
 ### Search
 
@@ -399,11 +400,11 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
+| **2.5.0** | ORC Engine boundary, hardened localhost API, opt-in MSE/PE, BEP 6 Fast Extension, and adaptive request scheduling beta. |
 | **2.4.0** | First Android 10+ build: signed APK, on-device Rust engine, mobile UI, SAF storage, background transfers, Wi-Fi-first policy, durable resume, and VPN-aware kill switch. |
 | **2.3.4** | Torznab providers, protected API-key storage, search deduplication and UI polish, Intel macOS packages, and PGP signatures for every distributable. |
 | **2.3.3** | Patch bump after v2.3.2 (next valid semver after the security release). |
 | **2.3.2** | Dependabot security patches (npm + Rust openssl/webpki/serde_with/rand), Animus boot/splash polish, daemon-gated startup. |
-| **2.3.1** | Portable builds for Windows (zip), macOS (zip), and Linux (AppImage) on every release; CodeQL security fixes; `shell-quote` dependency bump. |
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**.
 

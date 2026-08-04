@@ -27,7 +27,7 @@ export const NetworkPostureCenter = memo<NetworkPostureCenterProps>(
 
     const handleVpnWidgetClick = async () => {
       if (!online) {
-        onError("Cannot configure kill switch: daemon not connected");
+        onError("Cannot configure VPN transfer pause: daemon not connected");
         return;
       }
 
@@ -46,7 +46,7 @@ export const NetworkPostureCenter = memo<NetworkPostureCenterProps>(
         }
 
         onUpdate();
-        onSuccess(`Kill switch ${newEnabled ? "enabled" : "disabled"}`);
+        onSuccess(`VPN transfer pause ${newEnabled ? "enabled" : "disabled"}`);
 
         // Scroll to kill switch panel if enabled
         if (newEnabled && killSwitchPanelRef.current) {
@@ -55,7 +55,7 @@ export const NetworkPostureCenter = memo<NetworkPostureCenterProps>(
           }, 100);
         }
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Failed to toggle kill switch";
+        const message = e instanceof Error ? e.message : "Failed to toggle VPN transfer pause";
         onError(message);
       }
     };

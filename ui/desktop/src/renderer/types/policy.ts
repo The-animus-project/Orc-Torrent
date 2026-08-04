@@ -4,10 +4,29 @@
 export type TriState = "off" | "prefer" | "require";
 export type PaddingLevel = "off" | "low" | "high";
 export type PolicyProfile = "standard" | "hardened" | "anonymous";
+export type EngineMode = "auto" | "legacy" | "modern";
+
+export type EngineNetworkPolicy = {
+  mode: EngineMode;
+  transports: {
+    tcp: boolean;
+    utp: boolean;
+    ipv4: boolean;
+    ipv6: boolean;
+  };
+  discovery: {
+    dht: boolean;
+    pex: boolean;
+    lsd: boolean;
+  };
+  strict_binding: boolean;
+};
 
 export type DesiredPolicy = {
+  engine: EngineNetworkPolicy;
   anonymous_mode: boolean;
   peer_encryption: TriState; // BEP 3/4
+  peer_encryption_opt_in: boolean;
   dht_hardening: boolean; // BEP 42
   enforce_private_torrents: boolean;
   ip_blocklist: boolean;
@@ -28,9 +47,11 @@ export type DesiredPolicy = {
 };
 
 export type EffectivePolicy = {
+  engine: EngineNetworkPolicy;
   // All desired fields (using snake_case to match Rust)
   anonymous_mode: boolean;
   peer_encryption: TriState;
+  peer_encryption_opt_in: boolean;
   dht_hardening: boolean;
   enforce_private_torrents: boolean;
   ip_blocklist: boolean;

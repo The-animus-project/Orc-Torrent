@@ -27,6 +27,18 @@ contextBridge.exposeInMainWorld("orc", {
   },
   // Daemon log access and control
   daemon: {
+    request: (payload: {
+      method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+      path: string;
+      body?: string;
+      headers?: Record<string, string>;
+    }) =>
+      ipcRenderer.invoke("daemon:request", payload) as Promise<{
+        status: number;
+        statusText: string;
+        headers: Record<string, string>;
+        body: string;
+      }>,
     getLogPath: () => ipcRenderer.invoke("daemon:log-path"),
     openLog: () => ipcRenderer.invoke("daemon:open-log"),
     start: () => ipcRenderer.invoke("daemon:start"),

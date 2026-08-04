@@ -164,7 +164,9 @@ export function SearchSettingsPanel({
       removeProviderLocal(name);
       return;
     }
-    if (!window.confirm(`Remove provider "${info?.label ?? name}"? Stored API keys for this provider will be deleted.`)) {
+    if (
+      !window.confirm(`Remove provider "${info?.label ?? name}"? Stored API keys for this provider will be deleted.`)
+    ) {
       return;
     }
     if (!settings?.providers.some((provider) => provider.name === name)) {
@@ -294,9 +296,7 @@ export function SearchSettingsPanel({
               ?.map((value) => value.trim())
               .filter((value) => value.length > 0 && value.toLowerCase() !== "all") ?? [],
           allow_private_url: isTorznabFormat(format) ? Boolean(provider.allow_private_url) : false,
-          timeout_seconds: isTorznabFormat(format)
-            ? Number(provider.timeout_seconds ?? TORZNAB_TIMEOUT_DEFAULT)
-            : null,
+          timeout_seconds: isTorznabFormat(format) ? Number(provider.timeout_seconds ?? TORZNAB_TIMEOUT_DEFAULT) : null,
         };
       });
       const patch: SearchSettingsPatchRequest = {
@@ -392,8 +392,8 @@ export function SearchSettingsPanel({
         <div>
           <div className="settingsRateLimitLabel">Allow private-network feed URLs</div>
           <p className="settingsSummaryNote">
-            Leave this off unless you intentionally host a compliant catalog on your own LAN. Torznab
-            local endpoints use a separate per-provider consent below.
+            Leave this off unless you intentionally host a compliant catalog on your own LAN. Torznab local endpoints
+            use a separate per-provider consent below.
           </p>
         </div>
         <label className="toggle small" aria-label="Allow private network feed URLs">
@@ -417,8 +417,8 @@ export function SearchSettingsPanel({
       </div>
 
       <p className="settingsSummaryNote">
-        Custom providers support legal JSON feeds, RSS/Atom feeds, or Torznab endpoints such as Jackett
-        and Prowlarr. Search results remain display-only until you manually add a torrent.
+        Custom providers support legal JSON feeds, RSS/Atom feeds, or Torznab endpoints such as Jackett and Prowlarr.
+        Search results remain display-only until you manually add a torrent.
       </p>
 
       <div className="searchProviderList">
@@ -498,8 +498,7 @@ export function SearchSettingsPanel({
                         updateProvider(provider.name, {
                           format: event.target.value as SearchProviderFormat,
                           allow_private_url: false,
-                          timeout_seconds:
-                            event.target.value === "torznab" ? TORZNAB_TIMEOUT_DEFAULT : null,
+                          timeout_seconds: event.target.value === "torznab" ? TORZNAB_TIMEOUT_DEFAULT : null,
                         })
                       }
                       disabled={!online}

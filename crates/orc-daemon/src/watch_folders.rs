@@ -15,13 +15,14 @@ use base64::{engine::general_purpose, Engine as _};
 #[cfg(not(target_os = "android"))]
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use orc_core::{
-    build_add_torrent_options, extract_info_hash_from_torrent_bytes, find_torrent_by_info_hash,
-    integrate_added_torrent, prepare_add_input, rqbit_api, rqbit_id_for, set_running,
+    build_add_torrent_options, engine_api, engine_id_for, extract_info_hash_from_torrent_bytes,
+    find_torrent_by_info_hash, integrate_added_torrent, prepare_add_input, set_running,
     AddTorrentRequest, SharedState,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
 use tracing::{info, warn};
+#[cfg(test)]
 use uuid::Uuid;
 
 use crate::config::{validate_folder_path, WatchFolderEntry, WatchFolderSettings};
@@ -352,7 +353,7 @@ async fn import_torrent_file(
 
     let (api, _default_download_path) = {
         let guard = state.lock().await;
-        (rqbit_api(&guard), guard.download_dir_path().clone())
+        (engine_api(&guard), guard.download_dir_path().clone())
     };
 
     let output_folder = if let Some(ref save) = entry.default_save_path {
@@ -369,18 +370,21 @@ async fn import_torrent_file(
     let mut opts = build_add_torrent_options(output_folder);
     opts.paused = req.start_paused;
 
-    let rqbit_resp = match &input {
+    let engine_resp = match &input {
         orc_core::AddTorrentInput::Url(u) => {
-            api.api_add_torrent(librqbit::AddTorrent::from_url(u.as_str()), Some(opts))
+            api.api_add_torrent(orc_engine::AddTorrent::from_url(u.as_str()), Some(opts))
                 .await
         }
         orc_core::AddTorrentInput::TorrentBytes(bytes) => {
-            api.api_add_torrent(librqbit::AddTorrent::from_bytes(bytes.clone()), Some(opts))
-                .await
+            api.api_add_torrent(
+                orc_engine::AddTorrent::from_bytes(bytes.clone()),
+                Some(opts),
+            )
+            .await
         }
     };
 
-    let rqbit_resp = match rqbit_resp {
+    let engine_resp = match engine_resp {
         Ok(r) => r,
         Err(e) => {
             manager
@@ -399,7 +403,7 @@ async fn import_torrent_file(
 
     let add_resp = {
         let mut guard = state.lock().await;
-        integrate_added_torrent(&mut guard, &req, rqbit_resp)
+        integrate_added_torrent(&mut guard, &req, engine_resp)
     };
 
     match add_resp {
@@ -408,11 +412,11 @@ async fn import_torrent_file(
             if !entry.auto_start {
                 let mut guard = state.lock().await;
                 let _ = set_running(&mut guard, &torrent_id, false);
-                if let Some(rqbit_id) = rqbit_id_for(&guard, &torrent_id) {
-                    let api = rqbit_api(&guard);
+                if let Some(engine_id) = engine_id_for(&guard, &torrent_id) {
+                    let api = engine_api(&guard);
                     drop(guard);
                     let _ = api
-                        .api_torrent_action_pause(librqbit::api::TorrentIdOrHash::Id(rqbit_id))
+                        .api_torrent_action_pause(orc_engine::api::TorrentIdOrHash::Id(engine_id))
                         .await;
                 }
             }
@@ -472,24 +476,18 @@ async fn post_import_file_action(entry: &WatchFolderEntry, torrent_path: &Path) 
 }
 
 pub async fn test_watch_folder_access(req: &TestWatchFolderRequest) -> TestWatchFolderResponse {
-    match validate_folder_path(&req.folder_path) {
-        Err(e) => {
-            return TestWatchFolderResponse {
-                ok: false,
-                message: e.to_string(),
-            }
-        }
-        Ok(()) => {}
+    if let Err(e) = validate_folder_path(&req.folder_path) {
+        return TestWatchFolderResponse {
+            ok: false,
+            message: e.to_string(),
+        };
     }
     let path = PathBuf::from(&req.folder_path);
-    match tokio::fs::read_dir(&path).await {
-        Err(e) => {
-            return TestWatchFolderResponse {
-                ok: false,
-                message: format!("Cannot read folder: {e}"),
-            }
-        }
-        Ok(_) => {}
+    if let Err(e) = tokio::fs::read_dir(&path).await {
+        return TestWatchFolderResponse {
+            ok: false,
+            message: format!("Cannot read folder: {e}"),
+        };
     }
     if let Some(ref archive) = req.archive_folder {
         if !archive.trim().is_empty() {
@@ -514,7 +512,8 @@ pub async fn test_watch_folder_access(req: &TestWatchFolderRequest) -> TestWatch
     }
 }
 
-pub fn new_watch_folder_entry(folder_path: String) -> WatchFolderEntry {
+#[cfg(test)]
+fn new_watch_folder_entry(folder_path: String) -> WatchFolderEntry {
     WatchFolderEntry {
         id: Uuid::new_v4().to_string(),
         enabled: true,

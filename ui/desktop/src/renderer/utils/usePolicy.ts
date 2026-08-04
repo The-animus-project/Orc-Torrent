@@ -6,6 +6,48 @@ import type { PolicyState, DesiredPolicy } from "../types/policy";
 import { getJson, patchJson } from "./api";
 import { logger } from "./logger";
 
+export function buildProfilePolicy(
+  profile: "standard" | "hardened" | "anonymous",
+  current?: DesiredPolicy
+): DesiredPolicy {
+  return {
+    engine:
+      profile === "hardened" || profile === "anonymous"
+        ? {
+            mode: "modern",
+            transports: { tcp: true, utp: true, ipv4: true, ipv6: true },
+            discovery: { dht: false, pex: false, lsd: false },
+            strict_binding: current?.engine.strict_binding ?? false,
+          }
+        : (current?.engine ?? {
+            mode: "auto",
+            transports: { tcp: true, utp: false, ipv4: true, ipv6: false },
+            discovery: { dht: true, pex: true, lsd: false },
+            strict_binding: false,
+          }),
+    anonymous_mode: profile === "anonymous",
+    peer_encryption: profile === "standard" ? "prefer" : "require",
+    // Applying a broad profile is not consent to activate MSE/PE.
+    peer_encryption_opt_in: current?.peer_encryption_opt_in ?? false,
+    dht_hardening: profile !== "standard",
+    enforce_private_torrents: true,
+    ip_blocklist: profile !== "standard",
+    kill_switch: profile !== "standard",
+    bind_interface_only: profile === "anonymous",
+    overlay_padding: profile === "anonymous" ? "low" : profile === "hardened" ? "low" : "off",
+    sybil_resistance: profile !== "standard",
+    relay_pow_required: profile !== "standard",
+    relay_subnet_diversity: profile !== "standard",
+    relay_reputation_weighting: profile !== "standard",
+    ipv6_enabled: profile !== "anonymous",
+    upnp_natpmp_enabled: profile !== "anonymous",
+    circuit_rotation_enabled: profile === "anonymous",
+    deny_direct_exits: profile === "anonymous",
+    minimize_fingerprinting: profile === "anonymous",
+    profile,
+  };
+}
+
 export function usePolicy(online: boolean) {
   const [state, setState] = useState<PolicyState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,27 +110,7 @@ export function usePolicy(online: boolean) {
         setError(null);
 
         // Create base policy for profile
-        const profilePolicy: DesiredPolicy = {
-          anonymous_mode: profile === "anonymous",
-          peer_encryption: profile === "standard" ? "prefer" : "require",
-          dht_hardening: profile !== "standard",
-          enforce_private_torrents: true,
-          ip_blocklist: profile !== "standard",
-          kill_switch: profile !== "standard",
-          bind_interface_only: profile !== "standard",
-          overlay_padding: profile === "anonymous" ? "low" : profile === "hardened" ? "low" : "off",
-          sybil_resistance: profile !== "standard",
-          relay_pow_required: profile !== "standard",
-          relay_subnet_diversity: profile !== "standard",
-          relay_reputation_weighting: profile !== "standard",
-          // Max Privacy settings
-          ipv6_enabled: profile !== "anonymous",
-          upnp_natpmp_enabled: profile !== "anonymous",
-          circuit_rotation_enabled: profile === "anonymous",
-          deny_direct_exits: profile === "anonymous",
-          minimize_fingerprinting: profile === "anonymous",
-          profile,
-        };
+        const profilePolicy = buildProfilePolicy(profile, state?.desired);
 
         const updatedState = await patchJson<PolicyState>("/v1/policy", {
           desired_patch: profilePolicy,
@@ -105,7 +127,7 @@ export function usePolicy(online: boolean) {
         setLoading(false);
       }
     },
-    [online, refresh]
+    [online, refresh, state]
   );
 
   useEffect(() => {

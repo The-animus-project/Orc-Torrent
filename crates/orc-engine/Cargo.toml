@@ -1,0 +1,23 @@
+[package]
+name = "orc-engine"
+version = "2.5.0"
+edition.workspace = true
+license.workspace = true
+authors = ["ORC Torrent / The ANIMUS PROJECT"]
+description = "ORC-owned BitTorrent engine boundary"
+
+[features]
+default = ["native-tls"]
+native-tls = ["librqbit/default-tls", "orc-mse/sha1-crypto-hash"]
+rust-tls = ["librqbit/rust-tls", "orc-mse/sha1-ring"]
+
+[dependencies]
+anyhow.workspace = true
+librqbit = { workspace = true, default-features = false, features = ["http-api-client"] }
+orc-mse = { path = "../orc-mse", default-features = false }
+orc-scheduler = { path = "../orc-scheduler" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

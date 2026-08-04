@@ -176,11 +176,11 @@ function findProcessesByExecutablePathPowerShell(targetPath: string): ProcessInf
     const psScript = `
       $targetPath = '${escapedPath}'
       $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { 
-          $_.ExecutablePath -and 
+        Where-Object {
+          $_.ExecutablePath -and
           $_.ExecutablePath.StartsWith($targetPath, [System.StringComparison]::OrdinalIgnoreCase)
         }
-      
+
       foreach ($proc in $procs) {
         Write-Output "$($proc.Name)|$($proc.ProcessId)|$($proc.ExecutablePath)"
       }
@@ -392,14 +392,14 @@ function findProcessLockingFilePowerShell(dirPath: string): LockingProcess | nul
       $dir = '${escapedPath}'
       $suspiciousProcesses = @('explorer', 'electron', 'Code', 'devenv', 'MsMpEng', 'AvastSvc')
       $found = $null
-      
+
       foreach ($procName in $suspiciousProcesses) {
         $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
         foreach ($proc in $procs) {
           try {
             # Check if process has modules loaded from the directory
-            $modules = $proc.Modules | Where-Object { 
-              $_.FileName -ne $null -and $_.FileName -like "*$dir*" 
+            $modules = $proc.Modules | Where-Object {
+              $_.FileName -ne $null -and $_.FileName -like "*$dir*"
             }
             if ($modules) {
               $found = [PSCustomObject]@{
@@ -415,7 +415,7 @@ function findProcessLockingFilePowerShell(dirPath: string): LockingProcess | nul
         }
         if ($found) { break }
       }
-      
+
       if ($found) {
         Write-Output "$($found.Name)|$($found.Id)|$($found.Path)"
       }

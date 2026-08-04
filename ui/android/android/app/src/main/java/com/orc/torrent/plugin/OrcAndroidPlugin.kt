@@ -99,7 +99,6 @@ class OrcAndroidPlugin : Plugin() {
         }
         return JSObject()
             .put("baseUrl", native.optString("baseUrl"))
-            .put("adminToken", native.optString("adminToken", adminToken()))
             .put("storageReady", storageReady)
             .put("storageLabel", storageLabel(uri))
             .put("allowCellular", preferences.getBoolean(KEY_CELLULAR, false))
@@ -112,6 +111,28 @@ class OrcAndroidPlugin : Plugin() {
         runCatching { bootstrapPayload() }
             .onSuccess(call::resolve)
             .onFailure { call.rejectWithCause("Unable to start the ORC engine", it) }
+    }
+
+    @PluginMethod
+    fun apiRequest(call: PluginCall) {
+        val path = call.getString("path")
+        val method = call.getString("method")?.uppercase()
+        val body = call.getString("body")
+        if (path == null || method == null) {
+            call.reject("Daemon method and path are required")
+            return
+        }
+        runCatching { NativeApi.request(context, path, method, body) }
+            .onSuccess { response ->
+                call.resolve(
+                    JSObject()
+                        .put("status", response.status)
+                        .put("statusText", response.statusText)
+                        .put("headers", JSObject().put("content-type", "application/json"))
+                        .put("body", response.body),
+                )
+            }
+            .onFailure { call.rejectWithCause("Daemon request failed", it) }
     }
 
     @PluginMethod

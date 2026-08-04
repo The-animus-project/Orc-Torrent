@@ -1,0 +1,42 @@
+[package]
+name = "librqbit-core"
+version = "5.0.0"
+edition = "2024"
+description = "Important utilities used throughout librqbit useful for working with torrents."
+license = "Apache-2.0"
+documentation = "https://docs.rs/librqbit-core"
+repository = "https://github.com/ikatson/rqbit"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["sha1-crypto-hash"]
+sha1-crypto-hash = ["sha1w/sha1-crypto-hash"]
+sha1-ring = ["sha1w/sha1-ring"]
+
+[dependencies]
+tracing.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+hex.workspace = true
+anyhow.workspace = true
+url.workspace = true
+rand = "0.9"
+parking_lot.workspace = true
+serde.workspace = true
+serde_derive.workspace = true
+buffers.workspace = true
+bencode.workspace = true
+clone_to_owned.workspace = true
+sha1w = { workspace = true, optional = true }
+itertools.workspace = true
+directories.workspace = true
+tokio-util.workspace = true
+data-encoding.workspace = true
+bytes.workspace = true
+memchr.workspace = true
+thiserror.workspace = true
+chardetng.workspace = true
+encoding_rs.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

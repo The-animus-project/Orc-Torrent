@@ -1,6 +1,6 @@
 # Search providers
 
-Orc Torrent search is display-only until you explicitly add a torrent. Phase 1 adds native **Torznab** providers so you can connect self-hosted indexers such as Jackett or Prowlarr without embedding scrapers or running unrestricted Python plugins.
+Orc Torrent does not bundle or endorse any search provider. You must add and enable your own JSON, RSS/Atom, or **Torznab** provider in **Settings → Search**. Search is display-only until you explicitly add a torrent.
 
 ## What Torznab is
 

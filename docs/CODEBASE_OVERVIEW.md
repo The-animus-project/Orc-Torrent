@@ -8,8 +8,9 @@ This document maps the Orc-Torrent architecture for contributors implementing da
 flowchart TB
     ElectronUI["ui/desktop React+Electron"] -->|REST 127.0.0.1:8733| Daemon["orc-daemon Axum"]
     Daemon --> Core["orc-core OrcState"]
-    Core --> Rqbit["librqbit-patched Session/Api"]
-    Rqbit --> Disk["download_dir + session.json"]
+    Core --> Engine["orc-engine Engine contract"]
+    Engine --> Backend["private rqbit v9-derived backend"]
+    Backend --> Disk["downloads + state/rqbit persistence"]
     Daemon --> Config["config.json platform dir"]
     Core -->|1Hz tick| VPN["VPN detect + kill switch"]
 ```
@@ -22,13 +23,14 @@ flowchart TB
 | Daemon API | `crates/orc-daemon/src/main.rs` | Axum REST API (~40 routes), auth, torrent lifecycle glue |
 | Config | `crates/orc-daemon/src/config.rs` | Persistent `config.json` (listen port, kill switch, policy, search, watch folders, seeding, bandwidth, net posture) |
 | Core state | `crates/orc-core/src/lib.rs` | `OrcState`, `tick()`, VPN, policy, torrent records, seeding/bandwidth/privacy logic |
-| BitTorrent engine | `crates/librqbit-patched/` | Patched rqbit 8.1.1; session, rate limits, peer stats |
+| ORC Engine | `crates/orc-engine/` | ORC-owned lifecycle, snapshots, policy, capabilities, storage, and persistence boundary |
+| Private backend | `crates/librqbit-v9-patched/`, `crates/rqbit-v9/` | rqbit v9.0.0-beta.2-derived TCP/uTP, IPv4/IPv6, DHT/PEX/LSD transfer core |
 | API client | `ui/desktop/src/renderer/utils/api.ts` | `getJson` / `postJson` / `patchJson` to daemon |
 
 ## Daemon API (key routes)
 
 ### System
-- `GET /health`, `GET /version`
+- `GET /health`, `GET /version`, `GET /engine/capabilities`
 
 ### Network / privacy
 - `GET/PATCH /net/posture`, `GET /net/vpn-status`
@@ -59,12 +61,12 @@ Platform-specific path:
 - **Linux:** `~/.config/OrcTorrent/config.json`
 - **Windows:** `%APPDATA%\OrcTorrent\config.json`
 
-Torrent session data is stored separately by rqbit at `{ORC_DOWNLOAD_DIR}/session.json`.
+Torrent session data remains in the existing `{ORC_STATE_DIR}/rqbit` directory (desktop passes its application state directory). ORC does not rename or destructively migrate it in the engine beta.
 
 ## State model
 
-- **OrcState** holds in-memory torrent records (UUID ids), policy, kill switch runtime, bind interface, bandwidth profile, and rqbit API handle.
-- **tick()** runs at 1 Hz: syncs rqbit stats, enforces kill switch, seeding limits, and bandwidth schedule.
+- **OrcState** holds in-memory torrent records (UUID ids), policy, kill switch runtime, bind interface, bandwidth profile, and an ORC Engine handle.
+- **tick()** runs at 1 Hz: syncs engine snapshots and enforces kill switch, seeding limits, and bandwidth schedule.
 - **TorrentRecord** pairs `Torrent` metadata with `TorrentRuntime` (rates, bytes, state, seeding timestamps).
 
 ## Frontend structure
@@ -76,10 +78,11 @@ Torrent session data is stored separately by rqbit at `{ORC_DOWNLOAD_DIR}/sessio
 
 ## Security model
 
-- Default bind: `127.0.0.1:8733` (loopback only)
-- Non-loopback binds require `DAEMON_ADMIN_TOKEN` and `x-admin-token` header for mutations
-- Config file written with mode `0600` on Unix
-- Path validation on torrent save paths and watch folder paths
+- Default bind: `127.0.0.1:8733`; non-loopback plaintext listening is refused
+- Every route except `GET /health` and `GET /version` requires an exact Origin and constant-time token check
+- Electron and Android proxy daemon requests natively; desktop rotates its token on every start
+- Config writes are validated, synced, atomic and retain three last-known-good generations
+- Torrent destinations are confined beneath the dedicated download root and reject existing symlink traversal
 
 ## Not implemented (v2.3 scope)
 
@@ -88,7 +91,7 @@ The following are **out of scope** and not shipped as working features:
 - Overlay or anonymous routing (policy flags may exist; no overlay transport)
 - I2P, WebTorrent, or Tor transport
 - Plugin system or wallet integration
-- Built-in piracy indexers (premium search uses approved providers only)
+- Bundled search providers (users configure their own feeds or Torznab endpoints)
 
 ## Known limitations
 

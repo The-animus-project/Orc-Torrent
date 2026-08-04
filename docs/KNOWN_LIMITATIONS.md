@@ -2,9 +2,10 @@
 
 ## Network and privacy
 
-- **Bind interface enforcement** — When a bind interface with an IPv4 address is configured, incoming TCP listener, outbound IPv4 peer connections, DHT UDP, and UDP tracker announces use that address. Changing bind interface via `PATCH /net/posture` or VPN Safety Mode triggers a **hot-rebind** that recreates the rqbit session and re-attaches torrents without a full daemon restart.
-- **Kill switch triggers** — Only `pause_all_torrents` is reliably enforced; `grace_period_sec`, `stop_seeding`, and `disable_dht_pex_lpd` are partially schema-only.
-- **DHT/PEX/LSD indicators** — Privacy dashboard derives PEX/LSD from policy; DHT uses session stats when available.
+- **Bind interface enforcement** — ORC Engine binds TCP, uTP, DHT, UDP trackers, HTTP trackers (where the platform client supports device binding), and LSD to the selected device. Strict mode refuses missing address families or partial socket startup instead of falling back to wildcard sockets. Cross-platform firewall-level verification remains part of the release matrix.
+- **VPN transfer-pause scope** — The grace period, pause-all, stop-seeding, discovery shutdown, socket cancellation, and interface rebind are engine-enforced. This is application-level confinement, not a deterministic OS kill switch. `block_outbound` remains explicitly unsupported because ORC does not install platform firewall rules.
+- **Runtime indicators** — TCP/uTP, IPv4/IPv6, DHT/PEX/LSD, binding, and suspension come from live engine state. A failed optional DHT/LSD/uTP startup is reported as degraded rather than silently shown as enabled.
+- **Peer traffic obfuscation** — MSE/PE is beta and disabled until explicit consent. `prefer` may fall back to plaintext TCP and leaves uTP plaintext; `require` disables uTP and can substantially reduce swarm reachability. RC4 MSE is compatibility obfuscation, not modern secure encryption.
 - **No public IP lookup** — External IP is not fetched unless explicitly added in a future optional feature.
 - **No anonymity claims** — VPN + kill switch reduce accidental clearnet leaks; they do not make you anonymous.
 
@@ -22,4 +23,4 @@
 
 ## License metadata
 
-Rust workspace `Cargo.toml` uses **AGPL-3.0**, matching the root `LICENSE`. Vendored `librqbit-patched` remains Apache-2.0.
+Rust workspace `Cargo.toml` uses **AGPL-3.0**, matching the root `LICENSE`. The rqbit v9.0.0-beta.2-derived private backend remains Apache-2.0; see `crates/orc-engine/NOTICE.md`.

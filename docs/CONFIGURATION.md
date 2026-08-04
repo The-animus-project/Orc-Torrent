@@ -14,9 +14,14 @@ File permissions on Unix: `0600`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAEMON_BIND` | `127.0.0.1:8733` | HTTP API bind address |
-| `DAEMON_ADMIN_TOKEN` | (empty) | Required for non-loopback; header `x-admin-token` |
-| `ORC_DOWNLOAD_DIR` | `~/Downloads` | Default torrent output directory |
+| `DAEMON_BIND` | `127.0.0.1:8733` | Loopback API bind address; non-loopback plaintext binds are refused |
+| `DAEMON_ADMIN_TOKEN` | none | Required on every start, including loopback; minimum 32 characters |
+| `DAEMON_ALLOWED_ORIGIN` | `orc://desktop` | Exact protected-route Origin allowlist |
+| `ORC_DOWNLOAD_DIR` | `~/Downloads/ORC Torrent` | Dedicated default torrent output root |
+
+Only `GET /health` and `GET /version` are public. Every other API operation requires the exact Origin and the `x-admin-token` header. The desktop and Android applications proxy these operations in a native process so JavaScript does not receive the token.
+
+Configuration writes are validated, serialized, flushed, synced and atomically replaced. Three `config.json.bak.N` generations are retained; startup restores a valid last-known-good generation or fails before torrent networking starts.
 
 ## `config.json` schema (summary)
 
@@ -25,8 +30,8 @@ File permissions on Unix: `0600`.
   "listen_port": 49000,
   "kill_switch": { "enabled": false, "...": "..." },
   "search": {
-    "enabled": true,
-    "default_provider": "internet_archive",
+    "enabled": false,
+    "default_provider": null,
     "default_result_limit": 25,
     "allow_private_remote_urls": false,
     "providers": [
@@ -79,6 +84,7 @@ File permissions on Unix: `0600`.
   "policy": {
     "anonymous_mode": false,
     "peer_encryption": "prefer",
+    "peer_encryption_opt_in": false,
     "dht_hardening": true,
     "enforce_private_torrents": false,
     "ip_blocklist": false,
@@ -99,6 +105,8 @@ File permissions on Unix: `0600`.
 }
 ```
 
+No search providers are bundled. The example `local_jackett` entry is user-supplied; a new installation starts with an empty `providers` array.
+
 `policy` stores the full `DesiredPolicy` and is updated by `PATCH /v1/policy`. Kill switch and net posture fields are also stored separately and kept in sync.
 
 ## REST API (automation-related)
@@ -106,6 +114,7 @@ File permissions on Unix: `0600`.
 | Method | Route | Purpose |
 |--------|-------|---------|
 | GET/PATCH | `/v1/policy` | Security policy (persisted to config) |
+| GET | `/engine/capabilities` | Live ORC Engine features, lineage, persistence, and degradation state |
 | GET/PATCH | `/watch-folders` | Watch folder settings |
 | POST | `/watch-folders/test` | Test folder access |
 | GET | `/watch-folders/events` | Recent import events |
@@ -124,4 +133,4 @@ File permissions on Unix: `0600`.
 
 Torznab API keys are stored in the OS keyring when available, otherwise in an encrypted file under the config directory (`search-secrets.bin`). They are never written into `config.json`. See [SEARCH_PROVIDERS.md](SEARCH_PROVIDERS.md).
 
-Torrent session data is stored separately at `{ORC_DOWNLOAD_DIR}/session.json` by the rqbit engine.
+Torrent session data remains under `{ORC_STATE_DIR}/rqbit` in the existing rqbit-compatible format. The engine beta reads it in place and performs no destructive migration.

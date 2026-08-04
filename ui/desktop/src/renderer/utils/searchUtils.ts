@@ -5,26 +5,8 @@ export const SEARCH_QUERY_MIN_LEN = 2;
 export const SEARCH_QUERY_MAX_LEN = 200;
 export const SEARCH_RESULT_LIMIT_MAX = 100;
 
-const MEDIA_PROVIDER_PRIORITY: Record<string, number> = {
-  yts: 0,
-  tpb_movies: 1,
-  tpb_tv: 1,
-  x1337_movies: 2,
-  x1337_tv: 2,
-};
-
-export function mediaProviderPriority(name: string): number {
-  return MEDIA_PROVIDER_PRIORITY[name] ?? 50;
-}
-
-export function sortProvidersByPriority<T extends { name: string; label: string }>(providers: T[]): T[] {
-  return [...providers].sort((left, right) => {
-    const priority = mediaProviderPriority(left.name) - mediaProviderPriority(right.name);
-    if (priority !== 0) {
-      return priority;
-    }
-    return left.label.localeCompare(right.label);
-  });
+export function sortProvidersByLabel<T extends { label: string }>(providers: T[]): T[] {
+  return [...providers].sort((left, right) => left.label.localeCompare(right.label));
 }
 
 export type SearchSortMode = "best" | "seeders" | "newest" | "size" | "name";
@@ -46,10 +28,7 @@ export function buildSearchSettingsKey(settings: SearchFeatureSettings | null): 
   });
 }
 
-export function searchSettingsEqual(
-  left: SearchFeatureSettings | null,
-  right: SearchFeatureSettings | null
-): boolean {
+export function searchSettingsEqual(left: SearchFeatureSettings | null, right: SearchFeatureSettings | null): boolean {
   if (!left || !right) {
     return left === right;
   }
@@ -118,7 +97,6 @@ export function sortSearchResults(results: SearchResult[], sortMode: SearchSortM
       case "best":
       default:
         return (
-          mediaProviderPriority(left.source) - mediaProviderPriority(right.source) ||
           compareNumberDesc(left.seeders, right.seeders) ||
           compareNumberDesc(left.leechers, right.leechers) ||
           compareStringDesc(left.published_at, right.published_at) ||

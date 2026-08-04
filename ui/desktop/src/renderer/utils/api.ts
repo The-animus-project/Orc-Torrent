@@ -15,8 +15,10 @@ let daemonConfiguration: DaemonApiConfiguration = {
 
 export function configureDaemonApi(configuration: DaemonApiConfiguration): void {
   const baseUrl = configuration.baseUrl.trim().replace(/\/$/, "");
-  if (!/^https?:\/\//.test(baseUrl)) {
-    throw new Error("Daemon API base URL must use HTTP or HTTPS");
+  const parsed = new URL(baseUrl);
+  const isLoopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]" || parsed.hostname === "localhost";
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !isLoopback || parsed.username || parsed.password) {
+    throw new Error("Daemon API must use an authenticated loopback endpoint");
   }
   daemonConfiguration = {
     baseUrl,
@@ -110,14 +112,59 @@ async function fetchWithRetry(
     }
 
     const headers = new Headers(options.headers);
-    if (daemonConfiguration.adminToken) {
-      headers.set("x-admin-token", daemonConfiguration.adminToken);
+    let response: Response;
+    const desktopRequest = typeof window !== "undefined" ? window.orc?.daemon?.request : undefined;
+    const androidRequest =
+      typeof window !== "undefined" ? window.Capacitor?.Plugins?.OrcAndroid?.apiRequest : undefined;
+    if (desktopRequest) {
+      const target = new URL(url);
+      const method = (options.method ?? "GET").toUpperCase();
+      if (!(["GET", "POST", "PUT", "PATCH", "DELETE"] as const).includes(method as never)) {
+        throw new Error("Unsupported daemon request method");
+      }
+      if (options.body !== undefined && typeof options.body !== "string") {
+        throw new Error("Desktop daemon proxy accepts JSON string bodies only");
+      }
+      const proxied = await desktopRequest({
+        method: method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+        path: `${target.pathname}${target.search}`,
+        body: options.body,
+        headers: Object.fromEntries(headers.entries()),
+      });
+      response = new Response(proxied.body, {
+        status: proxied.status,
+        statusText: proxied.statusText,
+        headers: proxied.headers,
+      });
+    } else if (androidRequest) {
+      const target = new URL(url);
+      const method = (options.method ?? "GET").toUpperCase();
+      if (!(["GET", "POST", "PUT", "PATCH", "DELETE"] as const).includes(method as never)) {
+        throw new Error("Unsupported daemon request method");
+      }
+      if (options.body !== undefined && typeof options.body !== "string") {
+        throw new Error("Android daemon proxy accepts JSON string bodies only");
+      }
+      const proxied = await androidRequest({
+        method: method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+        path: `${target.pathname}${target.search}`,
+        body: options.body,
+      });
+      response = new Response(proxied.body, {
+        status: proxied.status,
+        statusText: proxied.statusText,
+        headers: proxied.headers,
+      });
+    } else {
+      if (daemonConfiguration.adminToken) {
+        headers.set("x-admin-token", daemonConfiguration.adminToken);
+      }
+      response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
     }
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal,
-    });
 
     // Clear timeout if request succeeded
     if (timeoutId) {

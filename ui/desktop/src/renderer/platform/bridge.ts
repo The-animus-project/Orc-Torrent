@@ -1,6 +1,5 @@
 export interface AndroidBootstrap {
   baseUrl: string;
-  adminToken: string;
   storageReady: boolean;
   storageLabel: string | null;
   allowCellular: boolean;
@@ -34,6 +33,11 @@ export interface PlatformBridge {
 
 export type AndroidPlugin = {
   bootstrap(): Promise<AndroidBootstrap>;
+  apiRequest(options: {
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    path: string;
+    body?: string;
+  }): Promise<{ status: number; statusText: string; headers: Record<string, string>; body: string }>;
   chooseDownloadTree(): Promise<{ granted: boolean; label: string | null }>;
   pickTorrentFile(): Promise<PickedTorrentFile | null>;
   openDownloadedFile(options: { torrentId: string; fileIndex: number }): Promise<{ opened: boolean }>;
@@ -143,9 +147,7 @@ const desktopBridge: PlatformBridge = {
     return window.orc?.onMagnetLink?.(callback) || noop;
   },
   onTorrentFile(callback) {
-    return (
-      window.orc?.onTorrentFile?.(({ fileName, base64 }) => callback({ name: fileName, base64 })) || noop
-    );
+    return window.orc?.onTorrentFile?.(({ fileName, base64 }) => callback({ name: fileName, base64 })) || noop;
   },
 };
 

@@ -1,0 +1,37 @@
+[package]
+name = "librqbit-dht"
+version = "5.3.0"
+edition = "2024"
+description = "DHT implementation, used in rqbit torrent client."
+license = "Apache-2.0"
+documentation = "https://docs.rs/librqbit-dht"
+repository = "https://github.com/ikatson/rqbit"
+readme = "README.md"
+
+[dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "sync"] }
+tokio-stream = { workspace = true, features = ["sync"] }
+serde.workspace = true
+serde_derive.workspace = true
+leaky-bucket.workspace = true
+serde_json.workspace = true
+buffers.workspace = true
+bencode.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+backon = { workspace = true, features = ["tokio-sleep"] }
+futures.workspace = true
+rand = "0.9"
+indexmap.workspace = true
+dashmap = { workspace = true, features = ["serde"] }
+clone_to_owned.workspace = true
+librqbit-core.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+tokio-util.workspace = true
+bytes.workspace = true
+librqbit-dualstack-sockets.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true

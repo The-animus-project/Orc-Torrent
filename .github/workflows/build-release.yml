@@ -19,7 +19,61 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/desktop/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: clippy,rustfmt
+
+      - name: Install desktop dependencies
+        run: npm ci
+        working-directory: ui/desktop
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+        working-directory: crates
+
+      - name: Lint Rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: crates
+
+      - name: Test Rust workspace
+        run: cargo test --workspace --all-targets
+        working-directory: crates
+
+      - name: Install Rust dependency auditor
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit Rust dependencies
+        run: cargo audit
+        working-directory: crates
+
+      - name: Type-check and test desktop
+        run: |
+          npm run lint:types
+          npm test
+        working-directory: ui/desktop
+
+      - name: Audit desktop dependencies
+        run: npm audit --audit-level=high
+        working-directory: ui/desktop
+
   build-android:
+    needs: validate
     runs-on: ubuntu-latest
     env:
       ANDROID_SDK_VERSION: '36'
@@ -107,6 +161,7 @@ jobs:
           if-no-files-found: error
 
   test-android-emulators:
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -173,6 +228,7 @@ jobs:
 
   # macos-latest is Apple Silicon (arm64). Intel artifacts use GitHub's dedicated x64 runner.
   build-macos:
+    needs: validate
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -211,6 +267,7 @@ jobs:
           if-no-files-found: error
 
   build-macos-intel:
+    needs: validate
     runs-on: macos-15-intel
     steps:
       - name: Checkout
@@ -249,6 +306,7 @@ jobs:
           if-no-files-found: error
 
   build-linux:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -298,6 +356,7 @@ jobs:
           if-no-files-found: error
 
   build-windows:
+    needs: validate
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -318,19 +377,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
         working-directory: ui/desktop
-
-      - name: npm audit
-        run: npm audit --audit-level=high
-        working-directory: ui/desktop
-        continue-on-error: true
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: cargo audit
-        run: cargo audit
-        working-directory: crates
-        continue-on-error: true
 
       - name: Build and package
         run: npm run dist
@@ -359,6 +405,9 @@ jobs:
       - build-linux
       - build-windows
     steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
       - name: Download all release artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -390,7 +439,8 @@ jobs:
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           files: release-assets/*
-          generate_release_notes: true
+          body_path: .github/release-body.md
+          generate_release_notes: false
           draft: false
           fail_on_unmatched_files: true
         env:

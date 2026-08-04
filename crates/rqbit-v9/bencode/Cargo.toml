@@ -1,0 +1,20 @@
+[package]
+name = "librqbit-bencode"
+version = "3.1.0"
+edition = "2024"
+description = "Bencode serialization and deserialization using Serde"
+license = "Apache-2.0"
+documentation = "https://docs.rs/librqbit-bencode"
+repository = "https://github.com/ikatson/rqbit"
+readme = "README.md"
+
+[dependencies]
+serde.workspace = true
+serde_derive.workspace = true
+buffers.workspace = true
+clone_to_owned.workspace = true
+bytes.workspace = true
+atoi.workspace = true
+thiserror.workspace = true
+arrayvec.workspace = true
+anyhow.workspace = true

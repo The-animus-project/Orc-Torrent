@@ -26,14 +26,8 @@ function AnimusEmblemSvg() {
         d="M24 14c-4.8 0-8.6 3.2-9.8 7.6 2.4 1.2 5.2 1.9 8.2 1.9s5.8-.7 8.2-1.9C32.6 17.2 28.8 14 24 14Z"
         fill="#9dff00"
       />
-      <path
-        d="M16.5 34.5c2.2 3.4 5.8 5.6 9.8 5.6h-4.8c-3.2 0-6-1.6-7.8-4.1l2.8-1.5Z"
-        fill="#9dff00"
-      />
-      <path
-        d="M31.5 34.5c-2.2 3.4-5.8 5.6-9.8 5.6h4.8c3.2 0 6-1.6 7.8-4.1l-2.8-1.5Z"
-        fill="#9dff00"
-      />
+      <path d="M16.5 34.5c2.2 3.4 5.8 5.6 9.8 5.6h-4.8c-3.2 0-6-1.6-7.8-4.1l2.8-1.5Z" fill="#9dff00" />
+      <path d="M31.5 34.5c-2.2 3.4-5.8 5.6-9.8 5.6h4.8c3.2 0 6-1.6 7.8-4.1l-2.8-1.5Z" fill="#9dff00" />
     </svg>
   );
 }
@@ -78,8 +72,7 @@ export function AnimusBootScreen({
       const tick = (now: number) => {
         const elapsed = now - startedAtRef.current;
         const gateOpen = completionGateRef.current;
-        const completionElapsed =
-          gateOpen && gateOpenedAtRef.current != null ? now - gateOpenedAtRef.current : 0;
+        const completionElapsed = gateOpen && gateOpenedAtRef.current != null ? now - gateOpenedAtRef.current : 0;
         const t = gateOpen
           ? Math.max(0.92, Math.min(1, 0.92 + completionElapsed / 650))
           : Math.max(0, Math.min(0.92, elapsed / durationMs));
@@ -176,6 +169,7 @@ export function AnimusBootScreen({
             <div className="animus-boot-fill" style={{ width: `${progress}%` }} />
           </div>
           <div className="animus-boot-status">{status}</div>
+          <div className="animus-boot-website">ORCLABS.IO</div>
           <div className="animus-boot-emblem" aria-hidden="true">
             {splashEmblemUrl ? <img src={splashEmblemUrl} alt="" /> : <AnimusEmblemSvg />}
           </div>

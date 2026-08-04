@@ -73,11 +73,18 @@ export const PrivacyStatusCard: React.FC<PrivacyStatusCardProps> = ({ online, on
       </div>
       <div className="privacyStatusDetails">
         <span>VPN: {status.vpn_detected ? "detected" : "not detected"}</span>
-        <span>Kill switch: {status.kill_switch_enabled ? (status.kill_switch_engaged ? "engaged" : "on") : "off"}</span>
+        <span>
+          VPN transfer pause: {status.kill_switch_enabled ? (status.kill_switch_engaged ? "active" : "armed") : "off"}
+        </span>
         {status.bind_interface && <span>Bind: {status.bind_interface}</span>}
+        <span>
+          Peer traffic: {status.effective_peer_traffic_mode} ({status.protected_peer_count} MSE/PE,{" "}
+          {status.plaintext_peer_count} plaintext)
+        </span>
       </div>
       <p className="privacyStatusDisclaimer">
-        VPN and kill switch reduce accidental leaks; they do not provide anonymity.
+        VPN binding and ORC socket shutdown reduce accidental leaks. This control is not an OS firewall or anonymity
+        system.
       </p>
       <div className="privacyStatusActions">
         <button

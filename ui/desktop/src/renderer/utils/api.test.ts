@@ -23,4 +23,26 @@ describe("runtime daemon API configuration", () => {
     expect(url).toBe("http://127.0.0.1:49152/torrents");
     expect(new Headers(options.headers).get("x-admin-token")).toBe("install-token");
   });
+
+  it("uses the native desktop proxy without exposing authority or token", async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      statusText: "OK",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [] }),
+    });
+    vi.stubGlobal("window", { orc: { daemon: { request } } });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    configureDaemonApi({ baseUrl: "http://127.0.0.1:49152", adminToken: "renderer-must-not-forward-this" });
+
+    await expect(getJson("/torrents?limit=2")).resolves.toEqual({ items: [] });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/torrents?limit=2",
+      body: undefined,
+      headers: {},
+    });
+  });
 });

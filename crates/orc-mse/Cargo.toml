@@ -1,0 +1,26 @@
+[package]
+name = "orc-mse"
+version = "2.5.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "ORC-owned BitTorrent MSE/PE negotiation and stream protection"
+
+[features]
+default = ["sha1-crypto-hash"]
+sha1-crypto-hash = ["sha1w/sha1-crypto-hash"]
+sha1-ring = ["sha1w/sha1-ring"]
+
+[dependencies]
+num-bigint = { workspace = true }
+rand = "0.9"
+rc4 = { workspace = true }
+serde = { workspace = true }
+sha1w = { workspace = true, default-features = false }
+subtle = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "time"] }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "test-util"] }

@@ -8,6 +8,55 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
+## [2.5.0] — 2026-08-04
+
+### Added
+
+- **ORC-owned engine boundary** — Introduce `orc-engine` as the shared desktop/Android contract for torrent lifecycle, storage, persistence, network policy, capabilities, privacy status, peer snapshots, suspension, and reconfiguration. The private backend is derived from tagged rqbit `v9.0.0-beta.2` with its Apache-2.0 lineage documented.
+- **Modern swarm beta** — Add explicit legacy and modern networking modes covering TCP, uTP, IPv4/IPv6, DHT, PEX, and LSD. Beta `auto` remains mapped to legacy until the cross-platform promotion gate passes.
+- **Peer traffic obfuscation** — Add the independent `orc-mse` implementation of inbound and outbound BitTorrent MSE/PE over TCP and SOCKS-carried TCP, with `off`, explicit-consent `prefer`, and downgrade-resistant `require` modes. The UI and API describe this as RC4 peer-traffic obfuscation, not anonymity or modern encryption.
+- **Adaptive request scheduler** — Add the independent `orc-scheduler` boundary with per-peer RTT, goodput, choke/reject rates, timeout history, availability, outstanding-byte tracking, bandwidth-delay-product pipelines, stalled-block reassignment, and deterministic legacy/adaptive benchmark profiles. Adaptive scheduling remains opt-in.
+- **BEP 6 Fast Extension** — Support `suggest piece`, `have all`, `have none`, `reject request`, and `allowed fast`, including suggestion priority, choked-peer allowed-fast requests, immediate rejection recovery, and upload cancellation.
+- **Bounded endgame recovery** — Duplicate at most two copies of a block during adaptive endgame and cancel losing requests as soon as useful data arrives.
+- **Engine capabilities API** — Add `GET /engine/capabilities` and additive runtime-backed transport, discovery, binding, suspension, MSE, scheduler, and live peer-protection status.
+
+### Changed
+
+- **Private backend isolation** — Route ORC Core, daemon, desktop, and Android integrations through ORC-owned engine and storage types while preserving torrent UUIDs, REST routes, catalog data, Android SAF storage, and the existing `state/rqbit` directory.
+- **Truthful privacy policy** — Compute effective behavior from runtime capabilities, enforce private-torrent discovery restrictions, report unsupported OS-wide outbound blocking honestly, and distinguish requested settings from active sockets and negotiated peer protection.
+- **VPN enforcement lifecycle** — Move network suspension to the engine, close active peer/discovery work after the configured grace period, recreate sockets on the selected interface, and preserve manual-pause/no-auto-resume behavior.
+- **Desktop engine controls** — Add modern swarm and MSE/PE controls, runtime warnings, negotiated plaintext/RC4 peer counts, and transport/discovery indicators driven by engine state.
+
+### Security
+
+- **Localhost API origin isolation** — Require a strong admin token and exact configured Origin on every protected route, including loopback reads; keep only health and version public; reject missing, opaque, wildcard, and unrelated web origins.
+- **Desktop authority isolation** — Rotate a 48-character daemon token on startup and keep it in the Electron main process, proxying renderer requests without exposing authority to web content.
+- **Fail-closed configuration** — Validate configuration before networking starts, restore only validated last-known-good generations, atomically replace and sync configuration files, and return persistence failures instead of silently accepting volatile privacy changes.
+- **Electron navigation and IPC boundary** — Block unexpected navigation and redirects, validate the calling window/main frame for privileged IPC, narrow daemon proxy operations, and apply a packaged-renderer Content Security Policy.
+- **Search-provider SSRF and memory limits** — Resolve and validate every IPv4/IPv6 answer, reject mixed public/private sets, pin approved addresses for each redirect hop, reject oversized `Content-Length`, stream response bodies to a hard limit, and disable response compression.
+- **Download path confinement** — Default desktop downloads to the dedicated `Downloads/ORC Torrent` root and reject unsafe parent/symlink escapes before handing storage paths to the engine.
+- **Strict network binding** — Refuse wildcard fallback when strict interface binding cannot resolve or create all requested TCP, uTP, DHT, tracker, and LSD sockets.
+- **MSE hardening** — Bound public keys, padding, synchronization scans, initial payloads, total buffered data, and negotiation time; validate DH public values; use constant-time comparisons and zeroized secrets.
+- **XML parser advisories** — Upgrade all search-provider and UPnP XML parsing to `quick-xml` 0.41.0, resolving `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195` before release.
+
+### Fixed
+
+- **Incoming feature negotiation** — Inspect the remote peer's handshake for extension support instead of ORC's own outbound handshake.
+- **Rejected and stalled blocks** — Release ownership immediately, cancel obsolete requests, and make the block available to another peer without waiting for connection failure.
+- **Fast-extension uploads** — Return `reject request` for unavailable or invalid blocks when supported and honor peer cancellation before queued disk reads.
+- **Legacy persistence compatibility** — Validate and restore v8.1.1 session and fast-resume fixtures in place without renaming or destructively migrating user state.
+
+### Tests
+
+- Add deterministic scheduler, endgame, BEP 6 message, MSE transcript/fragmentation, policy compatibility, and engine capability coverage.
+- Keep backend TCP/uTP and MSE transfer coverage across IPv4 and IPv6, plus v8 persistence restoration and the desktop/Android release matrix.
+
+### Credit
+
+- **Vurzumm**
+
+---
+
 ## [2.4.0] — 2026-08-03
 
 ### Added
@@ -358,7 +407,8 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
-[Unreleased]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.4...v2.4.0
 [2.3.4]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.2...v2.3.3

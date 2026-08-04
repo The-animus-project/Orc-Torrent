@@ -10,7 +10,7 @@ import {
   SEARCH_QUERY_MAX_LEN,
   SEARCH_QUERY_MIN_LEN,
   SEARCH_RESULT_LIMIT_MAX,
-  sortProvidersByPriority,
+  sortProvidersByLabel,
   sortSearchResults,
   type SearchSortMode,
 } from "../utils/searchUtils";
@@ -129,7 +129,7 @@ export function SearchPage({
   }, [settingsKey, settings]);
 
   const enabledProviders = useMemo(
-    () => sortProvidersByPriority(providers.filter((provider) => provider.enabled)),
+    () => sortProvidersByLabel(providers.filter((provider) => provider.enabled)),
     [providers]
   );
 
@@ -197,8 +197,8 @@ export function SearchPage({
     }
 
     if (enabledProviders.length === 0) {
-      setErrorText("Enable at least one search provider in Settings.");
-      onError("Enable at least one search provider in Settings.");
+      setErrorText("Add and enable a search provider in Settings.");
+      onError("Add and enable a search provider in Settings.");
       return;
     }
 
@@ -546,10 +546,13 @@ export function SearchPage({
             Search is disabled in Settings. Turn it on before running provider queries.
           </p>
         )}
-        {settings.enabled && enabledProviders.length === 0 && !loadingProviders && (
+        {providers.length === 0 && !loadingProviders && (
           <p className="settingsSummaryNote">
-            No search providers are enabled. Turn on providers in Settings → Search.
+            No search providers are configured. Add and enable your own provider in Settings → Search.
           </p>
+        )}
+        {providers.length > 0 && enabledProviders.length === 0 && !loadingProviders && (
+          <p className="settingsSummaryNote">No search providers are enabled. Enable one in Settings → Search.</p>
         )}
         {browseSupportedForSelection && queryTrimmed.length === 0 && (
           <p className="settingsSummaryNote">

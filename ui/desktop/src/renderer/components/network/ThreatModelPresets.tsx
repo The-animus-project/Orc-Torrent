@@ -48,12 +48,12 @@ export const ThreatModelPresets = memo<ThreatModelPresetsProps>(({ online, onUpd
     {
       id: "hardened",
       label: "Hardened",
-      description: "VPN + kill switch + forced encryption",
+      description: "VPN binding + transfer pause + required MSE/PE obfuscation",
     },
     {
       id: "extreme",
       label: "Extreme",
-      description: "Maximum security: VPN + kill switch + no DHT/PEX/LSD + forced encryption",
+      description: "Strict ORC socket binding + transfer pause + no DHT/PEX/LSD + required MSE/PE",
     },
   ];
 

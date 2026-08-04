@@ -39,10 +39,7 @@ export function syncAnimusBrandingAssets(): boolean {
     console.warn(`[AnimUS] Branding asset missing: ${source}`);
     console.warn("         Place animus_edition.png in ui/desktop/local-edition/branding/");
   } else {
-    const targets = [
-      join(projectRoot, "public", "images", TARGET_NAME),
-      join(projectRoot, "images", TARGET_NAME),
-    ];
+    const targets = [join(projectRoot, "public", "images", TARGET_NAME), join(projectRoot, "images", TARGET_NAME)];
 
     for (const target of targets) {
       mkdirSync(dirname(target), { recursive: true });

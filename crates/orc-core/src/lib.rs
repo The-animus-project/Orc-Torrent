@@ -1,19 +1,20 @@
 //! ORC Core: shared types + in-memory state used by the Orc Torrent daemon.
 //!
-//! This now embeds a real BitTorrent runtime (rqbit via `librqbit`) behind the existing API.
+//! The BitTorrent runtime is accessed exclusively through the ORC Engine boundary.
 
 use std::{
     collections::{HashMap, HashSet},
-    net::IpAddr,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::{Path, PathBuf},
-    process::Command,
     sync::{Arc, OnceLock, RwLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(target_os = "macos")]
+use std::process::Command;
+
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose, Engine as _};
-use hex;
 use maxminddb::{geoip2::Country, Reader};
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use regex::Regex;
@@ -23,10 +24,11 @@ use tracing::{info, warn};
 use url::form_urlencoded;
 use uuid::Uuid;
 
-use librqbit::api::{Api as RqbitApi, ApiAddTorrentResponse, TorrentIdOrHash};
-use librqbit::{
-    storage::BoxStorageFactory, AddTorrent, AddTorrentOptions, Session, SessionOptions,
-    SessionPersistenceConfig,
+use orc_engine::api::{ApiAddTorrentResponse, TorrentIdOrHash};
+use orc_engine::{
+    storage::BoxStorageFactory, AddTorrent, AddTorrentOptions, ConnectionOptions, Engine,
+    EngineNetworkPolicy, ListenerMode, ListenerOptions, PeerTrafficMode, Session, SessionOptions,
+    SessionPersistenceConfig, TrafficProtection,
 };
 
 mod bandwidth;
@@ -100,7 +102,7 @@ pub use bandwidth::*;
 pub use privacy::*;
 pub use seeding::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TorrentMode {
     Standard,
@@ -275,6 +277,10 @@ pub struct KillSwitchConfig {
     pub triggers: KillSwitchTriggers,
     pub enforcement_state: KillSwitchState,
     pub last_enforcement_ms: Option<u64>,
+    pub outbound_block_supported: bool,
+    pub outbound_block_enforced: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outbound_block_disabled_reason: Option<String>,
 }
 
 /// Persisted subset of KillSwitchConfig (no runtime-only fields like enforcement_state).
@@ -333,12 +339,40 @@ pub struct TorrentListResponse {
     pub items: Vec<Torrent>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TriState {
     Off,
     Prefer,
     Require,
+}
+
+impl From<TriState> for PeerTrafficMode {
+    fn from(value: TriState) -> Self {
+        match value {
+            TriState::Off => Self::Off,
+            TriState::Prefer => Self::Prefer,
+            TriState::Require => Self::Require,
+        }
+    }
+}
+
+impl From<PeerTrafficMode> for TriState {
+    fn from(value: PeerTrafficMode) -> Self {
+        match value {
+            PeerTrafficMode::Off => Self::Off,
+            PeerTrafficMode::Prefer => Self::Prefer,
+            PeerTrafficMode::Require => Self::Require,
+        }
+    }
+}
+
+pub fn effective_peer_traffic_mode(desired: &DesiredPolicy) -> PeerTrafficMode {
+    if desired.peer_encryption_opt_in {
+        desired.peer_encryption.into()
+    } else {
+        PeerTrafficMode::Off
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -359,8 +393,12 @@ pub enum PolicyProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DesiredPolicy {
+    #[serde(default)]
+    pub engine: EngineNetworkPolicy,
     pub anonymous_mode: bool,
     pub peer_encryption: TriState,
+    #[serde(default)]
+    pub peer_encryption_opt_in: bool,
     pub dht_hardening: bool,
     pub enforce_private_torrents: bool,
     pub ip_blocklist: bool,
@@ -382,14 +420,37 @@ pub struct DesiredPolicy {
 
 impl DesiredPolicy {
     pub fn validate(&self) -> Result<()> {
+        if !self.engine.transports.tcp && !self.engine.transports.utp {
+            return Err(anyhow!(
+                "at least one peer transport (TCP or uTP) must be enabled"
+            ));
+        }
+        if !self.engine.transports.ipv4 && !self.engine.transports.ipv6 {
+            return Err(anyhow!(
+                "at least one IP family (IPv4 or IPv6) must be enabled"
+            ));
+        }
+        if !self.engine.transports.ipv4 {
+            return Err(anyhow!(
+                "IPv6-only mode is not supported in this beta; IPv6 operates dual-stack"
+            ));
+        }
+        if matches!(self.peer_encryption, TriState::Require) && !self.engine.transports.tcp {
+            return Err(anyhow!(
+                "peer traffic obfuscation require mode needs TCP to be enabled"
+            ));
+        }
         Ok(())
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectivePolicy {
+    pub engine: EngineNetworkPolicy,
     pub anonymous_mode: bool,
     pub peer_encryption: TriState,
+    #[serde(default)]
+    pub peer_encryption_opt_in: bool,
     pub dht_hardening: bool,
     pub enforce_private_torrents: bool,
     pub ip_blocklist: bool,
@@ -495,6 +556,7 @@ pub struct PeerRow {
     pub optimistic: Option<bool>,
     pub incoming: Option<bool>,
     pub encrypted: Option<bool>,
+    pub traffic_protection: Option<TrafficProtection>,
 
     /// Round-trip time in ms (often unknown).
     pub rtt_ms: Option<u32>,
@@ -551,7 +613,7 @@ struct StateOverride {
 
 #[derive(Debug, Clone)]
 struct TorrentRuntime {
-    rqbit_id: usize,
+    engine_id: usize,
     total_bytes: u64,
     downloaded_bytes: u64,
     uploaded_bytes: u64,
@@ -684,15 +746,15 @@ fn stable_torrent_id(info_hash: &str) -> String {
 }
 
 fn restored_torrent_records(
-    rqbit: &RqbitApi,
+    engine: &Engine,
     mut catalog: HashMap<String, PersistedTorrentRecord>,
 ) -> HashMap<String, TorrentRecord> {
     let now = Instant::now();
     let mut restored = HashMap::new();
-    for listed in rqbit.api_torrent_list().torrents {
-        let Some(rqbit_id) = listed.id else { continue };
-        let details = rqbit
-            .api_torrent_details(TorrentIdOrHash::Id(rqbit_id))
+    for listed in engine.api_torrent_list().torrents {
+        let Some(engine_id) = listed.id else { continue };
+        let details = engine
+            .api_torrent_details(TorrentIdOrHash::Id(engine_id))
             .unwrap_or(listed);
         let id = stable_torrent_id(&details.info_hash);
         let persisted = catalog.remove(&id).filter(|record| {
@@ -722,31 +784,22 @@ fn restored_torrent_records(
             })
             .collect::<Vec<_>>();
         let total_bytes = files.iter().map(|file| file.size).sum::<u64>();
-        let stats_value = rqbit
-            .api_stats_v1(TorrentIdOrHash::Id(rqbit_id))
-            .ok()
-            .and_then(|stats| serde_json::to_value(stats).ok())
+        let stats = engine.torrent_stats(TorrentIdOrHash::Id(engine_id)).ok();
+        let downloaded_bytes = stats
+            .as_ref()
+            .map(|stats| stats.progress_bytes)
             .unwrap_or_default();
-        let downloaded_bytes = stats_value
-            .get("progress_bytes")
-            .and_then(|value| value.as_u64())
-            .or_else(|| {
-                stats_value
-                    .get("downloaded_bytes")
-                    .and_then(|value| value.as_u64())
-            })
+        let uploaded_bytes = stats
+            .as_ref()
+            .map(|stats| stats.uploaded_bytes)
             .unwrap_or_default();
-        let uploaded_bytes = stats_value
-            .get("uploaded_bytes")
-            .and_then(|value| value.as_u64())
-            .unwrap_or_default();
-        let finished = stats_value
-            .get("finished")
-            .and_then(|value| value.as_bool())
+        let finished = stats
+            .as_ref()
+            .map(|stats| stats.finished)
             .unwrap_or(total_bytes > 0 && downloaded_bytes >= total_bytes);
-        let state_name = stats_value
-            .get("state")
-            .and_then(|value| value.as_str())
+        let state_name = stats
+            .as_ref()
+            .map(|stats| stats.state.as_str())
             .unwrap_or("downloading");
         let running = persisted
             .as_ref()
@@ -787,7 +840,7 @@ fn restored_torrent_records(
             torrent.seeding_override = persisted.torrent.seeding_override;
         }
         let runtime = TorrentRuntime {
-            rqbit_id,
+            engine_id,
             total_bytes,
             downloaded_bytes,
             uploaded_bytes,
@@ -817,7 +870,7 @@ fn restored_torrent_records(
     }
     if !restored.is_empty() {
         info!(
-            "Restored {} torrents from rqbit persistence",
+            "Restored {} torrents from engine persistence",
             restored.len()
         );
     }
@@ -833,14 +886,16 @@ pub struct OrcState {
     download_dir: String,
     #[allow(dead_code)]
     download_dir_path: PathBuf,
-    rqbit: RqbitApi,
+    engine: Engine,
     torrents: HashMap<String, TorrentRecord>,
     catalog_path: Option<PathBuf>,
     persistence_dir: Option<PathBuf>,
     storage_factory: Option<BoxStorageFactory>,
     network_disabled: bool,
+    suspended_running: HashSet<String>,
     policy: PolicyState,
     kill_switch: KillSwitchConfig,
+    vpn_loss_started_ms: Option<u64>,
     bind_interface: Option<String>,
     leak_proof_enabled: bool,
     listen_port: u16,
@@ -933,70 +988,109 @@ fn is_dht_startup_error(err: &anyhow::Error) -> bool {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn create_session_with_dht_fallback(
     download_dir: PathBuf,
     listen_port: u16,
-    bind_ipv4: Option<std::net::Ipv4Addr>,
+    bind_interface: Option<String>,
     persistence_dir: Option<PathBuf>,
     storage_factory: Option<&BoxStorageFactory>,
     network_disabled: bool,
+    network_policy: &EngineNetworkPolicy,
+    peer_traffic_mode: PeerTrafficMode,
 ) -> Result<Arc<Session>> {
-    let base_opts = || SessionOptions {
-        listen_port_range: (!network_disabled)
-            .then_some(listen_port..listen_port.saturating_add(1)),
-        bind_ipv4,
-        disable_dht: network_disabled,
-        force_paused_on_restore: network_disabled,
-        persistence: persistence_dir
-            .as_ref()
-            .map(|folder| SessionPersistenceConfig::Json {
-                folder: Some(folder.clone()),
+    let resolved_policy = network_policy.clone().resolve_beta();
+    if let Some(directory) = persistence_dir.as_deref() {
+        orc_engine::validate_persistence_directory(directory)?;
+    }
+    if !network_disabled && resolved_policy.strict_binding {
+        validate_strict_binding(bind_interface.as_deref(), &resolved_policy)?;
+    }
+    let base_opts = || {
+        let policy = network_policy.clone().resolve_beta();
+        let listener_mode = match (policy.transports.tcp, policy.transports.utp) {
+            (true, true) => Some(ListenerMode::TcpAndUtp),
+            (true, false) => Some(ListenerMode::TcpOnly),
+            (false, true) => Some(ListenerMode::UtpOnly),
+            (false, false) => None,
+        };
+        let listen = (!network_disabled)
+            .then_some(listener_mode)
+            .flatten()
+            .map(|mode| ListenerOptions {
+                mode,
+                listen_addr: if policy.transports.ipv6 {
+                    SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), listen_port)
+                } else {
+                    SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), listen_port)
+                },
+                enable_upnp_port_forwarding: false,
+                ipv4_only: !policy.transports.ipv6,
+                require_all_transports: policy.strict_binding,
+                ..Default::default()
+            });
+        let mut options = SessionOptions {
+            listen,
+            connect: Some(ConnectionOptions {
+                enable_tcp: policy.transports.tcp,
+                ..Default::default()
             }),
-        fastresume: persistence_dir.is_some(),
-        default_storage_factory: storage_factory.map(|factory| factory.clone_box()),
-        ..Default::default()
+            bind_device_name: bind_interface.clone(),
+            strict_network_binding: policy.strict_binding,
+            disable_dht: network_disabled || !policy.discovery.dht,
+            disable_trackers: network_disabled,
+            disable_local_service_discovery: network_disabled || !policy.discovery.lsd,
+            disable_pex: network_disabled || !policy.discovery.pex,
+            ipv4_only: !policy.transports.ipv6,
+            force_paused_on_restore: network_disabled,
+            peer_traffic_mode,
+            request_scheduler: policy.request_scheduler,
+            persistence: persistence_dir
+                .as_ref()
+                .map(|folder| SessionPersistenceConfig::Json {
+                    folder: Some(folder.clone()),
+                }),
+            fastresume: persistence_dir.is_some(),
+            ..Default::default()
+        };
+        if let Some(factory) = storage_factory {
+            orc_engine::storage::install(factory, &mut options);
+        }
+        options
     };
 
     match Session::new_with_opts(download_dir.clone(), base_opts()).await {
         Ok(session) => Ok(session),
         Err(primary_err) => {
             let primary_error_text = primary_err.to_string();
+            if network_policy.strict_binding {
+                return Err(primary_err)
+                    .context("strict network binding refused a degraded socket fallback");
+            }
             if !is_dht_startup_error(&primary_err) {
-                return Err(primary_err).context("Failed to initialize rqbit session");
+                return Err(primary_err).context("Failed to initialize engine session");
             }
 
             warn!(
                 error = %primary_err,
-                "Primary rqbit session initialization failed; retrying without DHT persistence"
+                "Primary engine session initialization failed; retrying without DHT persistence"
             );
 
             let no_persistence_opts = SessionOptions {
                 disable_dht_persistence: true,
-                listen_port_range: (!network_disabled)
-                    .then_some(listen_port..listen_port.saturating_add(1)),
-                bind_ipv4,
-                disable_dht: network_disabled,
-                force_paused_on_restore: network_disabled,
-                persistence: persistence_dir.as_ref().map(|folder| {
-                    SessionPersistenceConfig::Json {
-                        folder: Some(folder.clone()),
-                    }
-                }),
-                fastresume: persistence_dir.is_some(),
-                default_storage_factory: storage_factory.map(|factory| factory.clone_box()),
-                ..Default::default()
+                ..base_opts()
             };
 
             match Session::new_with_opts(download_dir.clone(), no_persistence_opts).await {
                 Ok(session) => {
-                    warn!("Started rqbit session with non-persistent DHT after persistent DHT initialization failed");
+                    warn!("Started engine session with non-persistent DHT after persistent DHT initialization failed");
                     Ok(session)
                 }
                 Err(retry_err) => {
                     let retry_error_text = retry_err.to_string();
                     if !is_dht_startup_error(&retry_err) {
                         return Err(retry_err).context(format!(
-                            "Failed to initialize rqbit session after retrying without persistent DHT (initial error: {primary_error_text})"
+                            "Failed to initialize engine session after retrying without persistent DHT (initial error: {primary_error_text})"
                         ));
                     }
 
@@ -1008,25 +1102,16 @@ async fn create_session_with_dht_fallback(
                     let no_dht_opts = SessionOptions {
                         disable_dht: true,
                         disable_dht_persistence: true,
-                        listen_port_range: Some(listen_port..listen_port.saturating_add(1)),
-                        bind_ipv4,
-                        force_paused_on_restore: network_disabled,
-                        persistence: persistence_dir.map(|folder| SessionPersistenceConfig::Json {
-                            folder: Some(folder),
-                        }),
-                        fastresume: true,
-                        default_storage_factory: storage_factory.map(|factory| factory.clone_box()),
-                        ..Default::default()
+                        ..base_opts()
                     };
 
                     Session::new_with_opts(download_dir, no_dht_opts)
                         .await
-                        .map(|session| {
-                            warn!("Started rqbit session with DHT disabled due to socket initialization failure");
-                            session
+                        .inspect(|_| {
+                            warn!("Started engine session with DHT disabled due to socket initialization failure");
                         })
                         .context(format!(
-                            "Failed to initialize rqbit session after DHT fallbacks (initial error: {primary_error_text}; retry error: {retry_error_text})"
+                            "Failed to initialize engine session after DHT fallbacks (initial error: {primary_error_text}; retry error: {retry_error_text})"
                         ))
                 }
             }
@@ -1054,6 +1139,48 @@ pub fn resolve_interface_ipv4(interface: &str) -> Option<std::net::Ipv4Addr> {
     None
 }
 
+/// Resolve every address family assigned to a selected interface.
+pub fn resolve_interface_addresses(interface: &str) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
+    let want = interface.trim();
+    if want.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let mut ipv4 = Vec::new();
+    let mut ipv6 = Vec::new();
+    if let Ok(interfaces) = NetworkInterface::show() {
+        for candidate in interfaces.into_iter().filter(|item| item.name == want) {
+            for address in candidate.addr {
+                match address {
+                    network_interface::Addr::V4(value) => ipv4.push(value.ip),
+                    network_interface::Addr::V6(value) => ipv6.push(value.ip),
+                }
+            }
+        }
+    }
+    (ipv4, ipv6)
+}
+
+fn validate_strict_binding(
+    bind_interface: Option<&str>,
+    policy: &EngineNetworkPolicy,
+) -> Result<()> {
+    let interface = bind_interface
+        .filter(|name| !name.trim().is_empty())
+        .context("strict interface binding is enabled but no interface is selected")?;
+    let (ipv4, ipv6) = resolve_interface_addresses(interface);
+    if policy.transports.ipv4 && ipv4.is_empty() {
+        anyhow::bail!(
+            "strict interface binding refused fallback: interface {interface} has no IPv4 address"
+        );
+    }
+    if policy.transports.ipv6 && ipv6.is_empty() {
+        anyhow::bail!(
+            "strict interface binding refused fallback: interface {interface} has no IPv6 address"
+        );
+    }
+    Ok(())
+}
+
 pub async fn new_state(
     download_dir: String,
     listen_port: u16,
@@ -1077,10 +1204,13 @@ pub async fn new_state_with_runtime(
         persistence_dir,
         storage_factory,
         false,
+        EngineNetworkPolicy::default(),
+        PeerTrafficMode::Off,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn new_state_with_runtime_policy(
     download_dir: String,
     listen_port: u16,
@@ -1088,6 +1218,8 @@ pub async fn new_state_with_runtime_policy(
     persistence_dir: Option<PathBuf>,
     storage_factory: Option<BoxStorageFactory>,
     network_disabled: bool,
+    engine_network_policy: EngineNetworkPolicy,
+    peer_traffic_mode: PeerTrafficMode,
 ) -> Result<SharedState> {
     let download_path = PathBuf::from(download_dir.clone());
     let download_dir_canonical = download_path
@@ -1104,7 +1236,7 @@ pub async fn new_state_with_runtime_policy(
     let bind_ipv4 = bind_interface.as_deref().and_then(resolve_interface_ipv4);
     if let Some(ref iface) = bind_interface {
         if bind_ipv4.is_none() {
-            warn!("bind_interface {iface} has no IPv4 address; sockets will use default binding");
+            warn!("bind_interface {iface} has no IPv4 address; engine socket creation may fail");
         } else {
             info!("Binding BitTorrent session to interface {iface} ({bind_ipv4:?})");
         }
@@ -1118,18 +1250,23 @@ pub async fn new_state_with_runtime_policy(
     let session = create_session_with_dht_fallback(
         download_dir_canonical.clone(),
         listen_port,
-        bind_ipv4,
+        bind_interface.clone(),
         persistence_dir.clone(),
         storage_factory.as_ref(),
         network_disabled,
+        &engine_network_policy,
+        peer_traffic_mode,
     )
     .await
-    .context("Failed to initialize rqbit session")?;
-    let rqbit = RqbitApi::new(session, None);
+    .context("Failed to initialize engine session")?;
+    let engine = Engine::new(session, persistence_dir.is_some());
+    engine.set_network_suspended(network_disabled);
 
     let desired = DesiredPolicy {
+        engine: EngineNetworkPolicy::default(),
         anonymous_mode: false,
         peer_encryption: TriState::Prefer,
+        peer_encryption_opt_in: false,
         dht_hardening: true,
         enforce_private_torrents: false,
         ip_blocklist: false,
@@ -1147,25 +1284,35 @@ pub async fn new_state_with_runtime_policy(
         minimize_fingerprinting: false,
         profile: Some(PolicyProfile::Standard),
     };
+    let initial_engine_policy = engine_network_policy.resolve_beta();
+    engine.set_network_policy(initial_engine_policy.clone());
+    engine.set_peer_traffic_policy(
+        desired.peer_encryption.into(),
+        desired.peer_encryption_opt_in,
+        desired.engine.clone().resolve_beta().transports.utp,
+    );
+    engine.set_degraded_reason(engine.runtime_degraded_reason());
 
     let effective = EffectivePolicy {
+        engine: initial_engine_policy,
         anonymous_mode: desired.anonymous_mode,
-        peer_encryption: desired.peer_encryption.clone(),
-        dht_hardening: desired.dht_hardening,
+        peer_encryption: TriState::Off,
+        peer_encryption_opt_in: false,
+        dht_hardening: false,
         enforce_private_torrents: desired.enforce_private_torrents,
-        ip_blocklist: desired.ip_blocklist,
+        ip_blocklist: false,
         kill_switch: desired.kill_switch,
-        bind_interface_only: desired.bind_interface_only,
-        overlay_padding: desired.overlay_padding.clone(),
-        sybil_resistance: desired.sybil_resistance,
-        relay_pow_required: desired.relay_pow_required,
-        relay_subnet_diversity: desired.relay_subnet_diversity,
-        relay_reputation_weighting: desired.relay_reputation_weighting,
-        ipv6_enabled: desired.ipv6_enabled,
-        upnp_natpmp_enabled: desired.upnp_natpmp_enabled,
-        circuit_rotation_enabled: desired.circuit_rotation_enabled,
-        deny_direct_exits: desired.deny_direct_exits,
-        minimize_fingerprinting: desired.minimize_fingerprinting,
+        bind_interface_only: false,
+        overlay_padding: PaddingLevel::Off,
+        sybil_resistance: false,
+        relay_pow_required: false,
+        relay_subnet_diversity: false,
+        relay_reputation_weighting: false,
+        ipv6_enabled: false,
+        upnp_natpmp_enabled: false,
+        circuit_rotation_enabled: false,
+        deny_direct_exits: false,
+        minimize_fingerprinting: false,
         profile: desired.profile.clone(),
         network_allowed: true,
         discovery_allowed: true,
@@ -1174,6 +1321,7 @@ pub async fn new_state_with_runtime_policy(
 
     let mut disabled: HashMap<String, ToggleDisabled> = HashMap::new();
     for k in [
+        "engine",
         "anonymous_mode",
         "peer_encryption",
         "dht_hardening",
@@ -1201,11 +1349,53 @@ pub async fn new_state_with_runtime_policy(
             },
         );
     }
+    for (key, reason) in [
+        ("anonymous_mode", "anonymous routing is not implemented"),
+        (
+            "dht_hardening",
+            "DHT hardening controls are not implemented",
+        ),
+        ("ip_blocklist", "no blocklist source is configured"),
+        ("overlay_padding", "overlay routing is not implemented"),
+        ("sybil_resistance", "overlay routing is not implemented"),
+        ("relay_pow_required", "relay routing is not implemented"),
+        ("relay_subnet_diversity", "relay routing is not implemented"),
+        (
+            "relay_reputation_weighting",
+            "relay routing is not implemented",
+        ),
+        (
+            "circuit_rotation_enabled",
+            "circuit routing is not implemented",
+        ),
+        ("deny_direct_exits", "circuit routing is not implemented"),
+        (
+            "minimize_fingerprinting",
+            "fingerprint minimization is not implemented",
+        ),
+        (
+            "upnp_natpmp_enabled",
+            "automatic port mapping is disabled during the engine beta",
+        ),
+    ] {
+        disabled.insert(
+            key.to_string(),
+            ToggleDisabled {
+                disabled: true,
+                reason: Some(reason.to_string()),
+            },
+        );
+    }
 
     let policy = PolicyState {
         desired: desired.clone(),
         effective,
-        warnings: vec![],
+        warnings: vec![PolicyWarning {
+            code: "peer_encryption_consent_required".to_string(),
+            message: "Peer traffic obfuscation remains off until explicit consent is recorded."
+                .to_string(),
+            severity: PolicyWarningSeverity::Info,
+        }],
         disabled,
         version: 1,
         last_updated_ms: now_ms(),
@@ -1222,17 +1412,22 @@ pub async fn new_state_with_runtime_policy(
         triggers: KillSwitchTriggers {
             pause_all_torrents: true,
             stop_seeding: false,
-            disable_dht_pex_lpd: false,
+            disable_dht_pex_lpd: true,
             block_outbound: false,
         },
         enforcement_state: KillSwitchState::Disarmed,
         last_enforcement_ms: None,
+        outbound_block_supported: false,
+        outbound_block_enforced: false,
+        outbound_block_disabled_reason: Some(
+            "OS-wide outbound blocking requires a platform firewall integration".to_string(),
+        ),
     };
 
     let geoip_reader = load_geoip_database();
     let net_last_change_ms = now_ms();
 
-    let mut torrents = restored_torrent_records(&rqbit, catalog);
+    let mut torrents = restored_torrent_records(&engine, catalog);
     if network_disabled {
         for record in torrents.values_mut() {
             record.torrent.running = false;
@@ -1241,8 +1436,8 @@ pub async fn new_state_with_runtime_policy(
         }
     }
     for record in torrents.values().filter(|record| !record.torrent.running) {
-        let _ = rqbit
-            .api_torrent_action_pause(TorrentIdOrHash::Id(record.runtime.rqbit_id))
+        let _ = engine
+            .api_torrent_action_pause(TorrentIdOrHash::Id(record.runtime.engine_id))
             .await;
     }
 
@@ -1250,14 +1445,16 @@ pub async fn new_state_with_runtime_policy(
         started_at: Instant::now(),
         download_dir,
         download_dir_path: download_dir_canonical,
-        rqbit,
+        engine,
         torrents,
         catalog_path,
         persistence_dir,
         storage_factory,
         network_disabled,
+        suspended_running: HashSet::new(),
         policy,
         kill_switch,
+        vpn_loss_started_ms: None,
         bind_interface: bind_interface.clone(),
         leak_proof_enabled: false,
         listen_port,
@@ -1423,21 +1620,12 @@ impl PatchKillSwitchRequest {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NetPostureStoredSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind_interface: Option<String>,
     #[serde(default)]
     pub leak_proof_enabled: bool,
-}
-
-impl Default for NetPostureStoredSettings {
-    fn default() -> Self {
-        Self {
-            bind_interface: None,
-            leak_proof_enabled: false,
-        }
-    }
 }
 
 pub fn apply_policy_stored(state: &mut OrcState, stored: &DesiredPolicy) {
@@ -1516,8 +1704,8 @@ pub fn apply_bandwidth_profile_limits(state: &mut OrcState) {
     let (dl, ul) = state
         .bandwidth_settings
         .limits_for_profile(state.bandwidth_active_profile);
-    state.rqbit.session().ratelimits.set_download_bps(dl);
-    state.rqbit.session().ratelimits.set_upload_bps(ul);
+    state.engine.session().ratelimits.set_download_bps(dl);
+    state.engine.session().ratelimits.set_upload_bps(ul);
 }
 
 pub fn set_session_rate_limits(
@@ -1919,8 +2107,7 @@ pub fn patch_net_posture(state: &mut OrcState, req: PatchNetPostureRequest) -> N
     net_posture(state)
 }
 
-/// Recreate the rqbit session with the current bind interface and re-attach torrents.
-pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
+async fn rebuild_engine_session(state: &mut OrcState, target_network_disabled: bool) -> Result<()> {
     state.network_disabled = true;
     struct TorrentRebindInfo {
         orc_id: String,
@@ -1933,6 +2120,27 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
     let listen_port = state.listen_port;
     let bind_interface = state.bind_interface.clone();
     let persistence_dir = state.persistence_dir.clone();
+    let engine_network_policy = state.engine.network_policy();
+    let peer_traffic_mode: PeerTrafficMode = state.policy.effective.peer_encryption.into();
+    let requested_peer_traffic_mode: PeerTrafficMode = state.policy.desired.peer_encryption.into();
+    let peer_encryption_opt_in = state.policy.desired.peer_encryption_opt_in;
+    let utp_requested = state
+        .policy
+        .desired
+        .engine
+        .clone()
+        .resolve_beta()
+        .transports
+        .utp;
+
+    if engine_network_policy.strict_binding && !target_network_disabled {
+        if let Err(error) =
+            validate_strict_binding(bind_interface.as_deref(), &engine_network_policy)
+        {
+            state.network_disabled = target_network_disabled;
+            return Err(error);
+        }
+    }
 
     let torrents: Vec<TorrentRebindInfo> = state
         .torrents
@@ -1945,26 +2153,26 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
                 .save_path
                 .clone()
                 .unwrap_or_else(|| state.download_dir.clone()),
-            running: rec.runtime.running,
+            running: rec.runtime.running || state.suspended_running.contains(&rec.torrent.id),
         })
         .collect();
 
     {
-        let api = rqbit_api(state);
+        let api = engine_api(state);
         let pause_ids: Vec<usize> = state
             .torrents
             .values()
-            .filter_map(|rec| rqbit_id_for(state, &rec.torrent.id))
+            .filter_map(|rec| engine_id_for(state, &rec.torrent.id))
             .collect();
-        for rqbit_id in pause_ids {
+        for engine_id in pause_ids {
             let _ = api
-                .api_torrent_action_pause(TorrentIdOrHash::Id(rqbit_id))
+                .api_torrent_action_pause(TorrentIdOrHash::Id(engine_id))
                 .await;
         }
     }
 
     {
-        let old_session = rqbit_api(state).session().clone();
+        let old_session = engine_api(state).session().clone();
         old_session.cancellation_token().cancel();
         tokio::time::sleep(Duration::from_millis(400)).await;
     }
@@ -1981,45 +2189,64 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
     let new_session = create_session_with_dht_fallback(
         download_dir,
         listen_port,
-        bind_ipv4,
+        bind_interface,
         persistence_dir.clone(),
         state.storage_factory.as_ref(),
-        false,
+        target_network_disabled,
+        &engine_network_policy,
+        peer_traffic_mode,
     )
     .await?;
-    state.rqbit = RqbitApi::new(new_session, None);
+    state.engine = Engine::new(new_session, state.persistence_dir.is_some());
+    state.engine.set_network_policy(engine_network_policy);
+    state.engine.set_peer_traffic_policy(
+        requested_peer_traffic_mode,
+        peer_encryption_opt_in,
+        utp_requested,
+    );
+    state.engine.set_network_suspended(target_network_disabled);
+    state
+        .engine
+        .set_degraded_reason(state.engine.runtime_degraded_reason());
 
     if persistence_dir.is_some() {
         let restored_ids = state
-            .rqbit
+            .engine
             .api_torrent_list()
             .torrents
             .into_iter()
             .filter_map(|torrent| torrent.id.map(|id| (torrent.info_hash, id)))
             .collect::<HashMap<_, _>>();
         for torrent in torrents {
-            let rqbit_id = *restored_ids.get(&torrent.info_hash).with_context(|| {
+            let engine_id = *restored_ids.get(&torrent.info_hash).with_context(|| {
                 format!(
                     "persisted torrent {} was not restored after network rebind",
                     torrent.orc_id
                 )
             })?;
             if let Some(record) = state.torrents.get_mut(&torrent.orc_id) {
-                record.runtime.rqbit_id = rqbit_id;
+                record.runtime.engine_id = engine_id;
             }
-            let api = rqbit_api(state);
-            if torrent.running {
-                api.api_torrent_action_start(TorrentIdOrHash::Id(rqbit_id))
+            let api = engine_api(state);
+            if torrent.running && !target_network_disabled {
+                api.api_torrent_action_start(TorrentIdOrHash::Id(engine_id))
                     .await
                     .with_context(|| format!("failed to resume torrent {}", torrent.orc_id))?;
             } else {
                 let _ = api
-                    .api_torrent_action_pause(TorrentIdOrHash::Id(rqbit_id))
+                    .api_torrent_action_pause(TorrentIdOrHash::Id(engine_id))
                     .await;
             }
-            let _ = set_running(state, &torrent.orc_id, torrent.running);
+            let _ = set_running(
+                state,
+                &torrent.orc_id,
+                torrent.running && !target_network_disabled,
+            );
         }
-        state.network_disabled = false;
+        state.network_disabled = target_network_disabled;
+        if !target_network_disabled {
+            state.suspended_running.clear();
+        }
         return Ok(());
     }
 
@@ -2031,29 +2258,31 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
             );
             continue;
         }
-        let mut opts = AddTorrentOptions::default();
-        opts.output_folder = Some(t.output_folder);
-        opts.overwrite = true;
-        opts.paused = !t.running;
-        let api = rqbit_api(state);
+        let opts = AddTorrentOptions {
+            output_folder: Some(t.output_folder),
+            overwrite: true,
+            paused: target_network_disabled || !t.running,
+            ..Default::default()
+        };
+        let api = engine_api(state);
         let resp = api
             .api_add_torrent(AddTorrent::from_url(t.info_hash.as_str()), Some(opts))
             .await
             .with_context(|| format!("failed to re-add torrent {}", t.orc_id))?;
-        let Some(rqbit_id) = resp.id else {
+        let Some(engine_id) = resp.id else {
             warn!(
-                "rqbit did not return id when re-adding torrent {}",
+                "engine did not return id when re-adding torrent {}",
                 t.orc_id
             );
             continue;
         };
         if let Some(rec) = state.torrents.get_mut(&t.orc_id) {
-            rec.runtime.rqbit_id = rqbit_id;
+            rec.runtime.engine_id = engine_id;
         }
-        if t.running {
-            let api = rqbit_api(state);
+        if t.running && !target_network_disabled {
+            let api = engine_api(state);
             let _ = api
-                .api_torrent_action_start(TorrentIdOrHash::Id(rqbit_id))
+                .api_torrent_action_start(TorrentIdOrHash::Id(engine_id))
                 .await;
             let _ = set_running(state, &t.orc_id, true);
         } else {
@@ -2061,8 +2290,96 @@ pub async fn rebind_rqbit_session(state: &mut OrcState) -> Result<()> {
         }
     }
 
-    state.network_disabled = false;
+    state.network_disabled = target_network_disabled;
+    if !target_network_disabled {
+        state.suspended_running.clear();
+    }
     Ok(())
+}
+
+/// Recreate all engine sockets on the selected interface and keep torrents paused
+/// unless they were already running before an ordinary posture rebind.
+pub async fn rebind_engine_session(state: &mut OrcState) -> Result<()> {
+    rebuild_engine_session(state, false).await
+}
+
+/// Cancel all peer and discovery tasks and restore persistence without network sockets.
+pub async fn suspend_engine_network(state: &mut OrcState) -> Result<()> {
+    state.suspended_running.extend(
+        state
+            .torrents
+            .iter()
+            .filter(|(_, record)| record.runtime.running)
+            .map(|(id, _)| id.clone()),
+    );
+    rebuild_engine_session(state, true).await
+}
+
+/// Activate the effective engine policy. If the modern beta cannot start, rebuild
+/// the session in the legacy transport mode and report the degraded reason.
+pub async fn activate_engine_policy(state: &mut OrcState) -> Result<Option<String>> {
+    let requested_policy = state.engine.network_policy();
+    let running_before_rebind = requested_policy.strict_binding.then(|| {
+        state
+            .torrents
+            .iter()
+            .filter(|(_, record)| record.runtime.running)
+            .map(|(id, _)| id.clone())
+            .collect::<HashSet<_>>()
+    });
+    match rebind_engine_session(state).await {
+        Ok(()) => {
+            state.policy.effective.network_allowed = !matches!(
+                state.kill_switch.enforcement_state,
+                KillSwitchState::Engaged
+            );
+            let degraded = state.engine.runtime_degraded_reason();
+            state.engine.set_degraded_reason(degraded.clone());
+            Ok(degraded)
+        }
+        Err(primary_error) => {
+            if requested_policy.strict_binding {
+                let reason =
+                    format!("strict interface binding blocked engine traffic: {primary_error}");
+                state.engine.set_network_policy(requested_policy.clone());
+                state.policy.effective.engine = requested_policy;
+                if let Some(running) = running_before_rebind {
+                    state.suspended_running.extend(running);
+                }
+                suspend_engine_network(state)
+                    .await
+                    .context("failed to suspend engine after strict binding failure")?;
+                state.policy.effective.network_allowed = false;
+                state.policy.effective.discovery_allowed = false;
+                state.policy.effective.direct_peer_allowed = false;
+                state.engine.set_degraded_reason(Some(reason.clone()));
+                state.policy.warnings.push(PolicyWarning {
+                    code: "engine_strict_binding_blocked".to_string(),
+                    message: reason.clone(),
+                    severity: PolicyWarningSeverity::Block,
+                });
+                return Ok(Some(reason));
+            }
+            let reason = format!(
+                "requested engine policy failed; restored legacy transports: {primary_error}"
+            );
+            let legacy = EngineNetworkPolicy::legacy();
+            state.engine.set_network_policy(legacy.clone());
+            state.policy.effective.engine = legacy;
+            state.policy.effective.ipv6_enabled = false;
+            state.policy.effective.discovery_allowed = true;
+            rebuild_engine_session(state, false)
+                .await
+                .context("requested engine policy and legacy fallback both failed")?;
+            state.engine.set_degraded_reason(Some(reason.clone()));
+            state.policy.warnings.push(PolicyWarning {
+                code: "engine_legacy_fallback".to_string(),
+                message: reason.clone(),
+                severity: PolicyWarningSeverity::Warn,
+            });
+            Ok(Some(reason))
+        }
+    }
 }
 
 pub fn network_session_disabled(state: &OrcState) -> bool {
@@ -2080,10 +2397,7 @@ pub fn get_torrent(state: &OrcState, id: &str) -> Option<Torrent> {
 }
 
 pub fn get_status(state: &OrcState, id: &str) -> Option<TorrentStatus> {
-    state
-        .torrents
-        .get(id)
-        .map(|r| torrent_status_from_record(r))
+    state.torrents.get(id).map(torrent_status_from_record)
 }
 
 #[allow(dead_code)]
@@ -2206,12 +2520,16 @@ pub fn get_content(state: &OrcState, id: &str) -> Option<TorrentContent> {
     })
 }
 
-pub fn rqbit_api(state: &OrcState) -> RqbitApi {
-    state.rqbit.clone()
+pub fn engine_api(state: &OrcState) -> Engine {
+    state.engine.clone()
 }
 
-pub fn rqbit_id_for(state: &OrcState, id: &str) -> Option<usize> {
-    state.torrents.get(id).map(|r| r.runtime.rqbit_id)
+pub fn engine_capabilities(state: &OrcState) -> orc_engine::EngineCapabilities {
+    state.engine.capabilities()
+}
+
+pub fn engine_id_for(state: &OrcState, id: &str) -> Option<usize> {
+    state.torrents.get(id).map(|r| r.runtime.engine_id)
 }
 
 pub fn find_torrent_by_info_hash(
@@ -2257,11 +2575,7 @@ fn torrent_status_from_record(r: &TorrentRecord) -> TorrentStatus {
         .runtime
         .total_bytes
         .saturating_sub(r.runtime.downloaded_bytes);
-    let eta_sec = if r.runtime.down_rate_bps > 0 {
-        (remaining / r.runtime.down_rate_bps).min(u64::MAX)
-    } else {
-        0
-    };
+    let eta_sec = remaining.checked_div(r.runtime.down_rate_bps).unwrap_or(0);
 
     let ratio = if r.runtime.downloaded_bytes > 0 {
         Some(r.runtime.uploaded_bytes as f64 / r.runtime.downloaded_bytes as f64)
@@ -2396,7 +2710,7 @@ pub fn resolve_torrent_name(
 }
 
 /// Default download folder for a new torrent: `{download_dir}/{sanitized name}/`.
-/// Returns `None` when no meaningful name is known pre-metadata (librqbit picks the folder).
+/// Returns `None` when no meaningful name is known before metadata is resolved.
 /// Appends a short hash suffix when the folder already exists (name collision).
 pub fn resolve_torrent_output_folder(
     download_dir: &Path,
@@ -2473,9 +2787,7 @@ pub fn extract_info_hash_from_torrent_bytes(bytes: &[u8]) -> Result<Option<Strin
                 }
             }
         }
-        if b == b'd' {
-            depth += 1;
-        } else if b == b'l' {
+        if matches!(b, b'd' | b'l') {
             depth += 1;
         } else if b == b'e' {
             depth -= 1;
@@ -2532,7 +2844,7 @@ pub fn prepare_add_input(req: &AddTorrentRequest) -> Result<AddTorrentInput> {
 pub fn integrate_added_torrent(
     state: &mut OrcState,
     req: &AddTorrentRequest,
-    rqbit_resp: ApiAddTorrentResponse,
+    engine_resp: ApiAddTorrentResponse,
 ) -> Result<AddTorrentResponse> {
     if state.torrents.len() >= MAX_TORRENTS {
         return Err(anyhow!(
@@ -2540,11 +2852,11 @@ pub fn integrate_added_torrent(
             MAX_TORRENTS
         ));
     }
-    let rqbit_id = rqbit_resp
+    let engine_id = engine_resp
         .id
-        .ok_or_else(|| anyhow!("rqbit did not return a torrent id"))?;
+        .ok_or_else(|| anyhow!("engine did not return a torrent id"))?;
 
-    let details = rqbit_resp.details;
+    let details = engine_resp.details;
 
     let id = stable_torrent_id(&details.info_hash);
     let added_at_ms = now_ms();
@@ -2616,15 +2928,11 @@ pub fn integrate_added_torrent(
     } else {
         DEFAULT_PIECE_SIZE
     };
-    let total_pieces_estimate = if piece_size > 0 {
-        let pieces: u64 = total_bytes / piece_size;
-        (pieces.max(1u64)).min(u32::MAX as u64) as u32
-    } else {
-        100
-    };
+    let pieces: u64 = total_bytes / piece_size;
+    let total_pieces_estimate = pieces.max(1).min(u32::MAX as u64) as u32;
 
     let runtime = TorrentRuntime {
-        rqbit_id,
+        engine_id,
         total_bytes,
         downloaded_bytes: 0,
         uploaded_bytes: 0,
@@ -2657,13 +2965,16 @@ pub fn integrate_added_torrent(
     persist_torrent_catalog(state);
 
     info!(
-        "Added torrent id={} name=\"{}\" rqbit_id={}",
-        id, name, rqbit_id
+        "Added torrent id={} name=\"{}\" engine_id={}",
+        id, name, engine_id
     );
     Ok(AddTorrentResponse { id })
 }
 
 pub fn set_running(state: &mut OrcState, id: &str, running: bool) -> Result<()> {
+    if !running {
+        state.suspended_running.remove(id);
+    }
     {
         let rec = state
             .torrents
@@ -2761,6 +3072,9 @@ pub fn patch_kill_switch(state: &mut OrcState, req: PatchKillSwitchRequest) -> K
     if let Some(vs) = req.vpn_source {
         state.kill_switch.vpn_source = vs;
     }
+    if state.kill_switch.enabled {
+        state.kill_switch.triggers.disable_dht_pex_lpd = true;
+    }
     sync_policy_kill_switch(state);
     state.kill_switch.clone()
 }
@@ -2778,11 +3092,10 @@ fn sync_leak_proof_kill_switch(state: &mut OrcState) {
 fn sync_policy_kill_switch(state: &mut OrcState) {
     state.policy.desired.kill_switch = state.kill_switch.enabled;
     state.policy.effective.kill_switch = state.kill_switch.enabled;
-    state.policy.effective.network_allowed = if state.kill_switch.enabled {
-        is_vpn_connected()
-    } else {
-        true
-    };
+    state.policy.effective.network_allowed = !matches!(
+        state.kill_switch.enforcement_state,
+        KillSwitchState::Engaged
+    );
 }
 
 /// Restore kill switch user settings from persisted config (called at startup).
@@ -2792,6 +3105,9 @@ pub fn apply_stored_kill_switch(state: &mut OrcState, s: &KillSwitchStoredSettin
     state.kill_switch.vpn_source = s.vpn_source.clone();
     state.kill_switch.grace_period_sec = s.grace_period_sec;
     state.kill_switch.triggers = s.triggers.clone();
+    if s.enabled {
+        state.kill_switch.triggers.disable_dht_pex_lpd = true;
+    }
     state.kill_switch.enforcement_state = if s.enabled {
         KillSwitchState::Armed
     } else {
@@ -2815,14 +3131,34 @@ pub struct PatchPolicyRequest {
     pub desired_patch: DesiredPolicy,
 }
 
+pub fn effective_engine_network_policy(desired: &DesiredPolicy) -> EngineNetworkPolicy {
+    let mut policy = desired.engine.clone().resolve_beta();
+    policy.transports.ipv6 &= desired.ipv6_enabled;
+    if matches!(
+        effective_peer_traffic_mode(desired),
+        PeerTrafficMode::Require
+    ) {
+        policy.transports.utp = false;
+    }
+    if matches!(desired.profile, Some(PolicyProfile::Hardened)) {
+        policy.discovery.dht = false;
+        policy.discovery.pex = false;
+        policy.discovery.lsd = false;
+    }
+    policy.strict_binding |= desired.bind_interface_only;
+    policy
+}
+
 pub fn patch_policy(state: &mut OrcState, desired: DesiredPolicy) -> PolicyState {
     let mut warnings = Vec::new();
-    let network_allowed = if state.kill_switch.enabled {
-        let vpn_connected = is_vpn_connected();
-        vpn_connected
-    } else {
-        true
-    };
+    // Derive effective network state from the incoming kill-switch setting, not
+    // the previous configuration. Disabling protection must not leave a stale
+    // blocked policy window; enabling preserves an already-engaged block.
+    let network_allowed = !desired.kill_switch
+        || !matches!(
+            state.kill_switch.enforcement_state,
+            KillSwitchState::Engaged
+        );
     if desired.anonymous_mode && desired.upnp_natpmp_enabled {
         warnings.push(PolicyWarning {
             code: "anon_upnp".to_string(),
@@ -2830,39 +3166,144 @@ pub fn patch_policy(state: &mut OrcState, desired: DesiredPolicy) -> PolicyState
             severity: PolicyWarningSeverity::Warn,
         });
     }
+    let effective_peer_mode = effective_peer_traffic_mode(&desired);
+    if !desired.peer_encryption_opt_in && !matches!(desired.peer_encryption, TriState::Off) {
+        warnings.push(PolicyWarning {
+            code: "peer_encryption_consent_required".to_string(),
+            message: "Peer traffic obfuscation remains off until explicit consent is recorded."
+                .to_string(),
+            severity: PolicyWarningSeverity::Info,
+        });
+    } else if matches!(effective_peer_mode, PeerTrafficMode::Prefer) {
+        warnings.push(PolicyWarning {
+            code: "peer_encryption_mixed_traffic".to_string(),
+            message: "Prefer mode uses RC4 MSE when available, permits one fresh-socket plaintext fallback, and leaves uTP plaintext."
+                .to_string(),
+            severity: PolicyWarningSeverity::Warn,
+        });
+    } else if matches!(effective_peer_mode, PeerTrafficMode::Require) {
+        warnings.push(PolicyWarning {
+            code: "peer_encryption_require_swarm_reduction".to_string(),
+            message: "Require mode rejects plaintext peers and disables uTP; this can substantially reduce the available swarm."
+                .to_string(),
+            severity: PolicyWarningSeverity::Warn,
+        });
+    }
+    if desired.anonymous_mode {
+        warnings.push(PolicyWarning {
+            code: "anonymous_mode_unavailable".to_string(),
+            message:
+                "Anonymous routing is not implemented and direct BitTorrent traffic remains in use."
+                    .to_string(),
+            severity: PolicyWarningSeverity::Block,
+        });
+    }
+
+    let engine_policy = effective_engine_network_policy(&desired);
+    if engine_policy.strict_binding && state.bind_interface.is_none() {
+        warnings.push(PolicyWarning {
+            code: "strict_binding_requires_interface".to_string(),
+            message: "Strict binding is requested but no interface is selected; engine traffic will remain suspended."
+                .to_string(),
+            severity: PolicyWarningSeverity::Block,
+        });
+    }
+    state.engine.set_network_policy(engine_policy.clone());
+    state.engine.set_peer_traffic_policy(
+        desired.peer_encryption.into(),
+        desired.peer_encryption_opt_in,
+        desired.engine.clone().resolve_beta().transports.utp,
+    );
 
     let effective = EffectivePolicy {
-        anonymous_mode: desired.anonymous_mode,
-        peer_encryption: desired.peer_encryption.clone(),
-        dht_hardening: desired.dht_hardening,
+        engine: engine_policy.clone(),
+        anonymous_mode: false,
+        peer_encryption: effective_peer_mode.into(),
+        peer_encryption_opt_in: desired.peer_encryption_opt_in,
+        dht_hardening: false,
         enforce_private_torrents: desired.enforce_private_torrents,
-        ip_blocklist: desired.ip_blocklist,
+        ip_blocklist: false,
         kill_switch: desired.kill_switch,
-        bind_interface_only: desired.bind_interface_only,
-        overlay_padding: desired.overlay_padding.clone(),
-        sybil_resistance: desired.sybil_resistance,
-        relay_pow_required: desired.relay_pow_required,
-        relay_subnet_diversity: desired.relay_subnet_diversity,
-        relay_reputation_weighting: desired.relay_reputation_weighting,
-        ipv6_enabled: desired.ipv6_enabled,
-        upnp_natpmp_enabled: desired.upnp_natpmp_enabled,
-        circuit_rotation_enabled: desired.circuit_rotation_enabled,
-        deny_direct_exits: desired.deny_direct_exits,
-        minimize_fingerprinting: desired.minimize_fingerprinting,
+        bind_interface_only: engine_policy.strict_binding && state.bind_interface.is_some(),
+        overlay_padding: PaddingLevel::Off,
+        sybil_resistance: false,
+        relay_pow_required: false,
+        relay_subnet_diversity: false,
+        relay_reputation_weighting: false,
+        ipv6_enabled: engine_policy.transports.ipv6,
+        upnp_natpmp_enabled: false,
+        circuit_rotation_enabled: false,
+        deny_direct_exits: false,
+        minimize_fingerprinting: false,
         profile: desired.profile.clone(),
         network_allowed,
-        discovery_allowed: !desired.enforce_private_torrents,
-        direct_peer_allowed: !desired.anonymous_mode,
+        discovery_allowed: engine_policy.discovery.dht
+            || engine_policy.discovery.pex
+            || engine_policy.discovery.lsd,
+        direct_peer_allowed: network_allowed,
     };
 
     state.policy.desired = desired.clone();
     state.policy.effective = effective;
     state.policy.warnings = warnings;
+    state.policy.disabled.insert(
+        "peer_encryption".to_string(),
+        ToggleDisabled {
+            disabled: false,
+            reason: None,
+        },
+    );
+    for (key, reason) in [
+        ("anonymous_mode", "anonymous routing is not implemented"),
+        (
+            "dht_hardening",
+            "DHT hardening controls are not implemented",
+        ),
+        ("ip_blocklist", "no blocklist source is configured"),
+        ("overlay_padding", "overlay routing is not implemented"),
+        ("sybil_resistance", "overlay routing is not implemented"),
+        ("relay_pow_required", "relay routing is not implemented"),
+        ("relay_subnet_diversity", "relay routing is not implemented"),
+        (
+            "relay_reputation_weighting",
+            "relay routing is not implemented",
+        ),
+        (
+            "circuit_rotation_enabled",
+            "circuit routing is not implemented",
+        ),
+        ("deny_direct_exits", "circuit routing is not implemented"),
+        (
+            "minimize_fingerprinting",
+            "fingerprint minimization is not implemented",
+        ),
+        (
+            "upnp_natpmp_enabled",
+            "automatic port mapping is disabled during the engine beta",
+        ),
+    ] {
+        state.policy.disabled.insert(
+            key.to_string(),
+            ToggleDisabled {
+                disabled: true,
+                reason: Some(reason.to_string()),
+            },
+        );
+    }
     state.policy.version += 1;
     state.policy.last_updated_ms = now_ms();
 
     if desired.kill_switch != state.kill_switch.enabled {
         state.kill_switch.enabled = desired.kill_switch;
+        state.kill_switch.enforcement_state = if desired.kill_switch {
+            KillSwitchState::Armed
+        } else {
+            KillSwitchState::Disarmed
+        };
+        if desired.kill_switch {
+            state.kill_switch.triggers.disable_dht_pex_lpd = true;
+        }
+        state.vpn_loss_started_ms = None;
     }
     state.policy.desired.kill_switch = state.kill_switch.enabled;
 
@@ -2917,32 +3358,42 @@ pub fn tick(state: &mut OrcState) {
         match current_state {
             KillSwitchState::Armed => {
                 if !vpn_connected {
-                    state.kill_switch.enforcement_state = KillSwitchState::Engaged;
-                    state.kill_switch.last_enforcement_ms = Some(now_ms());
-                    info!("Kill switch engaged: VPN disconnected");
-                    let mut to_pause = Vec::new();
-                    for (id, rec) in state.torrents.iter_mut() {
-                        if rec.runtime.running {
-                            rec.runtime.running = false;
-                            rec.torrent.running = false;
-                            rec.runtime.state = TorrentState::Stopped;
-                            rec.runtime.down_rate_bps = 0;
-                            rec.runtime.up_rate_bps = 0;
-                            to_pause.push(id.clone());
+                    let loss_started = state.vpn_loss_started_ms.get_or_insert_with(now_ms);
+                    let grace_elapsed_ms = now_ms().saturating_sub(*loss_started);
+                    if grace_elapsed_ms >= state.kill_switch.grace_period_sec.saturating_mul(1000) {
+                        state.kill_switch.enforcement_state = KillSwitchState::Engaged;
+                        state.kill_switch.last_enforcement_ms = Some(now_ms());
+                        info!("Kill switch engaged: VPN disconnected");
+                        let mut to_pause = Vec::new();
+                        for (id, rec) in state.torrents.iter_mut() {
+                            let pause_for_trigger = state.kill_switch.triggers.pause_all_torrents
+                                || (state.kill_switch.triggers.stop_seeding
+                                    && matches!(rec.runtime.state, TorrentState::Seeding));
+                            if rec.runtime.running && pause_for_trigger {
+                                rec.runtime.running = false;
+                                rec.torrent.running = false;
+                                rec.runtime.state = TorrentState::Stopped;
+                                rec.runtime.down_rate_bps = 0;
+                                rec.runtime.up_rate_bps = 0;
+                                to_pause.push(id.clone());
+                            }
                         }
-                    }
-                    for id in to_pause {
-                        if !state.seeding_stop_pending.contains(&id) {
-                            state.seeding_stop_pending.push(id);
+                        for id in to_pause {
+                            if !state.seeding_stop_pending.contains(&id) {
+                                state.seeding_stop_pending.push(id);
+                            }
                         }
+                        persist_torrent_catalog(state);
                     }
-                    persist_torrent_catalog(state);
+                } else {
+                    state.vpn_loss_started_ms = None;
                 }
             }
             KillSwitchState::Engaged => {
                 if vpn_connected {
                     state.kill_switch.enforcement_state = KillSwitchState::Armed;
                     state.kill_switch.last_enforcement_ms = Some(now_ms());
+                    state.vpn_loss_started_ms = None;
                     info!("Kill switch released: VPN reconnected");
                 }
             }
@@ -2959,13 +3410,17 @@ pub fn tick(state: &mut OrcState) {
                 }
             }
         }
-        let network_allowed = vpn_connected;
+        let network_allowed = !matches!(
+            state.kill_switch.enforcement_state,
+            KillSwitchState::Engaged
+        );
         if state.policy.effective.network_allowed != network_allowed {
             state.policy.effective.network_allowed = network_allowed;
             state.policy.version += 1;
             state.policy.last_updated_ms = now_ms();
         }
     } else {
+        state.vpn_loss_started_ms = None;
         if !state.policy.effective.network_allowed {
             state.policy.effective.network_allowed = true;
             state.policy.version += 1;
@@ -2974,9 +3429,9 @@ pub fn tick(state: &mut OrcState) {
     }
 
     for rec in state.torrents.values_mut() {
-        let tid = TorrentIdOrHash::Id(rec.runtime.rqbit_id);
+        let tid = TorrentIdOrHash::Id(rec.runtime.engine_id);
 
-        let stats = match state.rqbit.api_stats_v1(tid) {
+        let stats = match state.engine.torrent_stats(tid) {
             Ok(s) => s,
             Err(e) => {
                 rec.runtime.last_error = Some(e.to_string());
@@ -2987,34 +3442,12 @@ pub fn tick(state: &mut OrcState) {
                 continue;
             }
         };
-        let v = match serde_json::to_value(&stats) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::debug!(
-                    "Failed to serialize stats for torrent {}: {}",
-                    rec.runtime.rqbit_id,
-                    e
-                );
-                continue;
-            }
-        };
-
-        let total_bytes = v.get("total_bytes").and_then(|x| x.as_u64()).unwrap_or(0);
-        let progress_bytes = v
-            .get("progress_bytes")
-            .and_then(|x| x.as_u64())
-            .or_else(|| v.get("downloaded_bytes").and_then(|x| x.as_u64()))
-            .unwrap_or(0);
-        let uploaded_bytes = v
-            .get("uploaded_bytes")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(0);
-        let finished = v.get("finished").and_then(|x| x.as_bool()).unwrap_or(false);
-        let state_str = v.get("state").and_then(|x| x.as_str()).unwrap_or("error");
-        let err = v
-            .get("error")
-            .and_then(|x| x.as_str())
-            .map(|s| s.to_string());
+        let total_bytes = stats.total_bytes;
+        let progress_bytes = stats.progress_bytes;
+        let uploaded_bytes = stats.uploaded_bytes;
+        let finished = stats.finished;
+        let state_str = stats.state.as_str();
+        let err = stats.error;
         let dt = now
             .duration_since(rec.runtime.last_sample)
             .as_secs_f64()
@@ -3072,11 +3505,10 @@ pub fn tick(state: &mut OrcState) {
             TorrentState::Stopped | TorrentState::Error
         );
         rec.torrent.running = rec.runtime.running;
-        if let Some(arr) = v.get("file_progress").and_then(|x| x.as_array()) {
-            for (i, fp) in arr.iter().enumerate() {
+        if !stats.file_progress.is_empty() {
+            for (i, progress) in stats.file_progress.iter().copied().enumerate() {
                 if let Some(f) = rec.runtime.files.get_mut(i) {
-                    let p = fp.as_u64().unwrap_or(0);
-                    f.downloaded = p >= f.size && f.priority != "skip";
+                    f.downloaded = progress >= f.size && f.priority != "skip";
                 }
             }
         } else if finished {
@@ -3144,10 +3576,10 @@ pub fn sanitize_fs_name(s: &str) -> String {
 fn split_path_components(name: &str) -> Vec<String> {
     const MAX_PATH_DEPTH: usize = 100;
     let parts = name
-        .split(|c| c == '/' || c == '\\')
+        .split(['/', '\\'])
         .filter(|p| !p.is_empty())
         .filter(|p| *p != "." && *p != "..")
-        .map(|p| sanitize_path_component(p))
+        .map(sanitize_path_component)
         .filter(|p| !p.is_empty())
         .take(MAX_PATH_DEPTH)
         .collect::<Vec<_>>();
@@ -3224,13 +3656,13 @@ fn parse_torrent_metainfo(bytes: &[u8]) -> Result<TorrentMeta> {
         })
         .ok_or_else(|| anyhow!("missing info dict"))?;
 
-    let name = get_bytes(&info, b"name.utf-8")
-        .or_else(|| get_bytes(&info, b"name"))
+    let name = get_bytes(info, b"name.utf-8")
+        .or_else(|| get_bytes(info, b"name"))
         .map(|b| String::from_utf8_lossy(&b).to_string());
     let mut files_out = Vec::new();
     let mut total: u64 = 0;
 
-    if let Some(len) = get_int(&info, b"length") {
+    if let Some(len) = get_int(info, b"length") {
         let size = len.max(0) as u64;
         total = size;
         files_out.push(TorrentFileEntry {
@@ -3239,18 +3671,18 @@ fn parse_torrent_metainfo(bytes: &[u8]) -> Result<TorrentMeta> {
             priority: "normal".to_string(),
             downloaded: false,
         });
-    } else if let Some(BVal::List(files)) = get_dict_value(&info, b"files") {
+    } else if let Some(BVal::List(files)) = get_dict_value(info, b"files") {
         for f in files {
             if let BVal::Dict(fd) = f {
-                let len = get_int(&fd, b"length").unwrap_or(0).max(0) as u64;
+                let len = get_int(fd, b"length").unwrap_or(0).max(0) as u64;
                 let path_list =
-                    get_dict_value(&fd, b"path.utf-8").or_else(|| get_dict_value(&fd, b"path"));
+                    get_dict_value(fd, b"path.utf-8").or_else(|| get_dict_value(fd, b"path"));
 
                 let mut path = Vec::new();
                 if let Some(BVal::List(parts)) = path_list {
                     for p in parts {
                         if let BVal::Bytes(b) = p {
-                            path.push(String::from_utf8_lossy(&b).to_string());
+                            path.push(String::from_utf8_lossy(b).to_string());
                         }
                     }
                 }
@@ -3452,10 +3884,9 @@ pub fn peers_for(state: &mut OrcState, id: &str) -> Result<PeersResponse> {
         .get_mut(id)
         .ok_or_else(|| anyhow!("torrent not found"))?;
 
-    let tid = TorrentIdOrHash::Id(rec.runtime.rqbit_id);
+    let tid = TorrentIdOrHash::Id(rec.runtime.engine_id);
 
-    use librqbit::api::PeerStatsFilter;
-    let snapshot = match state.rqbit.api_peer_stats(tid, PeerStatsFilter::default()) {
+    let snapshot = match state.engine.peer_stats(tid) {
         Ok(s) => s,
         Err(e) => {
             rec.runtime.last_error = Some(e.to_string());
@@ -3463,37 +3894,16 @@ pub fn peers_for(state: &mut OrcState, id: &str) -> Result<PeersResponse> {
         }
     };
 
-    let v = serde_json::to_value(&snapshot).unwrap_or(serde_json::Value::Null);
-    let entries = peer_entries_from_snapshot(&v);
-
     let now_i = Instant::now();
     let now_ms_epoch = now_ms();
 
     let mut seen = HashSet::new();
     let mut out = Vec::new();
 
-    for (addr, pv) in entries {
+    for (addr, peer) in snapshot.peers {
         let (ip, port) = split_addr(&addr);
-
-        let downloaded = pick_u64(
-            &pv,
-            &[
-                "downloaded",
-                "downloaded_bytes",
-                "total_downloaded",
-                "dl_bytes",
-            ],
-        )
-        .unwrap_or(0);
-        let uploaded = pick_u64(
-            &pv,
-            &["uploaded", "uploaded_bytes", "total_uploaded", "ul_bytes"],
-        )
-        .unwrap_or(0);
-
-        let client = pick_str(&pv, &["client", "client_name", "user_agent", "client_id"]);
-
-        let flags = pick_str(&pv, &["flags"]).unwrap_or_else(|| synth_peer_flags(&pv));
+        let downloaded = peer.downloaded_bytes;
+        let uploaded = peer.uploaded_bytes;
 
         // Rate sampling.
         let key = addr.clone();
@@ -3520,13 +3930,15 @@ pub fn peers_for(state: &mut OrcState, id: &str) -> Result<PeersResponse> {
         );
 
         // Lookup country code using GeoIP database (if available)
-        let country = pick_str(&pv, &["country", "country_code"]).or_else(|| {
-            // If peer data doesn't include country, lookup using GeoIP
+        let country = {
             state
                 .geoip_reader
                 .as_ref()
                 .and_then(|reader| lookup_country(reader, &ip))
-        });
+        };
+
+        let incoming = peer.incoming;
+        let flags = if incoming { "I" } else { "—" };
 
         out.push(PeerRow {
             id: addr.clone(),
@@ -3536,18 +3948,20 @@ pub fn peers_for(state: &mut OrcState, id: &str) -> Result<PeersResponse> {
             up_rate,
             downloaded,
             uploaded,
-            client,
-            flags: Some(flags),
-            progress: pick_f32(&pv, &["progress", "peer_progress"]),
-            snubbed: pick_bool(&pv, &["snubbed", "is_snubbed"]).unwrap_or(false),
-            choked: pick_bool(&pv, &["choked", "is_choked"]).unwrap_or(false),
-            interested: pick_bool(&pv, &["interested", "is_interested"]),
-            optimistic: pick_bool(&pv, &["optimistic"])
-                .or_else(|| pick_bool(&pv, &["optimistic_unchoke"])),
-            incoming: pick_bool(&pv, &["incoming", "is_incoming"]),
-            encrypted: pick_bool(&pv, &["encrypted", "is_encrypted"]),
-            rtt_ms: pick_u64(&pv, &["rtt_ms", "rtt", "ping_ms"])
-                .map(|x| x.min(u32::MAX as u64) as u32),
+            client: peer.connection_kind,
+            flags: Some(flags.to_string()),
+            progress: None,
+            snubbed: false,
+            choked: false,
+            interested: None,
+            optimistic: None,
+            incoming: Some(incoming),
+            encrypted: Some(matches!(
+                peer.traffic_protection,
+                Some(TrafficProtection::MseRc4)
+            )),
+            traffic_protection: peer.traffic_protection,
+            rtt_ms: None,
             country,
             last_seen_ms,
         });
@@ -3735,7 +4149,7 @@ fn parse_trackers_from_torrent_bytes(bytes: &[u8]) -> Vec<String> {
                     BVal::List(urls) => {
                         for u in urls {
                             if let BVal::Bytes(b) = u {
-                                let s = String::from_utf8_lossy(&b).to_string();
+                                let s = String::from_utf8_lossy(b).to_string();
                                 if !s.trim().is_empty() {
                                     out.push(s);
                                 }
@@ -3792,133 +4206,6 @@ fn from_hex(b: u8) -> Option<u8> {
 }
 
 #[allow(dead_code)]
-fn peer_entries_from_snapshot(v: &serde_json::Value) -> Vec<(String, serde_json::Value)> {
-    if let Some(obj) = v.as_object() {
-        for key in [
-            "peers",
-            "per_peer",
-            "per_peer_stats",
-            "peer_stats",
-            "per_peer_stats_snapshot",
-        ] {
-            if let Some(sub) = obj.get(key) {
-                if let Some(map) = sub.as_object() {
-                    return map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                }
-                if let Some(arr) = sub.as_array() {
-                    return arr
-                        .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            let addr = pick_str(p, &["addr", "peer_addr", "peer", "socket"])
-                                .unwrap_or_else(|| format!("peer-{i}"));
-                            (addr, p.clone())
-                        })
-                        .collect();
-                }
-            }
-        }
-        if obj.values().all(|vv| vv.is_object()) {
-            return obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        }
-    }
-
-    vec![]
-}
-
-#[allow(dead_code)]
-fn pick_u64(v: &serde_json::Value, keys: &[&str]) -> Option<u64> {
-    let obj = v.as_object()?;
-    for k in keys {
-        if let Some(x) = obj.get(*k) {
-            if let Some(n) = x.as_u64() {
-                return Some(n);
-            }
-            if let Some(n) = x.as_i64() {
-                return Some(n.max(0) as u64);
-            }
-        }
-    }
-    None
-}
-
-#[allow(dead_code)]
-fn pick_f32(v: &serde_json::Value, keys: &[&str]) -> Option<f32> {
-    let obj = v.as_object()?;
-    for k in keys {
-        if let Some(x) = obj.get(*k) {
-            if let Some(n) = x.as_f64() {
-                return Some(n as f32);
-            }
-        }
-    }
-    None
-}
-
-#[allow(dead_code)]
-fn pick_str(v: &serde_json::Value, keys: &[&str]) -> Option<String> {
-    let obj = v.as_object()?;
-    for k in keys {
-        if let Some(x) = obj.get(*k) {
-            if let Some(s) = x.as_str() {
-                if !s.trim().is_empty() {
-                    return Some(s.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-#[allow(dead_code)]
-fn pick_bool(v: &serde_json::Value, keys: &[&str]) -> Option<bool> {
-    let obj = v.as_object()?;
-    for k in keys {
-        if let Some(x) = obj.get(*k) {
-            if let Some(b) = x.as_bool() {
-                return Some(b);
-            }
-            if let Some(n) = x.as_i64() {
-                return Some(n != 0);
-            }
-            if let Some(n) = x.as_u64() {
-                return Some(n != 0);
-            }
-        }
-    }
-    None
-}
-
-#[allow(dead_code)]
-fn synth_peer_flags(v: &serde_json::Value) -> String {
-    let mut flags = String::new();
-    let obj = v.as_object();
-
-    let b = |k: &str| -> bool {
-        obj.and_then(|o| o.get(k))
-            .and_then(|x| x.as_bool())
-            .unwrap_or(false)
-    };
-
-    if b("encrypted") || b("is_encrypted") {
-        flags.push('E');
-    }
-    if b("is_seed") || b("seed") {
-        flags.push('S');
-    }
-    if b("choked") || b("is_choked") {
-        flags.push('C');
-    }
-    if b("interested") || b("is_interested") {
-        flags.push('I');
-    }
-    if flags.is_empty() {
-        flags.push('—');
-    }
-    flags
-}
-
-#[allow(dead_code)]
 fn split_addr(addr: &str) -> (String, u16) {
     if let Ok(sa) = addr.parse::<std::net::SocketAddr>() {
         return (sa.ip().to_string(), sa.port());
@@ -3935,11 +4222,14 @@ fn split_addr(addr: &str) -> (String, u16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_vpn_safety_preset_with_vpn, extract_display_name_from_magnet,
-        find_torrent_by_info_hash, has_meaningful_pre_metadata_name, interface_name_matches_vpn,
-        is_generic_name_hint, new_state, resolve_torrent_name, resolve_torrent_output_folder,
-        sanitize_fs_name, AddTorrentRequest, ConnectionType, PeerRow, PeersResponse, Torrent,
-        TorrentMode, TorrentProfile, TorrentRecord, TorrentRuntime, TorrentState,
+        apply_vpn_safety_preset_with_vpn, effective_engine_network_policy,
+        extract_display_name_from_magnet, find_torrent_by_info_hash,
+        has_meaningful_pre_metadata_name, interface_name_matches_vpn, is_generic_name_hint,
+        new_state, patch_policy, resolve_torrent_name, resolve_torrent_output_folder,
+        sanitize_fs_name, validate_strict_binding, AddTorrentRequest, ConnectionType,
+        DesiredPolicy, KillSwitchState, PaddingLevel, PeerRow, PeerTrafficMode, PeersResponse,
+        PolicyProfile, Torrent, TorrentMode, TorrentProfile, TorrentRecord, TorrentRuntime,
+        TorrentState, TrafficProtection, TriState,
     };
     use regex::Regex;
     use std::collections::HashMap;
@@ -4151,6 +4441,7 @@ mod tests {
             optimistic: Some(false),
             incoming: Some(true),
             encrypted: Some(true),
+            traffic_protection: Some(TrafficProtection::MseRc4),
             rtt_ms: Some(42),
             country: Some("US".to_string()),
             last_seen_ms: 0,
@@ -4264,7 +4555,7 @@ mod tests {
 
     fn test_torrent_runtime() -> TorrentRuntime {
         TorrentRuntime {
-            rqbit_id: 0,
+            engine_id: 0,
             total_bytes: 0,
             downloaded_bytes: 0,
             uploaded_bytes: 0,
@@ -4298,6 +4589,111 @@ mod tests {
 
     fn next_test_port() -> u16 {
         TEST_PORT.fetch_add(1, Ordering::SeqCst)
+    }
+
+    fn test_desired_policy() -> DesiredPolicy {
+        DesiredPolicy {
+            engine: orc_engine::EngineNetworkPolicy::default(),
+            anonymous_mode: false,
+            peer_encryption: TriState::Prefer,
+            peer_encryption_opt_in: false,
+            dht_hardening: false,
+            enforce_private_torrents: false,
+            ip_blocklist: false,
+            kill_switch: false,
+            bind_interface_only: false,
+            overlay_padding: PaddingLevel::Off,
+            sybil_resistance: false,
+            relay_pow_required: false,
+            relay_subnet_diversity: false,
+            relay_reputation_weighting: false,
+            ipv6_enabled: true,
+            upnp_natpmp_enabled: false,
+            circuit_rotation_enabled: false,
+            deny_direct_exits: false,
+            minimize_fingerprinting: false,
+            profile: Some(PolicyProfile::Standard),
+        }
+    }
+
+    #[test]
+    fn beta_auto_policy_is_effectively_legacy() {
+        let effective = effective_engine_network_policy(&test_desired_policy());
+        assert_eq!(effective.mode, orc_engine::EngineMode::Auto);
+        assert!(effective.transports.tcp);
+        assert!(!effective.transports.utp);
+        assert!(!effective.transports.ipv6);
+        assert!(effective.discovery.dht);
+        assert!(effective.discovery.pex);
+        assert!(!effective.discovery.lsd);
+    }
+
+    #[test]
+    fn peer_obfuscation_requires_explicit_consent() {
+        let mut desired = test_desired_policy();
+        desired.peer_encryption = TriState::Prefer;
+        desired.peer_encryption_opt_in = false;
+        assert_eq!(
+            super::effective_peer_traffic_mode(&desired),
+            PeerTrafficMode::Off
+        );
+        desired.peer_encryption_opt_in = true;
+        assert_eq!(
+            super::effective_peer_traffic_mode(&desired),
+            PeerTrafficMode::Prefer
+        );
+    }
+
+    #[test]
+    fn require_mode_disables_effective_utp_without_mutating_desired() {
+        let mut desired = test_desired_policy();
+        desired.engine.mode = orc_engine::EngineMode::Modern;
+        desired.engine.transports.utp = true;
+        desired.peer_encryption = TriState::Require;
+        desired.peer_encryption_opt_in = true;
+        let effective = effective_engine_network_policy(&desired);
+        assert!(!effective.transports.utp);
+        assert!(desired.engine.transports.utp);
+    }
+
+    #[test]
+    fn require_mode_rejects_tcp_disabled_policy() {
+        let mut desired = test_desired_policy();
+        desired.engine.transports.tcp = false;
+        desired.engine.transports.utp = true;
+        desired.peer_encryption = TriState::Require;
+        assert!(desired.validate().is_err());
+    }
+
+    #[test]
+    fn hardened_policy_keeps_dual_stack_and_disables_discovery() {
+        let mut desired = test_desired_policy();
+        desired.engine = orc_engine::EngineNetworkPolicy::modern();
+        desired.profile = Some(PolicyProfile::Hardened);
+        let effective = effective_engine_network_policy(&desired);
+        assert!(effective.transports.tcp && effective.transports.utp);
+        assert!(effective.transports.ipv4 && effective.transports.ipv6);
+        assert!(!effective.discovery.dht);
+        assert!(!effective.discovery.pex);
+        assert!(!effective.discovery.lsd);
+    }
+
+    #[test]
+    fn policy_validation_rejects_an_engine_without_peer_transports() {
+        let mut desired = test_desired_policy();
+        desired.engine.transports.tcp = false;
+        desired.engine.transports.utp = false;
+        assert!(desired.validate().is_err());
+    }
+
+    #[test]
+    fn strict_binding_rejects_missing_interface_without_wildcard_fallback() {
+        let mut policy = orc_engine::EngineNetworkPolicy::modern();
+        policy.strict_binding = true;
+        let error = validate_strict_binding(Some("orc-interface-that-does-not-exist"), &policy)
+            .expect_err("strict binding must reject an unresolved interface");
+        assert!(error.to_string().contains("no IPv4 address"));
+        assert!(validate_strict_binding(None, &policy).is_err());
     }
 
     #[tokio::test]
@@ -4370,5 +4766,28 @@ mod tests {
         let result = apply_vpn_safety_preset_with_vpn(&mut guard, Some("utun4".into()));
         assert!(result.changed.iter().any(|c| c.contains("utun4")));
         assert_eq!(guard.bind_interface.as_deref(), Some("utun4"));
+    }
+
+    #[tokio::test]
+    async fn disabling_transfer_pause_does_not_leave_stale_blocked_policy() {
+        let dir = std::env::temp_dir().join(format!("orc-policy-order-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = new_state(dir.to_string_lossy().to_string(), next_test_port(), None)
+            .await
+            .unwrap();
+        let mut guard = state.lock().await;
+        guard.kill_switch.enabled = true;
+        guard.kill_switch.enforcement_state = KillSwitchState::Engaged;
+        guard.policy.effective.network_allowed = false;
+        let mut desired = test_desired_policy();
+        desired.kill_switch = false;
+
+        let policy = patch_policy(&mut guard, desired);
+        assert!(policy.effective.network_allowed);
+        assert!(policy.effective.direct_peer_allowed);
+        assert!(matches!(
+            guard.kill_switch.enforcement_state,
+            KillSwitchState::Disarmed
+        ));
     }
 }

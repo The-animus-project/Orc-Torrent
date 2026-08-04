@@ -69,7 +69,7 @@ export const VpnDetectionWidget = memo<VpnDetectionWidgetProps>(({ vpnStatus, ne
     <div
       className={`networkWidget ${onKillSwitchToggle ? "clickable" : ""}`}
       onClick={onKillSwitchToggle ? handleClick : undefined}
-      title={onKillSwitchToggle ? "Click to configure kill switch" : undefined}
+      title={onKillSwitchToggle ? "Configure VPN transfer pause" : undefined}
     >
       <div className="networkWidgetTitle">VPN Detection</div>
       <div className="networkWidgetContent">

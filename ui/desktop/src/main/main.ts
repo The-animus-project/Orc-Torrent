@@ -102,6 +102,9 @@ protocol.registerSchemesAsPrivileged([
 const DAEMON_PORT = 8733;
 const DAEMON_HOST = "127.0.0.1";
 const DAEMON_HTTP_TIMEOUT_MS = 5000; // Increased timeout for health checks
+const DAEMON_PROXY_MAX_BODY_BYTES = 10 * 1024 * 1024;
+const DAEMON_PROXY_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const DAEMON_DESKTOP_ORIGIN = "orc://desktop";
 
 // Daemon restart configuration
 const MAX_RESTART_ATTEMPTS = 10;
@@ -620,6 +623,34 @@ async function revealMainWindowWhenReady() {
   }
 }
 
+function isTrustedRendererUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (isDev) {
+      return parsed.origin === "http://127.0.0.1:5173" && parsed.pathname === "/";
+    }
+    if (parsed.protocol !== "file:") return false;
+    const actualPath = path.resolve(fileURLToPath(parsed));
+    const allowedPaths = [
+      path.join(app.getAppPath(), "dist", "renderer", "index.html"),
+      resolveBuiltArtifactPath("renderer", "index.html"),
+    ].map((candidate) => path.resolve(candidate));
+    return allowedPaths.includes(actualPath);
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedMainFrame(event: Electron.IpcMainInvokeEvent): boolean {
+  return Boolean(
+    mainWindow &&
+      !mainWindow.isDestroyed() &&
+      event.sender === mainWindow.webContents &&
+      event.senderFrame === mainWindow.webContents.mainFrame &&
+      isTrustedRendererUrl(event.senderFrame.url)
+  );
+}
+
 function createWindow() {
   const iconPath = getIconPath();
   const themeState = getCurrentAppThemeState();
@@ -690,6 +721,14 @@ function createWindow() {
 
   // SECURITY: Block window.open() from renderer to prevent arbitrary external URLs
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const enforceTopLevelNavigation = (event: Electron.Event, targetUrl: string) => {
+    if (!isTrustedRendererUrl(targetUrl)) {
+      event.preventDefault();
+      console.warn(`[SECURITY] Blocked top-level renderer navigation to ${targetUrl}`);
+    }
+  };
+  mainWindow.webContents.on("will-navigate", enforceTopLevelNavigation);
+  mainWindow.webContents.on("will-redirect", enforceTopLevelNavigation);
 
   mainWindow.once("ready-to-show", () => {
     mainWindowReadyToShow = true;
@@ -727,37 +766,41 @@ function createWindow() {
 
     // loadFile() handles asar archives automatically, so we can use it directly
     // If the file doesn't exist, loadFile will throw an error which we'll catch
-    mainWindow.loadFile(indexHtml, {
-      query: {
-        edition: desktopEditionBranding.edition,
-      },
-    }).catch((err) => {
-      console.error(`[Main] Failed to load HTML file:`, err);
-      console.error(`[Main] App path: ${appPath}`);
-      console.error(`[Main] __dirname: ${__dirname}`);
-      console.error(`[Main] resourcesPath: ${process.resourcesPath || "N/A"}`);
+    mainWindow
+      .loadFile(indexHtml, {
+        query: {
+          edition: desktopEditionBranding.edition,
+        },
+      })
+      .catch((err) => {
+        console.error(`[Main] Failed to load HTML file:`, err);
+        console.error(`[Main] App path: ${appPath}`);
+        console.error(`[Main] __dirname: ${__dirname}`);
+        console.error(`[Main] resourcesPath: ${process.resourcesPath || "N/A"}`);
 
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const fallbackPath = resolveBuiltArtifactPath("renderer", "index.html");
-        console.log(`[Main] Trying fallback path: ${fallbackPath}`);
-        mainWindow.loadFile(fallbackPath, {
-          query: {
-            edition: desktopEditionBranding.edition,
-          },
-        }).catch((fallbackErr) => {
-          console.error(`[Main] Fallback path also failed:`, fallbackErr);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const fallbackPath = resolveBuiltArtifactPath("renderer", "index.html");
+          console.log(`[Main] Trying fallback path: ${fallbackPath}`);
+          mainWindow
+            .loadFile(fallbackPath, {
+              query: {
+                edition: desktopEditionBranding.edition,
+              },
+            })
+            .catch((fallbackErr) => {
+              console.error(`[Main] Fallback path also failed:`, fallbackErr);
+              dialog.showErrorBox(
+                "Failed to Load UI",
+                `Failed to load the UI HTML file.\n\nError: ${err.message}\n\nApp Path: ${appPath}\n__dirname: ${__dirname}\n\nPlease rebuild the application.`
+              );
+            });
+        } else {
           dialog.showErrorBox(
             "Failed to Load UI",
             `Failed to load the UI HTML file.\n\nError: ${err.message}\n\nApp Path: ${appPath}\n__dirname: ${__dirname}\n\nPlease rebuild the application.`
           );
-        });
-      } else {
-        dialog.showErrorBox(
-          "Failed to Load UI",
-          `Failed to load the UI HTML file.\n\nError: ${err.message}\n\nApp Path: ${appPath}\n__dirname: ${__dirname}\n\nPlease rebuild the application.`
-        );
-      }
-    });
+        }
+      });
   }
 }
 
@@ -1073,6 +1116,109 @@ function httpRequestJson(method: "GET" | "POST", pathname: string, headers?: Rec
       req.destroy(new Error("timeout"));
     });
     req.end();
+  });
+}
+
+type DaemonProxyRequest = {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  body?: string;
+  headers?: Record<string, string>;
+};
+
+type DaemonProxyResponse = {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: string;
+};
+
+function validateDaemonProxyRequest(payload: unknown): DaemonProxyRequest {
+  if (!payload || typeof payload !== "object") throw new Error("Invalid daemon request");
+  const candidate = payload as Partial<DaemonProxyRequest>;
+  const allowedMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+  if (typeof candidate.method !== "string" || !allowedMethods.has(candidate.method)) {
+    throw new Error("Daemon request method is not allowed");
+  }
+  if (
+    typeof candidate.path !== "string" ||
+    !candidate.path.startsWith("/") ||
+    candidate.path.startsWith("//") ||
+    candidate.path.length > 4096 ||
+    candidate.path.includes("#")
+  ) {
+    throw new Error("Invalid daemon request path");
+  }
+  const parsed = new URL(candidate.path, "http://orc-daemon.invalid");
+  if (parsed.origin !== "http://orc-daemon.invalid") throw new Error("Invalid daemon request target");
+  if (candidate.body !== undefined) {
+    if (typeof candidate.body !== "string" || Buffer.byteLength(candidate.body) > DAEMON_PROXY_MAX_BODY_BYTES) {
+      throw new Error("Daemon request body is too large");
+    }
+  }
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(candidate.headers ?? {})) {
+    const normalized = name.toLowerCase();
+    if ((normalized === "content-type" || normalized === "accept") && typeof value === "string" && value.length <= 256) {
+      headers[normalized] = value;
+    }
+  }
+  return {
+    method: candidate.method as DaemonProxyRequest["method"],
+    path: `${parsed.pathname}${parsed.search}`,
+    body: candidate.body,
+    headers,
+  };
+}
+
+function proxyDaemonRequest(untrustedPayload: unknown): Promise<DaemonProxyResponse> {
+  const payload = validateDaemonProxyRequest(untrustedPayload);
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string | number> = {
+      ...payload.headers,
+      origin: DAEMON_DESKTOP_ORIGIN,
+      "x-admin-token": daemonAdminToken,
+    };
+    if (payload.body !== undefined) headers["content-length"] = Buffer.byteLength(payload.body);
+    const request = http.request(
+      {
+        host: DAEMON_HOST,
+        port: DAEMON_PORT,
+        path: payload.path,
+        method: payload.method,
+        timeout: 30_000,
+        headers,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        let total = 0;
+        response.on("data", (chunk: Buffer) => {
+          total += chunk.length;
+          if (total > DAEMON_PROXY_MAX_RESPONSE_BYTES) {
+            request.destroy(new Error("Daemon response exceeded the local proxy limit"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on("end", () => {
+          const responseHeaders: Record<string, string> = {};
+          for (const [name, value] of Object.entries(response.headers)) {
+            if (Array.isArray(value)) responseHeaders[name] = value.join(", ");
+            else if (value !== undefined) responseHeaders[name] = String(value);
+          }
+          resolve({
+            status: response.statusCode ?? 502,
+            statusText: response.statusMessage ?? "",
+            headers: responseHeaders,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+      }
+    );
+    request.on("error", reject);
+    request.on("timeout", () => request.destroy(new Error("Daemon request timed out")));
+    if (payload.body !== undefined) request.write(payload.body);
+    request.end();
   });
 }
 
@@ -1618,6 +1764,7 @@ async function startDaemonIfNeeded(): Promise<boolean> {
     ...process.env,
     DAEMON_BIND: `${DAEMON_HOST}:${DAEMON_PORT}`,
     DAEMON_ADMIN_TOKEN: daemonAdminToken,
+    DAEMON_ALLOWED_ORIGIN: DAEMON_DESKTOP_ORIGIN,
     RUST_LOG: "info,orc_bt_core=debug,orc_daemon=debug", // Enable verbose logging
     ORC_DOWNLOAD_DIR: app.getPath("downloads"), // Save torrents in user's Downloads folder
     ...(isAnimusEdition() ? { ORC_TORRENT_EDITION: "animus" } : {}),
@@ -2241,7 +2388,10 @@ async function gracefulShutdownIfOwned() {
   const logStreamRef = daemonLogStream;
 
   try {
-    await httpRequestJson("POST", "/admin/shutdown", { "x-admin-token": daemonAdminToken });
+    await httpRequestJson("POST", "/admin/shutdown", {
+      "x-admin-token": daemonAdminToken,
+      origin: DAEMON_DESKTOP_ORIGIN,
+    });
   } catch {
     // Ignore and fall back to process kill
   }
@@ -3601,6 +3751,15 @@ app
           const error = err instanceof Error ? err.message : String(err);
           return { success: false, error };
         }
+      });
+
+      // The renderer never receives the daemon token or selects a daemon authority.
+      // Every request is schema-checked here and forwarded only to the app-owned loopback port.
+      ipcMain.handle("daemon:request", async (event, payload: unknown): Promise<DaemonProxyResponse> => {
+        if (!isTrustedMainFrame(event)) {
+          throw new Error("Untrusted renderer frame");
+        }
+        return proxyDaemonRequest(payload);
       });
 
       // Port hygiene - manual cleanup trigger

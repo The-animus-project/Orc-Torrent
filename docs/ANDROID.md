@@ -30,7 +30,7 @@ cd ui/android/android
 
 The first-run system folder picker persists read/write permission to one user-selected tree. ORC validates that the provider is writable and seekable, rejects unsafe relative paths, and uses positional I/O through duplicated file descriptors. No broad storage permission is requested.
 
-Android 14+ schedules active work as a user-initiated data-transfer job. Android 10–13 use a `dataSync` foreground service. Both default to unmetered networking and share the same authenticated native API. VPN state comes from `ConnectivityManager`; when the opt-in kill switch loses its VPN network, Android prevents fallback to a clear network and pauses actual rqbit transfers. After reconnection, ORC binds to the new VPN and recreates transfer sockets only when the user resumes manually.
+Android 14+ schedules active work as a user-initiated data-transfer job. Android 10–13 use a `dataSync` foreground service. Both default to unmetered networking and share the same authenticated native API. VPN state comes from `ConnectivityManager`; the opt-in VPN transfer-pause control closes ORC networking and pauses transfers after VPN loss. It is not presented as an OS-wide firewall. After reconnection, ORC binds to the new VPN and recreates transfer sockets only when the user resumes manually.
 
 ## Release secrets
 

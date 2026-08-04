@@ -106,17 +106,19 @@ export const StatusToast = memo<StatusToastProps>(({ toast, onClose, theme = "el
     Math.min(1, remainingMs / (toast.phase === "loading" ? LOADING_DURATION_MS : DEFAULT_DURATION_MS))
   );
   const icon =
-    theme === "anarchy" ? null : theme === "kawaii"
-      ? toast.phase === "success"
-        ? "\u{1F496}"
-        : toast.phase === "error"
-          ? "\u{1F494}"
-          : "\u{1F495}"
-      : toast.phase === "success"
-        ? "\u2713"
-        : toast.phase === "error"
-          ? "\u26A0"
-          : "\u2022";
+    theme === "anarchy"
+      ? null
+      : theme === "kawaii"
+        ? toast.phase === "success"
+          ? "\u{1F496}"
+          : toast.phase === "error"
+            ? "\u{1F494}"
+            : "\u{1F495}"
+        : toast.phase === "success"
+          ? "\u2713"
+          : toast.phase === "error"
+            ? "\u26A0"
+            : "\u2022";
   const title = toast.phase === "success" ? "COMPLETED" : toast.phase === "error" ? "STATUS ERROR" : "WORKING";
 
   return (

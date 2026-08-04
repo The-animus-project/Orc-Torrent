@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { EditionBranding } from "../../shared/appEdition";
+import { getJson } from "../utils/api";
 import { AnimusBootScreen } from "./AnimusBootScreen";
 import { Spinner } from "./Spinner";
 
@@ -19,19 +20,8 @@ const COMPLETION_ANIMATION_MS = 450;
 
 async function pingDaemon(): Promise<boolean> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    try {
-      const r = await fetch("http://127.0.0.1:8733/health", {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      return r.ok;
-    } catch (err) {
-      clearTimeout(timeoutId);
-      throw err;
-    }
+    const health = await getJson<{ ok: boolean }>("/health");
+    return health.ok === true;
   } catch {
     return false;
   }
@@ -187,35 +177,35 @@ export function BootGate({ children }: BootGateProps) {
 
         <style>{`
           @keyframes startupBgPulse {
-            0%, 100% { 
-              opacity: 0.5; 
-              transform: translate(-50%, -50%) scale(1) rotate(0deg); 
+            0%, 100% {
+              opacity: 0.5;
+              transform: translate(-50%, -50%) scale(1) rotate(0deg);
             }
-            33% { 
-              opacity: 0.9; 
-              transform: translate(-50%, -50%) scale(1.2) rotate(120deg); 
+            33% {
+              opacity: 0.9;
+              transform: translate(-50%, -50%) scale(1.2) rotate(120deg);
             }
-            66% { 
-              opacity: 0.7; 
-              transform: translate(-50%, -50%) scale(1.1) rotate(240deg); 
+            66% {
+              opacity: 0.7;
+              transform: translate(-50%, -50%) scale(1.1) rotate(240deg);
             }
           }
           @keyframes startupFadeIn {
-            from { 
-              opacity: 0; 
-              transform: translateY(24px); 
+            from {
+              opacity: 0;
+              transform: translateY(24px);
               filter: blur(4px);
             }
-            to { 
-              opacity: 1; 
-              transform: translateY(0); 
+            to {
+              opacity: 1;
+              transform: translateY(0);
               filter: blur(0);
             }
           }
           @keyframes startupSpinnerEnter {
-            from { 
-              opacity: 0; 
-              transform: scale(0.2) rotate(-25deg); 
+            from {
+              opacity: 0;
+              transform: scale(0.2) rotate(-25deg);
               filter: blur(15px) brightness(0.5);
             }
             40% {
@@ -223,17 +213,17 @@ export function BootGate({ children }: BootGateProps) {
               transform: scale(0.8) rotate(-5deg);
               filter: blur(5px) brightness(0.8);
             }
-            70% { 
-              transform: scale(1.12) rotate(3deg); 
+            70% {
+              transform: scale(1.12) rotate(3deg);
               filter: blur(0) brightness(1.1);
             }
             85% {
               transform: scale(0.98) rotate(-1deg);
               filter: blur(0) brightness(1);
             }
-            to { 
-              opacity: 1; 
-              transform: scale(1) rotate(0deg); 
+            to {
+              opacity: 1;
+              transform: scale(1) rotate(0deg);
               filter: blur(0) brightness(1);
             }
           }
@@ -289,6 +279,20 @@ export function BootGate({ children }: BootGateProps) {
             }}
           >
             Initializing runtime...
+          </div>
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 700,
+              color: "rgba(255, 255, 255, 0.48)",
+              letterSpacing: "3px",
+              textTransform: "uppercase",
+              animation: "startupFadeIn 1.4s cubic-bezier(0.16, 1, 0.3, 1) 1.9s forwards",
+              opacity: 0,
+              marginTop: "-14px",
+            }}
+          >
+            Orclabs.io
           </div>
         </div>
       </div>

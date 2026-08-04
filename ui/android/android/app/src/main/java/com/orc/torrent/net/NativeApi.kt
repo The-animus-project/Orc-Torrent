@@ -9,29 +9,45 @@ import java.net.URL
 
 object NativeApi {
     data class TransferSummary(val active: Boolean, val progressPercent: Int, val text: String)
+    data class ApiResponse(val status: Int, val statusText: String, val body: String)
+
     private fun connection(context: Context, path: String, method: String): HttpURLConnection {
+        require(path.startsWith('/') && !path.startsWith("//") && path.length <= 4096) { "Invalid daemon path" }
         val bootstrap = EngineHost.snapshot() ?: EngineHost.ensureStarted(context)
         val connection = URL(bootstrap.getString("baseUrl") + path).openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 5_000
         connection.readTimeout = 5_000
         connection.setRequestProperty("x-admin-token", bootstrap.getString("adminToken"))
+        connection.setRequestProperty("origin", "https://localhost")
         return connection
     }
 
-    fun get(context: Context, path: String): JSONObject {
-        val connection = connection(context, path, "GET")
-        return connection.inputStream.bufferedReader().use { JSONObject(it.readText()) }
-    }
-
-    fun post(context: Context, path: String, body: JSONObject? = null) {
-        val connection = connection(context, path, "POST")
+    fun request(context: Context, path: String, method: String, body: String? = null): ApiResponse {
+        require(method in setOf("GET", "POST", "PUT", "PATCH", "DELETE")) { "Unsupported daemon method" }
+        require(body == null || body.toByteArray(Charsets.UTF_8).size <= 10 * 1024 * 1024) { "Daemon body is too large" }
+        val connection = connection(context, path, method)
         if (body != null) {
             connection.doOutput = true
             connection.setRequestProperty("content-type", "application/json")
-            connection.outputStream.bufferedWriter().use { it.write(body.toString()) }
+            connection.outputStream.bufferedWriter().use { it.write(body) }
         }
-        connection.inputStream.close()
+        val status = connection.responseCode
+        val stream = if (status >= 400) connection.errorStream else connection.inputStream
+        val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        require(responseBody.toByteArray(Charsets.UTF_8).size <= 16 * 1024 * 1024) { "Daemon response is too large" }
+        return ApiResponse(status, connection.responseMessage.orEmpty(), responseBody)
+    }
+
+    fun get(context: Context, path: String): JSONObject {
+        val response = request(context, path, "GET")
+        check(response.status < 400) { "Daemon returned HTTP ${response.status}" }
+        return JSONObject(response.body)
+    }
+
+    fun post(context: Context, path: String, body: JSONObject? = null) {
+        val response = request(context, path, "POST", body?.toString())
+        check(response.status < 400) { "Daemon returned HTTP ${response.status}: ${response.body}" }
     }
 
     fun pauseAll(context: Context) {

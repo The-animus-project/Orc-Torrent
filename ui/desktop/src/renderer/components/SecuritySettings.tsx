@@ -77,7 +77,7 @@ export const SecuritySettings = memo<SecuritySettingsProps>(({ online, onError, 
             className={`btn ${desired.profile === "standard" ? "primary" : ""}`}
             onClick={() => handleProfileChange("standard")}
             disabled={!online || loading}
-            title="Maximum Speed: Direct connections, no encryption overhead, best download performance"
+            title="Direct connections and discovery enabled for best download performance"
           >
             Standard
             {desired.profile === "standard" && <span className="securityProfileBadge">Best Speed</span>}
@@ -86,15 +86,15 @@ export const SecuritySettings = memo<SecuritySettingsProps>(({ online, onError, 
             className={`btn ${desired.profile === "hardened" ? "primary" : ""}`}
             onClick={() => handleProfileChange("hardened")}
             disabled={!online || loading}
-            title="Balanced: Encrypted connections with IP blocklist, moderate speed"
+            title="Disables DHT, PEX, LSD, and automatic port mapping"
           >
             Hardened
           </button>
           <button
             className={`btn ${desired.profile === "anonymous" ? "primary" : ""}`}
             onClick={() => handleProfileChange("anonymous")}
-            disabled={!online || loading}
-            title="Planned: overlay routing is not implemented; sets policy flags only"
+            disabled
+            title="Unavailable: overlay routing is not implemented"
           >
             Anonymous (planned)
           </button>
@@ -218,16 +218,37 @@ export const SecuritySettings = memo<SecuritySettingsProps>(({ online, onError, 
             </div>
           )}
           <TriStateToggle
-            label="Peer Protocol Encryption"
+            label="Peer traffic obfuscation (MSE/PE)"
             value={desired.peer_encryption}
             effective={effective.peer_encryption}
             disabled={isDisabled("peer_encryption")}
             disabledReason={getDisabledReason("peer_encryption")}
             overridden={isOverridden("peer_encryption")}
-            onChange={(val) => handleToggle("peer_encryption", val)}
+            onChange={(val) =>
+              update({
+                peer_encryption: val,
+                peer_encryption_opt_in: val === "off" ? desired.peer_encryption_opt_in : true,
+              })
+            }
             online={online}
             loading={loading}
           />
+          <PolicyToggle
+            label="Enable MSE/PE beta"
+            value={desired.peer_encryption_opt_in}
+            effective={effective.peer_encryption_opt_in}
+            disabled={isDisabled("peer_encryption")}
+            disabledReason={getDisabledReason("peer_encryption")}
+            overridden={isOverridden("peer_encryption_opt_in")}
+            onChange={(val) => handleToggle("peer_encryption_opt_in", val)}
+            online={online}
+            loading={loading}
+          />
+          <div className="securityHint securityHintInfo">
+            MSE/PE is peer traffic obfuscation, not anonymity or modern secure encryption. Prefer may use one
+            fresh-socket plaintext fallback and leaves uTP plaintext. Require rejects plaintext, disables uTP, and can
+            substantially reduce the swarm.
+          </div>
           <PaddingToggle
             label="Overlay Padding"
             value={desired.overlay_padding}

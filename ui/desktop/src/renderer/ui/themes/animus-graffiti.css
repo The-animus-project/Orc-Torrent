@@ -231,6 +231,21 @@ html[data-app-edition="animus"] .animusRailArtwork {
   padding: 8px 0 0;
 }
 
+html[data-app-edition="animus"] .animusRailWebsite {
+  align-self: center;
+  flex-shrink: 0;
+  color: var(--animus-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+html[data-app-edition="animus"] .animusRailWebsite:hover,
+html[data-app-edition="animus"] .animusRailWebsite:focus-visible {
+  color: var(--animus-lime-hot);
+}
+
 @keyframes animusCrownFadeIn {
   from {
     opacity: 0;

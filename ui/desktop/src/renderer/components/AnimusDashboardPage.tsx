@@ -59,21 +59,19 @@ export const AnimusDashboardPage = memo<AnimusDashboardPageProps>(
     onAddTorrent,
     onSelectTorrent,
   }) => {
-    const protectionLabel =
-      !online
-        ? "Reconnecting"
-        : netPosture?.state === "protected"
-          ? "Protected"
-          : netPosture?.state === "leak_risk"
-            ? "At Risk"
-            : "Checking";
+    const protectionLabel = !online
+      ? "Reconnecting"
+      : netPosture?.state === "protected"
+        ? "Protected"
+        : netPosture?.state === "leak_risk"
+          ? "At Risk"
+          : "Checking";
 
-    const protectionDetail =
-      !online
-        ? "Daemon offline, waiting for the local swarm services."
-        : netPosture?.bind_interface
-          ? `Bound to ${netPosture.bind_interface}`
-          : "VPN and bind posture are being refreshed.";
+    const protectionDetail = !online
+      ? "Daemon offline, waiting for the local swarm services."
+      : netPosture?.bind_interface
+        ? `Bound to ${netPosture.bind_interface}`
+        : "VPN and bind posture are being refreshed.";
 
     return (
       <div className="animusDashboardPage">
@@ -111,12 +109,7 @@ export const AnimusDashboardPage = memo<AnimusDashboardPageProps>(
 
         <section className="animusDashboardPanel">
           {panelWatermarkUrl ? (
-            <img
-              src={panelWatermarkUrl}
-              alt=""
-              aria-hidden="true"
-              className="animusDashboardPanelWatermark"
-            />
+            <img src={panelWatermarkUrl} alt="" aria-hidden="true" className="animusDashboardPanelWatermark" />
           ) : null}
           <div className="animusPanelHeader">
             <div>
@@ -157,7 +150,9 @@ export const AnimusDashboardPage = memo<AnimusDashboardPageProps>(
                   onClick={() => onSelectTorrent(torrent.id)}
                 >
                   <span className="animusTorrentName">{torrent.name}</span>
-                  <span className={`animusTorrentState ${status?.state ?? "stopped"}`}>{status?.state ?? "queued"}</span>
+                  <span className={`animusTorrentState ${status?.state ?? "stopped"}`}>
+                    {status?.state ?? "queued"}
+                  </span>
                   <span className="animusTorrentProgress">
                     <span className="animusTorrentProgressText">{formatProgress(status)}</span>
                     <span className="animusTorrentProgressBar">

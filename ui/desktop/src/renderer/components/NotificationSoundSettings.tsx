@@ -209,13 +209,13 @@ export const NotificationSoundSettings = memo<NotificationSoundSettingsProps>(({
             type="checkbox"
             checked={notifyOnKillSwitch}
             onChange={handleNotifyOnKillSwitchChange}
-            aria-label="Desktop notification when kill switch activates or releases"
+            aria-label="Desktop notification when VPN transfer pause activates or releases"
           />
-          <span>Desktop notification when kill switch activates (and when it releases)</span>
+          <span>Desktop notification when VPN transfer pause activates (and when it releases)</span>
         </label>
       </div>
       <p className="notificationSoundDescription">
-        Sound played when a torrent completes or when the kill switch activates. All bundled sounds are listed below;
+        Sound played when a torrent completes or when VPN transfer pause activates. All bundled sounds are listed below;
         pick &quot;Custom sound…&quot; or use Choose custom file to use your own audio.
       </p>
       {missingBundledCount > 0 ? (

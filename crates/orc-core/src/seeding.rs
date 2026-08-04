@@ -1,15 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SeedingAction {
+    #[default]
     StopTorrent,
-}
-
-impl Default for SeedingAction {
-    fn default() -> Self {
-        Self::StopTorrent
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

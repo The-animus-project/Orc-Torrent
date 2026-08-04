@@ -7,28 +7,30 @@ Orc-Torrent is designed to make **network posture visible** and to reduce accide
 | Feature | Description |
 |---------|-------------|
 | VPN interface detection | Heuristic match on interface names (WireGuard, tun, Mullvad, NordLynx, etc.) |
-| Kill switch | When enabled, pauses torrents if VPN disconnects |
+| Kill switch | Honors its grace period, pauses configured torrent work, cancels engine sockets/discovery, and requires a VPN-interface socket rebuild before Armed |
 | Leak protection flag | UI/policy signal when leak-proof mode is on |
-| Bind interface (advisory) | Records preferred interface; not fully enforced at socket level |
+| Bind interface | Recreates peer and discovery sockets on the selected device; strict mode blocks rather than using wildcard fallback |
 | Privacy status dashboard | Consolidated risk state: Protected / Warning / Blocked / Unknown |
 | VPN Safety Mode preset | One-click: enable kill switch, bind VPN interface if detected, enable leak protection |
 
 ## What is NOT implemented
 
-- Guaranteed socket binding to VPN interface (rqbit does not fully enforce this today)
+- OS-wide outbound firewall blocking (`block_outbound` is reported unsupported)
 - External public IP lookup (disabled by default; no hidden phone-home)
 - Tor or I2P transport
 - Legal or technical anonymity claims
 
-## Kill switch behavior
+## VPN transfer-pause behavior
 
-When the kill switch is **engaged**:
+This is an application-level ORC socket-confinement feature. It is not an operating-system firewall and is not described as an OS-wide kill switch.
+
+When the kill switch is **engaged** after its grace period:
 
 - Running torrents are paused
+- Active peer/discovery tasks are cancelled and new engine network work is suspended
 - `network_allowed` becomes false in effective policy
 - Start/recheck/announce return HTTP 403 until VPN is detected again
-
-Some kill-switch trigger fields in config (`stop_seeding`, `disable_dht_pex_lpd`, `grace_period_sec`) are stored but not all are enforced in the engine yet.
+- On reconnect, all sockets are recreated on the selected VPN interface before the kill switch returns to Armed; torrents paused by enforcement do not auto-resume
 
 ## Recommended setup
 
@@ -41,7 +43,7 @@ Some kill-switch trigger fields in config (`stop_seeding`, `disable_dht_pex_lpd`
 
 Using a VPN with Orc-Torrent reduces the chance of accidental clearnet exposure when the kill switch works as intended. It does not hide your activity from your VPN provider, trackers, or peers you connect to.
 
-For bind-interface advisory behavior, partial kill-switch triggers, and other gaps, see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
+For platform binding caveats, unsupported OS firewall blocking, and other gaps, see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
 ## VPN Safety Mode preset
 

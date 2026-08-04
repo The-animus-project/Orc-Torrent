@@ -22,6 +22,7 @@ interface Peer {
   optimistic?: boolean;
   incoming?: boolean;
   encrypted?: boolean;
+  traffic_protection?: "plaintext" | "mse_rc4" | null;
   rtt_ms?: number | null;
   country?: string | null;
 }
@@ -106,7 +107,7 @@ export const PeersTab = memo<PeersTabProps>(({ torrent, torrentStatus, online, o
     const uploading = peers.filter((p) => p.up_rate > 0).length;
     const seeds = peers.filter((p) => (p.progress ?? 0) >= 1).length;
     const incoming = peers.filter((p) => p.incoming).length;
-    const encrypted = peers.filter((p) => p.encrypted).length;
+    const encrypted = peers.filter((p) => p.traffic_protection === "mse_rc4").length;
     const choked = peers.filter((p) => p.choked).length;
     return {
       totalDown,
@@ -246,7 +247,9 @@ export const PeersTab = memo<PeersTabProps>(({ torrent, torrentStatus, online, o
   const getConnectionFlags = useCallback((peer: Peer): { icon: string; label: string; class: string }[] => {
     const flags: { icon: string; label: string; class: string }[] = [];
 
-    if (peer.encrypted) flags.push({ icon: "🔒", label: "Encrypted", class: "encrypted" });
+    if (peer.traffic_protection === "mse_rc4") {
+      flags.push({ icon: "◈", label: "MSE/PE obfuscated", class: "encrypted" });
+    }
     if (peer.incoming) flags.push({ icon: "←", label: "Incoming", class: "incoming" });
     else flags.push({ icon: "→", label: "Outgoing", class: "outgoing" });
 
@@ -373,7 +376,7 @@ export const PeersTab = memo<PeersTabProps>(({ torrent, torrentStatus, online, o
               <div className="peerSummaryDivider" />
               <div className="peerSummaryItem">
                 <span className="peerSummaryValue encrypted">{stats.encrypted}</span>
-                <span className="peerSummaryLabel">🔒 Encrypted</span>
+                <span className="peerSummaryLabel">◈ MSE/PE</span>
               </div>
             </>
           )}

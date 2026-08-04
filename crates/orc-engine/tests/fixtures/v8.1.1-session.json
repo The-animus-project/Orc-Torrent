@@ -1,0 +1,11 @@
+{
+  "torrents": {
+    "7": {
+      "info_hash": "cab507494d02ebb1178b38f2e9d7be299c86b862",
+      "trackers": ["https://tracker.invalid/announce"],
+      "output_folder": "/tmp/orc-v8-session-fixture",
+      "only_files": null,
+      "is_paused": true
+    }
+  }
+}

@@ -66,7 +66,7 @@ export const VpnStatusLed = memo<VpnStatusLedProps>(({ vpnStatus, killSwitchStat
           tooltip += `\nPublic IP: ${vpnStatus.public_ip}`;
         }
         if (killSwitchState === "armed") {
-          tooltip += "\nKill switch: ARMED";
+          tooltip += "\nVPN transfer pause: ARMED";
         }
         break;
       case "disconnected":
@@ -74,7 +74,7 @@ export const VpnStatusLed = memo<VpnStatusLedProps>(({ vpnStatus, killSwitchStat
         label = "VPN: Disconnected";
         tooltip = "VPN is not connected";
         if (killSwitchState === "engaged") {
-          tooltip += "\nKill switch: ENGAGED (enforcement active)";
+          tooltip += "\nVPN transfer pause: ACTIVE (ORC sockets closing)";
         }
         break;
       case "unknown":

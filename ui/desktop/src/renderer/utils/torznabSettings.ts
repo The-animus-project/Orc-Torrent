@@ -1,7 +1,6 @@
 import type { SearchProviderFormat, SearchProviderSetting } from "../types";
 
-export const PRIVATE_ENDPOINT_WARNING =
-  "Enable this only for a Jackett, Prowlarr or Torznab service you control.";
+export const PRIVATE_ENDPOINT_WARNING = "Enable this only for a Jackett, Prowlarr or Torznab service you control.";
 
 export const TORZNAB_TIMEOUT_MIN = 2;
 export const TORZNAB_TIMEOUT_MAX = 60;

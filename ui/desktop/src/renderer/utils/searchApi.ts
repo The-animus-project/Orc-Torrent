@@ -27,10 +27,7 @@ export async function searchTorrents(query: SearchQueryRequest): Promise<SearchR
   return postJson<SearchResponse>("/search", query, 30000);
 }
 
-export async function putSearchProviderCredentials(
-  name: string,
-  apiKey: string
-): Promise<SearchCredentialResponse> {
+export async function putSearchProviderCredentials(name: string, apiKey: string): Promise<SearchCredentialResponse> {
   return putJson<SearchCredentialResponse>(`/search/providers/${encodeURIComponent(name)}/credentials`, {
     api_key: apiKey,
   });

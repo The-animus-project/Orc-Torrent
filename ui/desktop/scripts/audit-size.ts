@@ -118,9 +118,7 @@ async function main(): Promise<void> {
   if (resourcesDir) {
     const daemonPath = findDaemonBinary(resourcesDir);
     if (daemonPath) {
-      console.log(
-        `daemon binary:   ${formatBytes(statSync(daemonPath).size)} (${relative(appRoot, daemonPath)})`
-      );
+      console.log(`daemon binary:   ${formatBytes(statSync(daemonPath).size)} (${relative(appRoot, daemonPath)})`);
     } else {
       console.log("daemon binary:   (not found in resources/bin)");
     }

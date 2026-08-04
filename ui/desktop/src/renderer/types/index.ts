@@ -108,6 +108,9 @@ export interface KillSwitchConfig {
   triggers: KillSwitchTriggers;
   enforcement_state: KillSwitchState;
   last_enforcement_ms: number | null;
+  outbound_block_supported?: boolean;
+  outbound_block_enforced?: boolean;
+  outbound_block_disabled_reason?: string | null;
 }
 
 export interface NetPosture {
@@ -329,6 +332,18 @@ export interface PrivacyStatus {
   dht_enabled: boolean;
   pex_enabled: boolean;
   lsd_enabled: boolean;
+  tcp_enabled: boolean;
+  utp_enabled: boolean;
+  ipv4_enabled: boolean;
+  ipv6_enabled: boolean;
+  binding_strict: boolean;
+  network_suspended: boolean;
+  requested_peer_traffic_mode: "off" | "prefer" | "require";
+  effective_peer_traffic_mode: "off" | "prefer" | "require";
+  peer_traffic_mixed: boolean;
+  protected_peer_count: number;
+  plaintext_peer_count: number;
+  degraded_reasons: string[];
   public_ip?: string | null;
   risk_state: RiskState;
   reason: string;

@@ -13,6 +13,7 @@ interface StatusBarProps {
   diskFree: number | null; // bytes
   encryptionMode: "forced" | "preferred" | "disabled";
   netPosture: NetPosture | null;
+  onOpenWebsite: () => void;
   /** Build/version shown in bottom right */
   version?: string;
 }
@@ -29,6 +30,7 @@ export const StatusBar = memo<StatusBarProps>(
     diskFree,
     encryptionMode,
     netPosture,
+    onOpenWebsite,
     version,
   }) => {
     return (
@@ -83,6 +85,14 @@ export const StatusBar = memo<StatusBarProps>(
           </div>
         </div>
         <div className="statusBarRight">
+          <button
+            type="button"
+            className="officialWebsiteLink statusBarWebsite"
+            onClick={onOpenWebsite}
+            title="Open the official ORC Torrent website"
+          >
+            Orclabs.io ↗
+          </button>
           {netPosture && (
             <div className={`statusPosture ${netPosture.state}`}>
               {netPosture.state === "protected"

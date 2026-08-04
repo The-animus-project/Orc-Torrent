@@ -49,7 +49,7 @@ export const KillSwitchPanel = memo<KillSwitchPanelProps>(
           dirtyRef.current = false;
           return true;
         } catch (e: unknown) {
-          const message = e instanceof Error ? e.message : "Failed to update kill switch";
+          const message = e instanceof Error ? e.message : "Failed to update VPN transfer pause";
           onError(message);
           return false;
         } finally {
@@ -63,7 +63,10 @@ export const KillSwitchPanel = memo<KillSwitchPanelProps>(
       async (nextEnabled: boolean) => {
         const previousEnabled = enabled;
         setEnabled(nextEnabled);
-        const ok = await patchKillSwitch({ enabled: nextEnabled }, `Kill switch ${nextEnabled ? "enabled" : "disabled"}`);
+        const ok = await patchKillSwitch(
+          { enabled: nextEnabled },
+          `VPN transfer pause ${nextEnabled ? "enabled" : "disabled"}`
+        );
         if (!ok) {
           setEnabled(previousEnabled);
         }
@@ -78,7 +81,7 @@ export const KillSwitchPanel = memo<KillSwitchPanelProps>(
         dirtyRef.current = true;
         setTriggers(nextTriggers);
 
-        const ok = await patchKillSwitch({ triggers: nextTriggers }, "Kill switch triggers updated");
+        const ok = await patchKillSwitch({ triggers: nextTriggers }, "VPN transfer-pause triggers updated");
         if (!ok) {
           dirtyRef.current = false;
           setTriggers(previous);
@@ -89,7 +92,7 @@ export const KillSwitchPanel = memo<KillSwitchPanelProps>(
 
     return (
       <div className="networkWidget">
-        <div className="networkWidgetTitle">Kill Switch</div>
+        <div className="networkWidgetTitle">Pause transfers when VPN disconnects</div>
         <div className="networkWidgetContent">
           <label className="toggle">
             <input
@@ -101,6 +104,9 @@ export const KillSwitchPanel = memo<KillSwitchPanelProps>(
             <span className="slider" />
             <span className="tText">{enabled ? "ENABLED" : "DISABLED"}</span>
           </label>
+          <p className="networkWidgetNote">
+            Application-level socket shutdown, not an operating-system firewall.
+          </p>
           {enabled && (
             <div className="networkWidgetSection">
               <div className="networkWidgetLabel">When triggered:</div>
@@ -128,9 +134,10 @@ export const KillSwitchPanel = memo<KillSwitchPanelProps>(
                     type="checkbox"
                     checked={triggers.disable_dht_pex_lpd}
                     onChange={(e) => void handleTriggerChange("disable_dht_pex_lpd", e.target.checked)}
-                    disabled={!online || loading}
+                    disabled
+                    title="Required: engine discovery sockets close whenever the kill switch engages"
                   />
-                  <span>Disable DHT/PEX/LPD</span>
+                  <span>Disable DHT/PEX/LSD (required)</span>
                 </label>
                 {netPosture?.kill_switch?.scope === "app_level" && (
                   <label className="checkbox">
@@ -138,9 +145,13 @@ export const KillSwitchPanel = memo<KillSwitchPanelProps>(
                       type="checkbox"
                       checked={triggers.block_outbound}
                       onChange={(e) => void handleTriggerChange("block_outbound", e.target.checked)}
-                      disabled={!online || loading}
+                      disabled
+                      title={
+                        netPosture?.kill_switch?.outbound_block_disabled_reason ??
+                        "OS-wide outbound blocking is unsupported"
+                      }
                     />
-                    <span>Block outbound</span>
+                    <span>Block outbound (unsupported)</span>
                   </label>
                 )}
               </div>

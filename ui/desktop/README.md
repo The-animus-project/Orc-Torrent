@@ -2,6 +2,10 @@
 
 Electron + React desktop client for the ORC Torrent daemon.
 
+Official website: [Orclabs.io](https://orclabs.io)
+
+The official website is shown on both loading experiences, in the General settings tab, and at the bottom of each desktop GUI shell. Website actions open the system browser through the validated `window.orc.openExternalUrl` bridge.
+
 ## Requirements
 
 - Node.js 20+

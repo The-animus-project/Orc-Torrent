@@ -6,17 +6,17 @@
   ; Check for running ORC TORRENT.exe process
   nsProcess::_FindProcess "ORC TORRENT.exe"
   Pop $R0
-  
+
   IntCmp $R0 0 0 done_ui done_ui
     ; Process is running, attempt graceful shutdown
     DetailPrint "ORC TORRENT.exe is running. Attempting graceful shutdown..."
-    
+
     ; Find the main window and send WM_CLOSE
     FindWindow $R1 "" "ORC TORRENT"
     IntCmp $R1 0 skip_close
       SendMessage $R1 0x0010 0 0 /TIMEOUT=1000
     skip_close:
-    
+
     ; Wait for process to terminate (up to 5 seconds)
     StrCpy $R2 0
     wait_ui_loop:
@@ -34,19 +34,19 @@
       nsProcess::_KillProcess "ORC TORRENT.exe"
       Sleep 200
   done_ui:
-  
+
   ; Check for running orc-daemon.exe process
   nsProcess::_FindProcess "orc-daemon.exe"
   Pop $R0
-  
+
   IntCmp $R0 0 0 done_daemon done_daemon
     ; Process is running, attempt graceful shutdown via HTTP API
     DetailPrint "orc-daemon.exe is running. Attempting graceful shutdown..."
-    
+
     ; Try to send shutdown request via HTTP (best effort)
     ; This is optional - if it fails, we'll force terminate
     ExecWait 'powershell -Command "try { Invoke-WebRequest -Uri http://127.0.0.1:8733/admin/shutdown -Method POST -Headers @{\"x-admin-token\"=\"\"} -TimeoutSec 2 -ErrorAction SilentlyContinue } catch {}"' $R3
-    
+
     ; Wait for process to terminate (up to 5 seconds)
     StrCpy $R2 0
     wait_daemon_loop:
@@ -64,7 +64,7 @@
       nsProcess::_KillProcess "orc-daemon.exe"
       Sleep 200
   done_daemon:
-  
+
   ; Final verification - ensure both processes are closed
   Sleep 300
   nsProcess::_FindProcess "ORC TORRENT.exe"

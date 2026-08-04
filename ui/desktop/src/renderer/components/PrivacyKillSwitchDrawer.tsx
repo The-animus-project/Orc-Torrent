@@ -56,9 +56,9 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
             await onRefreshVpn();
           }
           onUpdate();
-          onSuccess(`Kill switch ${enabled ? "enabled" : "disabled"}`);
+          onSuccess(`VPN transfer pause ${enabled ? "enabled" : "disabled"}`);
         } catch (e: unknown) {
-          const message = e instanceof Error ? e.message : "Failed to update kill switch";
+          const message = e instanceof Error ? e.message : "Failed to update VPN transfer pause";
           onError(message);
         } finally {
           setLoading(false);
@@ -74,7 +74,7 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
           setLoading(true);
           await patchJson("/net/kill-switch", { scope });
           onUpdate();
-          onSuccess("Kill switch scope updated");
+          onSuccess("VPN transfer-pause scope updated");
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : "Failed to update scope";
           onError(message);
@@ -96,7 +96,7 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
         });
         dirtyRef.current = false;
         onUpdate();
-        onSuccess("Kill switch configuration updated");
+        onSuccess("VPN transfer-pause configuration updated");
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : "Failed to update configuration";
         onError(message);
@@ -117,7 +117,7 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
           await patchJson("/net/kill-switch", { triggers: nextTriggers });
           dirtyRef.current = false;
           onUpdate();
-          onSuccess("Kill switch triggers updated");
+          onSuccess("VPN transfer-pause triggers updated");
         } catch (e: unknown) {
           dirtyRef.current = false;
           setConfig((current) => (current ? { ...current, triggers: previous } : current));
@@ -136,7 +136,7 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
         const result = await postJson("/net/kill-switch/test", {});
         setTestResult(result);
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Failed to test kill switch";
+        const message = e instanceof Error ? e.message : "Failed to test VPN transfer pause";
         onError(message);
       }
     }, [online, onError]);
@@ -147,10 +147,10 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
         setLoading(true);
         await patchJson("/net/kill-switch", { enabled: false });
         onUpdate();
-        onSuccess("Kill switch disabled (emergency unlock)");
+        onSuccess("VPN transfer pause disabled (emergency unlock)");
         setShowEmergencyConfirm(false);
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Failed to disable kill switch";
+        const message = e instanceof Error ? e.message : "Failed to disable VPN transfer pause";
         onError(message);
       } finally {
         setLoading(false);
@@ -164,7 +164,7 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
         <div className="drawerBackdrop" onClick={onClose}>
           <div className="drawer" onClick={(e) => e.stopPropagation()}>
             <div className="drawerHeader">
-              <h2>Privacy & Kill Switch</h2>
+              <h2>Privacy & VPN Transfer Pause</h2>
               <button className="drawerClose" onClick={onClose}>
                 ×
               </button>
@@ -181,15 +181,15 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
       <div className="drawerBackdrop" onClick={onClose}>
         <div className="drawer" onClick={(e) => e.stopPropagation()}>
           <div className="drawerHeader">
-            <h2>Privacy & Kill Switch</h2>
+            <h2>Privacy & VPN Transfer Pause</h2>
             <button className="drawerClose" onClick={onClose}>
               ×
             </button>
           </div>
           <div className="drawerContent">
-            {/* Kill Switch Toggle */}
+            {/* Application-level VPN transfer pause. This is not an OS firewall. */}
             <div className="drawerSection">
-              <div className="drawerSectionTitle">Kill Switch</div>
+              <div className="drawerSectionTitle">Pause transfers when VPN disconnects</div>
               <label className="toggle">
                 <input
                   type="checkbox"
@@ -200,6 +200,10 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
                 <span className="slider" />
                 <span className="tText">{config.enabled ? "ENABLED" : "DISABLED"}</span>
               </label>
+              <div className="drawerNote">
+                Application-level protection: ORC closes its transfer and discovery sockets after the grace period. It
+                is not an operating-system firewall and cannot block other applications.
+              </div>
             </div>
 
             {config.enabled && (
@@ -225,10 +229,12 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
                       value="app_level"
                       checked={config.scope === "app_level"}
                       onChange={() => handleScopeChange("app_level")}
-                      disabled={!online || loading}
+                      disabled
                     />
-                    <span>App-level firewall block (Windows, advanced)</span>
-                    {config.scope === "app_level" && <span className="drawerNote">Requires elevation</span>}
+                    <span>App-level firewall block (unsupported)</span>
+                    <span className="drawerNote">
+                      {config.outbound_block_disabled_reason ?? "No platform firewall integration is installed"}
+                    </span>
                   </label>
                 </div>
 
@@ -258,9 +264,10 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
                       type="checkbox"
                       checked={config.triggers.disable_dht_pex_lpd}
                       onChange={(e) => void handleTriggerChange("disable_dht_pex_lpd", e.target.checked)}
-                      disabled={!online || loading}
+                      disabled
+                      title="Required: engine discovery sockets close whenever the kill switch engages"
                     />
-                    <span>Disable DHT/PEX/LPD</span>
+                    <span>Disable DHT/PEX/LSD (required)</span>
                   </label>
                   {config.scope === "app_level" && (
                     <label className="checkbox">
@@ -268,9 +275,10 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
                         type="checkbox"
                         checked={config.triggers.block_outbound}
                         onChange={(e) => void handleTriggerChange("block_outbound", e.target.checked)}
-                        disabled={!online || loading}
+                        disabled
+                        title={config.outbound_block_disabled_reason ?? "OS-wide outbound blocking is unsupported"}
                       />
-                      <span>Block outbound</span>
+                      <span>Block outbound (unsupported)</span>
                     </label>
                   )}
                 </div>
@@ -393,7 +401,7 @@ export const PrivacyKillSwitchDrawer = memo<PrivacyKillSwitchDrawerProps>(
                 </button>
               </div>
               <div className="modalBody">
-                <p>Are you sure you want to disable the kill switch? This will bypass the grace period.</p>
+                <p>Disable automatic transfer pausing? This bypasses the configured grace period.</p>
               </div>
               <div className="modalActions">
                 <button className="btn" onClick={() => setShowEmergencyConfirm(false)}>

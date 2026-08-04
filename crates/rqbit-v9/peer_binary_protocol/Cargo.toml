@@ -1,0 +1,32 @@
+[package]
+name = "librqbit-peer-protocol"
+version = "4.3.0"
+edition = "2024"
+description = "Protocol for working with torrent peers. Used in rqbit torrent client."
+license = "Apache-2.0"
+documentation = "https://docs.rs/librqbit-peer-protocol"
+repository = "https://github.com/ikatson/rqbit"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+serde.workspace = true
+serde_derive.workspace = true
+byteorder.workspace = true
+buffers.workspace = true
+bencode.workspace = true
+clone_to_owned.workspace = true
+librqbit-core.workspace = true
+bitvec.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+itertools.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false

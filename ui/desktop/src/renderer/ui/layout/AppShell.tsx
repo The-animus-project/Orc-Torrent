@@ -72,12 +72,12 @@ export const AppShell = memo<AppShellProps>(
     onSearchError,
     onSearchSuccess,
     loadingOperations = new Set(),
-  editionBadge = "",
-  tagline = "Private torrent client",
-  accentColor = "",
-  logoUrl = "./images/orctorrent-logo.png",
-  isAnimusEdition = false,
-}) => {
+    editionBadge = "",
+    tagline = "Private torrent client",
+    accentColor = "",
+    logoUrl = "./images/orctorrent-logo.png",
+    isAnimusEdition = false,
+  }) => {
     const accentStyle = accentColor
       ? ({ ["--edition-accent" as string]: accentColor } as React.CSSProperties)
       : undefined;
@@ -85,21 +85,21 @@ export const AppShell = memo<AppShellProps>(
     return (
       <div className="appShell" style={accentStyle}>
         <div className="menuBar">
-        <div className="menuBarLeft">
-          <div className={`brand${isAnimusEdition ? " brandAnimus" : ""}`}>
-            <div className={`logo${isAnimusEdition ? "" : " brandLogo"}`}>
-              <img src={logoUrl} alt={isAnimusEdition ? "" : "ORC TORRENT"} />
+          <div className="menuBarLeft">
+            <div className={`brand${isAnimusEdition ? " brandAnimus" : ""}`}>
+              <div className={`logo${isAnimusEdition ? "" : " brandLogo"}`}>
+                <img src={logoUrl} alt={isAnimusEdition ? "" : "ORC TORRENT"} />
+              </div>
+              {!isAnimusEdition ? (
+                <div className="titles">
+                  <div className="tag">{tagline}</div>
+                </div>
+              ) : (
+                <div className="titles">
+                  <div className="tag animusTagOnly">{tagline}</div>
+                </div>
+              )}
             </div>
-            {!isAnimusEdition ? (
-              <div className="titles">
-                <div className="tag">{tagline}</div>
-              </div>
-            ) : (
-              <div className="titles">
-                <div className="tag animusTagOnly">{tagline}</div>
-              </div>
-            )}
-          </div>
             {editionBadge ? (
               <div className="editionBrandBadge" aria-label={editionBadge}>
                 {editionBadge}

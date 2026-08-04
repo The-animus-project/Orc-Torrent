@@ -30,6 +30,7 @@ interface AnimusShellProps {
   onDaemonHealthClick?: () => void;
   onAddTorrent: () => void;
   onOpenEvents: () => void;
+  onOpenWebsite: () => void;
   version: string;
   children: React.ReactNode;
 }
@@ -128,6 +129,7 @@ export const AnimusShell = memo<AnimusShellProps>(
     onDaemonHealthClick,
     onAddTorrent,
     onOpenEvents,
+    onOpenWebsite,
     version,
     children,
   }) => {
@@ -135,11 +137,7 @@ export const AnimusShell = memo<AnimusShellProps>(
       <div className="animusShell">
         <aside className="animusRail">
           <div className="animusRailBrand">
-            <img
-              src={sidebarLogoUrl || logoUrl}
-              alt="ORC TORRENT AnimUS Edition"
-              className="animusRailLogo"
-            />
+            <img src={sidebarLogoUrl || logoUrl} alt="ORC TORRENT AnimUS Edition" className="animusRailLogo" />
           </div>
 
           <nav className="animusRailNav" aria-label="AnimUS navigation">
@@ -165,6 +163,14 @@ export const AnimusShell = memo<AnimusShellProps>(
           <div className="animusRailArtwork">
             {sidebarEmblemUrl ? <img src={sidebarEmblemUrl} alt="" className="animusRailEmblem" /> : null}
           </div>
+          <button
+            type="button"
+            className="officialWebsiteLink animusRailWebsite"
+            onClick={onOpenWebsite}
+            title="Open the official ORC Torrent website"
+          >
+            Orclabs.io ↗
+          </button>
         </aside>
 
         <section className="animusSurface">
@@ -192,11 +198,7 @@ export const AnimusShell = memo<AnimusShellProps>(
               </div>
 
               <VpnStatusLed vpnStatus={vpnStatus} killSwitchState={killSwitchState} onClick={onVpnStatusClick} />
-              <DaemonHealthLed
-                state={daemonHealthState}
-                onClick={onDaemonHealthClick}
-                details={daemonHealthDetails}
-              />
+              <DaemonHealthLed state={daemonHealthState} onClick={onDaemonHealthClick} details={daemonHealthDetails} />
 
               <button type="button" className="btn animusTopBarButton" onClick={onOpenEvents}>
                 Events

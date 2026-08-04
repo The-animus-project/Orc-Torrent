@@ -101,13 +101,15 @@ export const Toast = memo<ToastProps>(({ toast, onClose, theme = "electric" }) =
   if (!toast) return null;
   const title = toast.kind === "error" ? "ERROR" : "INFO";
   const icon =
-    theme === "anarchy" ? null : theme === "kawaii"
-      ? toast.kind === "error"
-        ? "\u{1F494}"
-        : "\u{1F380}"
-      : toast.kind === "error"
-        ? "\u26A0"
-        : "\u2139";
+    theme === "anarchy"
+      ? null
+      : theme === "kawaii"
+        ? toast.kind === "error"
+          ? "\u{1F494}"
+          : "\u{1F380}"
+        : toast.kind === "error"
+          ? "\u26A0"
+          : "\u2139";
   const progressRatio = Math.max(0, Math.min(1, remainingMs / 3200));
 
   return (
@@ -125,11 +127,7 @@ export const Toast = memo<ToastProps>(({ toast, onClose, theme = "electric" }) =
       {usesAnarchyEmblemRing(theme) ? <AnarchyEmblemRing variant="toast" /> : null}
       <div className="toastHeader">
         <div className="toastIcon" aria-hidden="true">
-          {theme === "anarchy" ? (
-            <AnarchyToastIcon phase={toast.kind === "error" ? "error" : "default"} />
-          ) : (
-            icon
-          )}
+          {theme === "anarchy" ? <AnarchyToastIcon phase={toast.kind === "error" ? "error" : "default"} /> : icon}
         </div>
         <div className="toastTitle">{title}</div>
         <button type="button" className="toastDismiss" aria-label="Dismiss notification" onClick={closeWithAnimation}>

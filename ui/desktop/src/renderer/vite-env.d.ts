@@ -16,6 +16,17 @@ declare global {
       onTorrentFile?: (callback: (data: { base64: string; fileName: string }) => void) => (() => void) | void;
       onShuttingDown?: (callback: () => void) => (() => void) | void;
       daemon?: {
+        request: (payload: {
+          method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+          path: string;
+          body?: string;
+          headers?: Record<string, string>;
+        }) => Promise<{
+          status: number;
+          statusText: string;
+          headers: Record<string, string>;
+          body: string;
+        }>;
         getLogPath: () => Promise<string | null>;
         openLog: () => Promise<{ success: boolean; error?: string }>;
         start: () => Promise<{ success: boolean; error?: string }>;

@@ -9,7 +9,7 @@ const config: CapacitorConfig = {
     hostname: "localhost",
   },
   android: {
-    allowMixedContent: true,
+    allowMixedContent: false,
     minWebViewVersion: 83,
   },
 };

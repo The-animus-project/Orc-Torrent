@@ -6,6 +6,7 @@ import { searchSettingsEqual } from "../utils/searchUtils";
 import { getErrorMessage, isApiError } from "../utils/errorHandling";
 import { logger } from "../utils/logger";
 import { MIN_REFRESH_INTERVAL_MS } from "../utils/pollingController";
+import { fetchTorrents, fetchTorrentStatus, fetchTorrentStatuses } from "../utils/torrentFetcher";
 import type { TierIntervals } from "../utils/pollingController";
 import type { SearchFeatureSettings } from "../types";
 
@@ -65,7 +66,6 @@ export function useTorrentData({
     isRefreshing.current = true;
 
     try {
-      const { fetchTorrents, fetchTorrentStatuses } = await import("../utils/torrentFetcher");
       const nextTorrents = await fetchTorrents({ retries: 2 });
       setTorrents(nextTorrents);
 
@@ -120,7 +120,6 @@ export function useTorrentData({
 
   const refreshStatus = useCallback(async (id: string) => {
     try {
-      const { fetchTorrentStatus } = await import("../utils/torrentFetcher");
       const s = await fetchTorrentStatus(id, { retries: 1, retryDelay: 200 });
       setStatus(s);
       setTorrentStatuses((prev) => {

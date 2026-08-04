@@ -1,0 +1,33 @@
+[package]
+name = "librqbit-tracker-comms"
+version = "3.0.0"
+edition = "2024"
+description = "Common interface around various sha1 implementations used in rqbit torrent client."
+license = "Apache-2.0"
+documentation = "https://docs.rs/librqbit-tracker-comms"
+repository = "https://github.com/ikatson/rqbit"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+tokio.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+async-stream.workspace = true
+buffers.workspace = true
+librqbit-core.workspace = true
+byteorder.workspace = true
+serde.workspace = true
+serde_derive.workspace = true
+urlencoding.workspace = true
+rand = "0.9"
+tracing.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+bencode.workspace = true
+url.workspace = true
+parking_lot.workspace = true
+tokio-util.workspace = true
+librqbit-dualstack-sockets.workspace = true
+backon.workspace = true
+itertools.workspace = true
+serde_with.workspace = true

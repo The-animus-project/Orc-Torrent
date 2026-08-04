@@ -242,9 +242,7 @@ export const FilesTab = memo<FilesTabProps>(({ torrent, online, onUpdate, onErro
       }
 
       if (isAnimusMediaPolicyActive() && priority !== "skip" && !isDownloadAllowedForPath(fileNode.path)) {
-        onError(
-          `AnimUS blocked "${fileNode.name}": ${downloadBlockReason(fileNode.path)}`
-        );
+        onError(`AnimUS blocked "${fileNode.name}": ${downloadBlockReason(fileNode.path)}`);
         return;
       }
 

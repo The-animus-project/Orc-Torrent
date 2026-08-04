@@ -10,9 +10,10 @@ use orc_core::{
     SeedingSettings,
 };
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-use crate::search::{apply_edition_search_defaults, SearchSettings};
+use crate::search::{remove_legacy_builtin_providers, SearchSettings};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchFolderEntry {
@@ -29,21 +30,12 @@ pub struct WatchFolderEntry {
     pub archive_folder: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WatchFolderSettings {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub folders: Vec<WatchFolderEntry>,
-}
-
-impl Default for WatchFolderSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            folders: Vec::new(),
-        }
-    }
 }
 
 impl WatchFolderSettings {
@@ -108,7 +100,6 @@ fn default_listen_port() -> u16 {
 }
 
 const MIN_PORT: u16 = 1024;
-const MAX_PORT: u16 = 65535;
 
 impl Default for DaemonConfig {
     fn default() -> Self {
@@ -161,28 +152,49 @@ fn config_folder_name() -> String {
     }
 }
 
-/// Load configuration from file, or return default if file doesn't exist
-pub async fn load_config() -> Result<DaemonConfig> {
-    let config_file = config_path()?;
-    load_config_from(&config_file).await
-}
-
 pub async fn load_config_from(config_file: &Path) -> Result<DaemonConfig> {
     if !config_file.exists() {
+        for generation in 1..=CONFIG_BACKUP_GENERATIONS {
+            let backup = backup_path(config_file, generation);
+            if let Ok(config) = read_valid_config(&backup).await {
+                tracing::warn!(
+                    "Primary daemon configuration is missing; restoring generation {generation} backup"
+                );
+                save_config_to(&config, config_file).await?;
+                return Ok(config);
+            }
+        }
         let mut config = DaemonConfig::default();
-        apply_edition_search_defaults(&mut config.search);
+        remove_legacy_builtin_providers(&mut config.search);
         save_config_to(&config, config_file).await?;
         return Ok(config);
     }
 
-    let content = tokio::fs::read_to_string(&config_file)
-        .await
-        .context("Failed to read config file")?;
+    let mut config = match read_valid_config(config_file).await {
+        Ok(config) => config,
+        Err(primary_error) => {
+            let mut recovered = None;
+            for generation in 1..=CONFIG_BACKUP_GENERATIONS {
+                let backup = backup_path(config_file, generation);
+                if let Ok(config) = read_valid_config(&backup).await {
+                    recovered = Some((generation, config));
+                    break;
+                }
+            }
+            let Some((generation, config)) = recovered else {
+                return Err(primary_error).context(
+                    "Primary daemon configuration is invalid and no valid last-known-good backup exists",
+                );
+            };
+            tracing::warn!(
+                "Primary daemon configuration is invalid; restoring generation {generation} backup"
+            );
+            save_config_to(&config, config_file).await?;
+            config
+        }
+    };
 
-    let mut config: DaemonConfig =
-        serde_json::from_str(&content).context("Failed to parse config file")?;
-
-    if apply_edition_search_defaults(&mut config.search) {
+    if remove_legacy_builtin_providers(&mut config.search) {
         validate_config(&config)?;
         save_config_to(&config, config_file).await?;
         return Ok(config);
@@ -193,13 +205,29 @@ pub async fn load_config_from(config_file: &Path) -> Result<DaemonConfig> {
     Ok(config)
 }
 
-/// Save configuration to file
-pub async fn save_config(config: &DaemonConfig) -> Result<()> {
-    let config_file = config_path()?;
-    save_config_to(config, &config_file).await
+const CONFIG_BACKUP_GENERATIONS: usize = 3;
+
+fn backup_path(config_file: &Path, generation: usize) -> PathBuf {
+    let filename = config_file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.json");
+    config_file.with_file_name(format!("{filename}.bak.{generation}"))
+}
+
+async fn read_valid_config(config_file: &Path) -> Result<DaemonConfig> {
+    let content = tokio::fs::read_to_string(config_file)
+        .await
+        .with_context(|| format!("Failed to read config file {}", config_file.display()))?;
+    let config: DaemonConfig = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse config file {}", config_file.display()))?;
+    validate_config(&config)
+        .with_context(|| format!("Invalid config file {}", config_file.display()))?;
+    Ok(config)
 }
 
 pub async fn save_config_to(config: &DaemonConfig, config_file: &Path) -> Result<()> {
+    validate_config(config).context("Refusing to persist invalid daemon configuration")?;
     if let Some(parent) = config_file.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -207,35 +235,106 @@ pub async fn save_config_to(config: &DaemonConfig, config_file: &Path) -> Result
     }
 
     let content = serde_json::to_string_pretty(config).context("Failed to serialize config")?;
-
-    tokio::fs::write(&config_file, content)
+    let target = config_file.to_path_buf();
+    tokio::task::spawn_blocking(move || atomic_replace_with_backups(&target, content.as_bytes()))
         .await
-        .context("Failed to write config file")?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = tokio::fs::metadata(&config_file)
-            .await
-            .context("Failed to get config file metadata")?
-            .permissions();
-        perms.set_mode(0o600);
-        tokio::fs::set_permissions(&config_file, perms)
-            .await
-            .context("Failed to set config file permissions")?;
-    }
-
+        .context("Configuration writer task failed")??;
     Ok(())
+}
+
+fn sync_file(path: &Path) -> Result<()> {
+    std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {} for sync", path.display()))?
+        .sync_all()
+        .with_context(|| format!("Failed to sync {}", path.display()))
+}
+
+fn atomic_replace_with_backups(config_file: &Path, content: &[u8]) -> Result<()> {
+    let parent = config_file
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Configuration path has no parent"))?;
+    let filename = config_file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.json");
+    let temp_path = parent.join(format!(".{filename}.{}.tmp", rand::random::<u64>()));
+
+    let write_result = (|| -> Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temp_path)
+            .with_context(|| format!("Failed to create {}", temp_path.display()))?;
+        file.write_all(content)
+            .context("Failed to write temporary configuration")?;
+        file.flush()
+            .context("Failed to flush temporary configuration")?;
+        file.sync_all()
+            .context("Failed to sync temporary configuration")?;
+        drop(file);
+
+        for generation in (2..=CONFIG_BACKUP_GENERATIONS).rev() {
+            let source = backup_path(config_file, generation - 1);
+            let destination = backup_path(config_file, generation);
+            if source.exists() {
+                std::fs::copy(&source, &destination).with_context(|| {
+                    format!(
+                        "Failed to rotate config backup {} to {}",
+                        source.display(),
+                        destination.display()
+                    )
+                })?;
+                sync_file(&destination)?;
+            }
+        }
+        if config_file.exists() {
+            let newest_backup = backup_path(config_file, 1);
+            std::fs::copy(config_file, &newest_backup).with_context(|| {
+                format!(
+                    "Failed to create last-known-good config backup {}",
+                    newest_backup.display()
+                )
+            })?;
+            sync_file(&newest_backup)?;
+        }
+
+        #[cfg(windows)]
+        if config_file.exists() {
+            // Windows rename does not replace an existing file. A synced generation-1
+            // backup is already present and load_config_from restores it after a crash.
+            std::fs::remove_file(config_file).context("Failed to replace configuration")?;
+        }
+        std::fs::rename(&temp_path, config_file)
+            .context("Failed to atomically replace configuration")?;
+
+        #[cfg(unix)]
+        std::fs::File::open(parent)
+            .context("Failed to open configuration directory for sync")?
+            .sync_all()
+            .context("Failed to sync configuration directory")?;
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+    }
+    write_result
 }
 
 const MAX_GRACE_PERIOD: u64 = 3600;
 
 fn validate_config(config: &DaemonConfig) -> Result<()> {
-    if config.listen_port < MIN_PORT || config.listen_port > MAX_PORT {
+    if config.listen_port < MIN_PORT {
         return Err(anyhow::anyhow!(
             "Invalid listen_port: {} (must be between {} and {})",
             config.listen_port,
             MIN_PORT,
-            MAX_PORT
+            u16::MAX
         ));
     }
     if let Some(ref ks) = config.kill_switch {
@@ -324,27 +423,31 @@ mod tests {
     fn config_round_trip_includes_policy() {
         use orc_core::{DesiredPolicy, PaddingLevel, PolicyProfile, TriState};
 
-        let mut config = DaemonConfig::default();
-        config.policy = Some(DesiredPolicy {
-            anonymous_mode: false,
-            peer_encryption: TriState::Prefer,
-            dht_hardening: true,
-            enforce_private_torrents: false,
-            ip_blocklist: true,
-            kill_switch: true,
-            bind_interface_only: true,
-            overlay_padding: PaddingLevel::Off,
-            sybil_resistance: false,
-            relay_pow_required: false,
-            relay_subnet_diversity: false,
-            relay_reputation_weighting: false,
-            ipv6_enabled: true,
-            upnp_natpmp_enabled: false,
-            circuit_rotation_enabled: false,
-            deny_direct_exits: false,
-            minimize_fingerprinting: false,
-            profile: Some(PolicyProfile::Hardened),
-        });
+        let config = DaemonConfig {
+            policy: Some(DesiredPolicy {
+                engine: orc_engine::EngineNetworkPolicy::default(),
+                anonymous_mode: false,
+                peer_encryption: TriState::Prefer,
+                peer_encryption_opt_in: true,
+                dht_hardening: true,
+                enforce_private_torrents: false,
+                ip_blocklist: true,
+                kill_switch: true,
+                bind_interface_only: true,
+                overlay_padding: PaddingLevel::Off,
+                sybil_resistance: false,
+                relay_pow_required: false,
+                relay_subnet_diversity: false,
+                relay_reputation_weighting: false,
+                ipv6_enabled: true,
+                upnp_natpmp_enabled: false,
+                circuit_rotation_enabled: false,
+                deny_direct_exits: false,
+                minimize_fingerprinting: false,
+                profile: Some(PolicyProfile::Hardened),
+            }),
+            ..Default::default()
+        };
 
         let json = serde_json::to_string(&config).unwrap();
         let parsed: DaemonConfig = serde_json::from_str(&json).unwrap();
@@ -356,11 +459,110 @@ mod tests {
     }
 
     #[test]
+    fn legacy_policy_without_engine_uses_beta_auto_defaults() {
+        use orc_core::{PaddingLevel, PolicyProfile, TriState};
+
+        let config = DaemonConfig {
+            policy: Some(DesiredPolicy {
+                engine: orc_engine::EngineNetworkPolicy::default(),
+                anonymous_mode: false,
+                peer_encryption: TriState::Off,
+                peer_encryption_opt_in: false,
+                dht_hardening: false,
+                enforce_private_torrents: false,
+                ip_blocklist: false,
+                kill_switch: false,
+                bind_interface_only: false,
+                overlay_padding: PaddingLevel::Off,
+                sybil_resistance: false,
+                relay_pow_required: false,
+                relay_subnet_diversity: false,
+                relay_reputation_weighting: false,
+                ipv6_enabled: false,
+                upnp_natpmp_enabled: false,
+                circuit_rotation_enabled: false,
+                deny_direct_exits: false,
+                minimize_fingerprinting: false,
+                profile: Some(PolicyProfile::Standard),
+            }),
+            ..Default::default()
+        };
+        let mut value = serde_json::to_value(config).expect("serialize old config");
+        value["policy"]
+            .as_object_mut()
+            .expect("policy object")
+            .remove("engine");
+        value["policy"]
+            .as_object_mut()
+            .expect("policy object")
+            .remove("peer_encryption_opt_in");
+
+        let parsed: DaemonConfig = serde_json::from_value(value).expect("legacy config");
+        let policy = parsed.policy.expect("policy");
+        assert!(!policy.peer_encryption_opt_in);
+        let engine = policy.engine.resolve_beta();
+        assert_eq!(engine.mode, orc_engine::EngineMode::Auto);
+        assert!(engine.transports.tcp);
+        assert!(!engine.transports.utp);
+        assert!(!engine.transports.ipv6);
+        assert!(!engine.discovery.lsd);
+    }
+
+    #[test]
     fn config_round_trip() {
         let config = DaemonConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         let parsed: DaemonConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.listen_port, config.listen_port);
         assert!(!parsed.watch_folders.enabled);
+    }
+
+    #[tokio::test]
+    async fn corrupt_primary_restores_last_known_good_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let first = DaemonConfig {
+            listen_port: 49_001,
+            ..Default::default()
+        };
+        save_config_to(&first, &path).await.unwrap();
+
+        let mut second = first.clone();
+        second.listen_port = 49_002;
+        save_config_to(&second, &path).await.unwrap();
+        tokio::fs::write(&path, b"{not-json").await.unwrap();
+
+        let recovered = load_config_from(&path).await.unwrap();
+        assert_eq!(recovered.listen_port, first.listen_port);
+        let durable = read_valid_config(&path).await.unwrap();
+        assert_eq!(durable.listen_port, first.listen_port);
+    }
+
+    #[tokio::test]
+    async fn corrupt_primary_without_backup_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        tokio::fs::write(&path, b"{not-json").await.unwrap();
+
+        let error = load_config_from(&path).await.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("no valid last-known-good backup"));
+    }
+
+    #[tokio::test]
+    async fn invalid_config_is_rejected_before_replacing_active_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let valid = DaemonConfig::default();
+        save_config_to(&valid, &path).await.unwrap();
+
+        let mut invalid = valid.clone();
+        invalid.listen_port = 80;
+        assert!(save_config_to(&invalid, &path).await.is_err());
+        assert_eq!(
+            read_valid_config(&path).await.unwrap().listen_port,
+            valid.listen_port
+        );
     }
 }

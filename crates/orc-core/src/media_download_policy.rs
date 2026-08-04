@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use librqbit::AddTorrentOptions;
+use orc_engine::AddTorrentOptions;
 
 use crate::TorrentFileEntry;
 
@@ -23,9 +23,11 @@ const EXECUTABLE_EXTENSIONS: &[&str] = &[
 pub const MEDIA_ONLY_FILES_REGEX: &str = r"(?i)(\.(mkv|mp4|avi|mov|wmv|m4v|webm|mpg|mpeg|ts|m2ts|flv|ogv|3gp|vob|mp3|flac|aac|ogg|opus|m4a|wav|wma|ape|srt|sub|ssa|ass|vtt|sup|idx|sbv|smi|mpl|rar|zip|7z|001)|\.r\d{2})$";
 
 pub fn build_add_torrent_options(output_folder: Option<String>) -> AddTorrentOptions {
-    let mut opts = AddTorrentOptions::default();
-    opts.output_folder = output_folder;
-    opts.overwrite = true;
+    let mut opts = AddTorrentOptions {
+        output_folder,
+        overwrite: true,
+        ..Default::default()
+    };
     if media_download_policy_enabled() {
         opts.only_files_regex = Some(MEDIA_ONLY_FILES_REGEX.to_string());
     }
