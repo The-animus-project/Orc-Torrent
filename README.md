@@ -10,25 +10,25 @@ ORC Torrent is a decentralized BitTorrent client built with privacy in mind. A s
 
 **ORC Torrent is compatible with Android 10+, Windows, macOS, and Linux.**
 
-**Latest release: [v2.5.0](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.5.0)** — ORC Engine, opt-in MSE/PE peer-traffic obfuscation, BEP 6, adaptive scheduling beta, and hardened localhost API isolation.
+**Latest release: [v2.5.1](https://github.com/The-animus-project/Orc-Torrent/releases/tag/v2.5.1)** — Emergency fix for daemon startup on legacy search configs; includes the v2.5.0 ORC Engine stack.
 
 **Android is here.** Phones and tablets running Android 10+ can install ORC from the signed `arm64-v8a` APK. See the [Android installation guide](Install-Instructions/Android.md) for download, verification, sideloading, and first-run setup.
 
 <p align="center">
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.5.0.exe">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-Setup-2.5.1.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-0078D6?style=for-the-badge&logo=windows&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.0-mac-arm64.dmg">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.1-mac-arm64.dmg">
     <img alt="Download for macOS" src="https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white">
   </a>
   &nbsp;
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.0-linux-x86_64.AppImage">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.1-linux-x86_64.AppImage">
     <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   </a>
 </p>
 <p align="center">
-  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.0-android-arm64-v8a.apk">
+  <a href="https://github.com/The-animus-project/Orc-Torrent/releases/latest/download/ORC-TORRENT-2.5.1-android-arm64-v8a.apk">
     <img alt="Download for Android" src="https://img.shields.io/badge/Android%2010%2B-Download-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   </a>
 </p>
@@ -78,7 +78,7 @@ The fingerprint must be:
 Verify the downloaded build before opening or extracting it. For example:
 
 ```sh
-gpg --verify ORC-TORRENT-2.5.0-linux-x86_64.AppImage.asc ORC-TORRENT-2.5.0-linux-x86_64.AppImage
+gpg --verify ORC-TORRENT-2.5.1-linux-x86_64.AppImage.asc ORC-TORRENT-2.5.1-linux-x86_64.AppImage
 ```
 
 You can also verify the signed checksum manifest and then check all downloaded builds in it:
@@ -94,7 +94,7 @@ A valid result reports a good signature made by the key above. A good signature 
 
 ## Installation
 
-Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.5.0`).
+Download the asset for your OS from the [latest release](https://github.com/The-animus-project/Orc-Torrent/releases/latest). Replace `<version>` below with the release tag (e.g. `2.5.1`).
 
 ### Windows
 
@@ -418,6 +418,7 @@ We keep a changelog of notable changes. **Last 5 updates:**
 
 | Version | Highlights |
 |---------|-------------|
+| **2.5.1** | Emergency fix: daemon startup on legacy search provider configs no longer fails closed. |
 | **2.5.0** | ORC Engine boundary, hardened localhost API, opt-in MSE/PE, BEP 6 Fast Extension, and adaptive request scheduling beta. |
 | **2.4.0** | First Android 10+ build: signed APK, on-device Rust engine, mobile UI, SAF storage, background transfers, Wi-Fi-first policy, durable resume, and VPN-aware kill switch. |
 | **2.3.4** | Torznab providers, protected API-key storage, search deduplication and UI polish, Intel macOS packages, and PGP signatures for every distributable. |

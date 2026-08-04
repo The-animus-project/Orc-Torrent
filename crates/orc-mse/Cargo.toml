@@ -1,6 +1,6 @@
 [package]
 name = "orc-mse"
-version = "2.5.0"
+version = "2.5.1"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "ORC-owned BitTorrent MSE/PE negotiation and stream protection"

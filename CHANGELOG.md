@@ -6,14 +6,18 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ## [Unreleased]
 
-### Fixed
-
-- **Daemon startup on legacy search configs** — Migrate removed built-in search providers before config validation so older `config.json` files (e.g. `yts` without `feed_url`) no longer fail closed with "daemon did not become healthy".
-
 ### Changed
 
 - **Android release signing** — Production APKs are signed locally; CI compiles an unsigned release APK and runs emulator tests without storing the Android keystore in repository secrets.
 - **CodeQL Java/Kotlin** — Switch from default buildless scanning to an advanced workflow that traces a Gradle debug compile so Kotlin sources and dependencies resolve above CodeQL quality thresholds.
+
+---
+
+## [2.5.1] — 2026-08-04
+
+### Fixed
+
+- **Emergency: daemon startup on legacy search configs** — Migrate removed built-in search providers before config validation so older `config.json` files (e.g. `yts` without `feed_url`) no longer fail closed with "daemon did not become healthy".
 
 ---
 
@@ -416,7 +420,8 @@ All notable changes to ORC Torrent are documented here. The format is based on [
 
 ---
 
-[Unreleased]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.4...v2.4.0
 [2.3.4]: https://github.com/The-animus-project/Orc-Torrent/compare/v2.3.3...v2.3.4

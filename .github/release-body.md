@@ -1,11 +1,11 @@
-# ORC Torrent v2.5.0
+# ORC Torrent v2.5.1
 
-ORC Engine boundary, hardened localhost API isolation, opt-in MSE/PE peer-traffic obfuscation, BEP 6 Fast Extension, and adaptive request scheduling beta — with signed builds for Android, Windows, macOS, and Linux.
+Emergency bugfix: daemon startup no longer fails on legacy search provider configs — with signed builds for Android, Windows, macOS, and Linux.
 
 ## Downloads
 
-- **Android 10+ (64-bit ARM):** `ORC-TORRENT-2.5.0-android-arm64-v8a.apk`
-- **Windows x64:** `ORC-TORRENT-Setup-2.5.0.exe` or portable `ORC-TORRENT-2.5.0-win-x64.zip`
+- **Android 10+ (64-bit ARM):** `ORC-TORRENT-2.5.1-android-arm64-v8a.apk`
+- **Windows x64:** `ORC-TORRENT-Setup-2.5.1.exe` or portable `ORC-TORRENT-2.5.1-win-x64.zip`
 - **macOS Apple Silicon:** ARM64 DMG/PKG or portable ZIP
 - **macOS Intel:** x64 DMG/PKG or portable ZIP
 - **Linux x64:** AppImage or Debian package
@@ -21,7 +21,7 @@ ORC release-key fingerprint:
 094F 3796 D3B6 99DB 5E69 A278 6D0D 5CE9 E0DA 5A92
 ```
 
-Import [`ORC-Torrent-Release-Key.asc`](https://github.com/The-animus-project/Orc-Torrent/blob/v2.5.0/ORC-Torrent-Release-Key.asc), then verify:
+Import [`ORC-Torrent-Release-Key.asc`](https://github.com/The-animus-project/Orc-Torrent/blob/v2.5.1/ORC-Torrent-Release-Key.asc), then verify:
 
 ```bash
 gpg --verify SHA256SUMS.asc SHA256SUMS
@@ -32,14 +32,10 @@ PGP signatures establish file integrity and publisher identity; they are separat
 
 ## Highlights
 
-- ORC-owned `orc-engine` contract shared by desktop and Android, with a private backend derived from tagged rqbit `v9.0.0-beta.2`.
-- Opt-in MSE/PE (RC4) peer-traffic obfuscation via `orc-mse`, with `off`, `prefer`, and `require` modes.
-- Adaptive request scheduler beta (`orc-scheduler`) and bounded endgame recovery.
-- BEP 6 Fast Extension support (`suggest piece`, `have all`/`none`, `reject request`, `allowed fast`).
-- Hardened localhost API: required admin token, exact Origin allowlist, desktop token isolation, fail-closed configuration, and path confinement.
-- Legacy v8.1.1 session and fast-resume compatibility preserved in place.
+- **Emergency fix:** migrate removed built-in search providers before config validation so older desktop `config.json` files (for example `yts` without `feed_url`) no longer prevent the daemon from becoming healthy.
+- All other v2.5.0 engine, privacy, and API behavior is unchanged.
 
-**Full changelog:** https://github.com/The-animus-project/Orc-Torrent/blob/v2.5.0/CHANGELOG.md
+**Full changelog:** https://github.com/The-animus-project/Orc-Torrent/blob/v2.5.1/CHANGELOG.md
 
 ### Credit
 

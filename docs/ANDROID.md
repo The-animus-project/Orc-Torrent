@@ -58,7 +58,7 @@ The signed APK is written to `app/build/outputs/apk/release/ORC-TORRENT-<version
 After CI publishes the desktop release for tag `vX.Y.Z`, attach the APK (and its PGP signature) to that release:
 
 ```sh
-VERSION=2.5.0
+VERSION=2.5.1
 APK="ui/android/android/app/build/outputs/apk/release/ORC-TORRENT-${VERSION}-android-arm64-v8a.apk"
 gpg --armor --detach-sign "$APK"
 gh release upload "v${VERSION}" "$APK" "${APK}.asc"

@@ -599,7 +599,9 @@ mod tests {
         .await
         .unwrap();
 
-        let loaded = load_config_from(&path).await.expect("legacy config should migrate");
+        let loaded = load_config_from(&path)
+            .await
+            .expect("legacy config should migrate");
         assert!(!loaded.search.enabled);
         assert!(loaded.search.default_provider.is_none());
         assert!(loaded.search.providers.is_empty());
