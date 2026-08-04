@@ -1,0 +1,17 @@
+name: ORC CodeQL config
+
+# Focus Java/Kotlin extraction on the Android app. Vendored Rust XML templates
+# are not Java sources and only add extractor noise under build-mode:manual.
+paths:
+  - ui/android
+  - ui/desktop
+  - .github/workflows
+
+paths-ignore:
+  - crates/rqbit-v9
+  - crates/librqbit-v9-patched
+  - crates/librqbit-patched/webui
+  - '**/*.tmpl.xml'
+  - node_modules
+  - '**/dist/**'
+  - '**/build/**'

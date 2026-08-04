@@ -1,10 +1,12 @@
 # Advanced CodeQL setup.
 # Default setup uses build-mode:none for Java/Kotlin, which skips Kotlin extraction and
-# leaves call/type resolution below quality thresholds. This workflow traces a real
-# Android Gradle compile so the Java/Kotlin extractor sees sources and dependencies.
+# leaves call/type resolution below quality thresholds (e.g. 71%/76% vs 85%).
+# This workflow traces a real Android Gradle compile so the extractor sees Kotlin
+# sources and dependencies.
 #
-# After merging: Settings → Code security → CodeQL → disable Default setup so scans
-# are not duplicated.
+# Required once after merging:
+#   Settings → Code security → Code scanning → CodeQL → Disable "Default setup"
+# Advanced uploads are rejected while Default setup remains enabled.
 
 name: CodeQL
 
@@ -84,6 +86,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          config-file: .github/codeql/codeql-config.yml
 
       - name: Build Android sources for Java/Kotlin extraction
         if: matrix.build-mode == 'manual'
