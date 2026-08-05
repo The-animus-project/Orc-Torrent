@@ -4,9 +4,10 @@
 # This workflow traces a real Android Gradle compile so the extractor sees Kotlin
 # sources and dependencies.
 #
-# Required once after merging:
+# Required once after merging (uploads fail until this is done):
 #   Settings → Code security → Code scanning → CodeQL → Disable "Default setup"
 # Advanced uploads are rejected while Default setup remains enabled.
+# After disabling, re-run this workflow (Actions → CodeQL → Run workflow).
 
 name: CodeQL
 
@@ -35,9 +36,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - language: actions
+            build-mode: none
           - language: javascript-typescript
             build-mode: none
           - language: python
+            build-mode: none
+          - language: rust
             build-mode: none
           - language: java-kotlin
             build-mode: manual
@@ -67,6 +72,12 @@ jobs:
             ui/desktop/package-lock.json
             ui/android/package-lock.json
 
+      - name: Setup Rust
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+
       - name: Install Android SDK packages
         if: matrix.language == 'java-kotlin'
         run: |
@@ -95,7 +106,11 @@ jobs:
           ORC_SKIP_RUST_ANDROID: '1'
         working-directory: ui/android/android
         run: |
+          # Compile Capacitor Java modules + app Kotlin/Java so the extractor traces
+          # real kotlinc/javac invocations with a resolved dependency classpath.
           ./gradlew --no-daemon --no-build-cache --rerun-tasks \
+            :capacitor-android:compileDebugJavaWithJavac \
+            :capacitor-cordova-android-plugins:compileDebugJavaWithJavac \
             :app:compileDebugKotlin \
             :app:compileDebugJavaWithJavac \
             :app:compileDebugUnitTestKotlin \
