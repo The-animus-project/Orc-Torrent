@@ -31,6 +31,10 @@ export interface PlatformBridge {
   onTorrentFile(callback: (file: PickedTorrentFile) => void): () => void;
 }
 
+export type PluginListenerHandle = {
+  remove(): Promise<void>;
+};
+
 export type AndroidPlugin = {
   bootstrap(): Promise<AndroidBootstrap>;
   apiRequest(options: {
@@ -47,7 +51,7 @@ export type AndroidPlugin = {
   addListener(
     event: "magnetLink" | "torrentFile" | "appStateChange",
     callback: (payload: { uri?: string; name?: string; base64?: string; active?: boolean }) => void
-  ): Promise<{ remove(): Promise<void> }>;
+  ): PluginListenerHandle | Promise<PluginListenerHandle>;
 };
 
 function androidPlugin(): AndroidPlugin | null {
@@ -55,6 +59,30 @@ function androidPlugin(): AndroidPlugin | null {
 }
 
 const noop = () => {};
+
+function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return typeof (value as PromiseLike<T>)?.then === "function";
+}
+
+/** Capacitor's injected Plugins.*.addListener returns a sync handle; registerPlugin returns a Promise. */
+export function attachAndroidListener(
+  plugin: Pick<AndroidPlugin, "addListener">,
+  event: "magnetLink" | "torrentFile" | "appStateChange",
+  callback: (payload: { uri?: string; name?: string; base64?: string; active?: boolean }) => void
+): () => void {
+  let handle: PluginListenerHandle | null = null;
+  const result = plugin.addListener(event, callback);
+  // Injected Capacitor stubs return { remove } sync. registerPlugin may return a Promise
+  // that also exposes .remove, or a plain Promise of the handle.
+  if (typeof (result as PluginListenerHandle)?.remove === "function") {
+    handle = result as PluginListenerHandle;
+  } else if (isThenable(result)) {
+    void Promise.resolve(result).then((value) => {
+      handle = value;
+    });
+  }
+  return () => void handle?.remove();
+}
 
 const androidBridge: PlatformBridge = {
   platform: "android",
@@ -94,29 +122,21 @@ const androidBridge: PlatformBridge = {
   onAppStateChange(callback) {
     const plugin = androidPlugin();
     if (!plugin) return noop;
-    let handle: { remove(): Promise<void> } | null = null;
-    void plugin
-      .addListener("appStateChange", ({ active }) => callback(active === true))
-      .then((value) => (handle = value));
-    return () => void handle?.remove();
+    return attachAndroidListener(plugin, "appStateChange", ({ active }) => callback(active === true));
   },
   onMagnetLink(callback) {
     const plugin = androidPlugin();
     if (!plugin) return noop;
-    let handle: { remove(): Promise<void> } | null = null;
-    void plugin.addListener("magnetLink", ({ uri }) => uri && callback(uri)).then((value) => (handle = value));
-    return () => void handle?.remove();
+    return attachAndroidListener(plugin, "magnetLink", ({ uri }) => {
+      if (uri) callback(uri);
+    });
   },
   onTorrentFile(callback) {
     const plugin = androidPlugin();
     if (!plugin) return noop;
-    let handle: { remove(): Promise<void> } | null = null;
-    void plugin
-      .addListener("torrentFile", ({ name, base64 }) => {
-        if (name && base64) callback({ name, base64 });
-      })
-      .then((value) => (handle = value));
-    return () => void handle?.remove();
+    return attachAndroidListener(plugin, "torrentFile", ({ name, base64 }) => {
+      if (name && base64) callback({ name, base64 });
+    });
   },
 };
 
